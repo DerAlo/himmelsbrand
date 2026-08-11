@@ -15,7 +15,8 @@
   #hud { position:fixed; inset:0; pointer-events:none; z-index:5; }
 
   /* ---- DOM HUD ---- */
-  .hud-el { position:fixed; z-index:6; pointer-events:none; text-shadow:0 0 6px rgba(0,0,0,.9); font-variant-numeric:tabular-nums; }
+  .hud-el { position:fixed; z-index:6; pointer-events:none; text-shadow:0 0 6px rgba(0,0,0,.9); font-variant-numeric:tabular-nums; display:none; }
+  body.in-game .hud-el { display:block; }
   #stat-left  { left:22px; top:20px; font-size:15px; line-height:1.7; }
   #stat-right { right:22px; top:20px; font-size:15px; text-align:right; line-height:1.7; }
   .lbl { color:#9fe8c8; font-size:11px; letter-spacing:2px; opacity:.8; }
@@ -1446,9 +1447,13 @@ const SCREENS=['menu','missionselect','briefing','howto','start','gameover','pau
 function showScreen(id){
   for(const s of SCREENS){ const el=document.getElementById(s); if(el) el.classList.add('hidden'); }
   if(id){ const el=document.getElementById(id); if(el) el.classList.remove('hidden'); }
+  // The DOM HUD readouts should only show during actual gameplay (id===null means
+  // "no menu overlay" = in game or paused). Gate them with a body class.
+  document.body.classList.toggle('in-game', id===null);
 }
 function gotoMenu(){
   state='menu'; gameMode='menu'; mission.active=false;
+  clearVictoryTimer();
   clearGroundTargets(); clearBoss();
   for(const e of enemies) scene.remove(e.obj); enemies.length=0;
   hideHudExtras();
@@ -1458,6 +1463,7 @@ function hideHudExtras(){ dom.objectives.innerHTML=''; dom.bosswrap.classList.re
 
 /* ===== Common world reset ===== */
 function resetWorld(){
+  clearVictoryTimer();
   for(const e of enemies) scene.remove(e.obj); enemies.length=0;
   for(const b of bullets) releaseBullet(b); bullets.length=0;
   for(const m of missiles) scene.remove(m.mesh); missiles.length=0;
@@ -1696,16 +1702,23 @@ function onBossDestroyed(){
   for(const o of mission.objectives){ if(o.kind==='boss') o.done=true; }
   renderObjectives(); checkMissionComplete();
 }
+let victoryTimer=null;
+function clearVictoryTimer(){ if(victoryTimer){ clearTimeout(victoryTimer); victoryTimer=null; } }
 function checkMissionComplete(){
   if(!mission.active || mission.done) return;
   const primaries=mission.objectives.filter(o=>o.primary);
   if(primaries.every(o=>o.done)){
     mission.done=true; mission.active=false;
-    // mark secondary min-HP objectives resolved
     banner('MISSION ERFÜLLT', mission.def.name.toUpperCase());
     queueRadioNow(mission.def.win);
     player.alive=true;
-    setTimeout(()=>{ if(state==='playing') gameOver(true); }, 2600);
+    const wonIndex=mission.index;
+    clearVictoryTimer();
+    // Only fire if we're still in the SAME won campaign mission (guards against
+    // leaving to menu / starting another game during the win cutscene).
+    victoryTimer=setTimeout(()=>{ victoryTimer=null;
+      if(state==='playing' && gameMode==='campaign' && mission.done && mission.index===wonIndex) gameOver(true);
+    }, 2600);
   }
 }
 function queueRadioNow(lines){ if(!lines) return; let t=0.2; for(const l of lines){ mission.radioQueue.push({t, line:l}); t+=3.2; } }
