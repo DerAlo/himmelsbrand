@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>EUROFIGHTER — Luftkampf</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✈️</text></svg>">
+<title>HIMMELSBRAND — Das HELIOS-Protokoll</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>">
 
 <style>
   :root { --gold:#ffcc33; --red:#e33; --hud:#7dffb0; }
@@ -65,6 +65,64 @@
   #go-stats b { color:var(--gold); font-size:34px;}
   .credit { position:fixed; bottom:14px; width:100%; text-align:center; font-size:12px; color:rgba(255,255,255,.4); z-index:6; letter-spacing:1px;}
   #loading { position:fixed; inset:0; z-index:30; display:flex; align-items:center; justify-content:center; background:#04070f; color:#8fd9ff; font-size:20px; letter-spacing:3px;}
+
+  /* ---- Campaign / menu / briefing ---- */
+  .screen { overflow-y:auto; }
+  .screen::-webkit-scrollbar{ width:8px; } .screen::-webkit-scrollbar-thumb{ background:rgba(255,255,255,.2); border-radius:4px; }
+  h1.title.brand { font-size:88px; letter-spacing:14px;
+    background:linear-gradient(180deg,#ffd98a 0%,#ff7a3c 55%,#c02020 100%); -webkit-background-clip:text; background-clip:text; color:transparent;
+    text-shadow:0 0 42px rgba(255,110,50,.45); }
+  .subbrand { color:#ffb27a; letter-spacing:8px; font-size:16px; margin-bottom:4px; opacity:.9; }
+  .menu-btns { display:flex; flex-direction:column; gap:14px; margin-top:10px; align-items:center; }
+  .btn.ghost { background:linear-gradient(180deg,rgba(140,200,255,.16),rgba(90,150,230,.10)); color:#dff0ff;
+    box-shadow:0 4px 18px rgba(30,80,160,.35), inset 0 1px 0 rgba(255,255,255,.18); border:1px solid rgba(150,200,255,.3); }
+  .btn.small { padding:11px 30px; font-size:16px; letter-spacing:2px; }
+  .backbtn { position:fixed; top:20px; left:22px; z-index:22; }
+
+  /* mission select */
+  #missionlist { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:16px; width:min(1000px,92vw); margin-top:10px; }
+  .mcard { text-align:left; border:1px solid rgba(140,190,255,.25); border-radius:12px; padding:16px 18px; cursor:pointer;
+    background:linear-gradient(160deg,rgba(20,40,70,.7),rgba(8,16,30,.7)); transition:transform .12s, box-shadow .12s, border-color .12s; position:relative; overflow:hidden; }
+  .mcard:hover { transform:translateY(-3px); border-color:rgba(255,180,90,.6); box-shadow:0 10px 30px rgba(0,0,0,.5); }
+  .mcard .mnum { font-size:12px; letter-spacing:3px; color:#7fb0e8; }
+  .mcard .mname { font-size:22px; font-weight:800; margin:2px 0 6px; color:#fff; }
+  .mcard .mtype { display:inline-block; font-size:11px; letter-spacing:2px; padding:2px 8px; border-radius:4px; margin-bottom:8px; }
+  .mtype.air{ background:rgba(80,150,255,.2); color:#9fc8ff;} .mtype.ground{ background:rgba(120,200,120,.2); color:#a8e6a0;}
+  .mtype.boss{ background:rgba(255,80,80,.22); color:#ff9a9a;} .mtype.mixed{ background:rgba(200,150,255,.2); color:#d0b0ff;}
+  .mcard .mdesc { font-size:13px; color:#bcd4ee; line-height:1.5; opacity:.9; }
+  .mcard.locked { opacity:.45; cursor:not-allowed; filter:grayscale(.6); }
+  .mcard.locked:hover { transform:none; border-color:rgba(140,190,255,.25); box-shadow:none; }
+  .mcard .mlock { position:absolute; top:14px; right:14px; font-size:18px; }
+  .mcard.done .mnum::after{ content:' ✓ ABGESCHLOSSEN'; color:#7dffb0; }
+
+  /* briefing / debrief */
+  .brief { width:min(860px,92vw); text-align:left; }
+  .brief h2 { font-size:34px; font-weight:800; color:#ffce8a; letter-spacing:2px; margin-bottom:2px; }
+  .brief .mtype { font-size:11px; letter-spacing:2px; padding:2px 8px; border-radius:4px; }
+  .brief .story { margin:16px 0; padding:16px 18px; border-left:3px solid #ff8a3d; background:rgba(255,140,60,.07);
+    font-size:16px; line-height:1.7; color:#e8f0fa; }
+  .brief .story .who { color:#ffce8a; font-weight:700; }
+  .brief .objs { margin:14px 0; }
+  .brief .objs .o { display:flex; align-items:center; gap:10px; font-size:15px; margin:7px 0; color:#dbe8f6; }
+  .brief .objs .o .ic { width:22px; text-align:center; }
+  .brief .prime { color:#fff; } .brief .sec { color:#9fb8d0; }
+  #hud-objectives { position:fixed; left:22px; top:190px; z-index:6; max-width:320px; }
+  .obj-line { font-size:14px; color:#dbe8f6; margin:4px 0; text-shadow:0 0 6px rgba(0,0,0,.9); letter-spacing:.5px; }
+  .obj-line .box { display:inline-block; width:14px; height:14px; border:1.5px solid #7dffb0; border-radius:3px; margin-right:8px; vertical-align:-2px; text-align:center; line-height:12px; font-size:11px; }
+  .obj-line.done .box { background:#7dffb0; color:#04140b; }
+  .obj-line.done { color:#7dffb0; opacity:.75; }
+  .obj-line.fail .box { border-color:#ff5a5a; color:#ff5a5a; } .obj-line.fail { color:#ff8a8a; }
+  #radio { position:fixed; left:50%; bottom:64px; transform:translateX(-50%); z-index:7; width:min(700px,84vw); text-align:center;
+    font-size:17px; color:#cfe6ff; opacity:0; transition:opacity .35s; text-shadow:0 2px 10px rgba(0,0,0,.9); pointer-events:none; }
+  #radio .rspk { color:#ffce8a; font-weight:700; }
+  #radio.show { opacity:1; }
+  .weapon-tab { position:fixed; left:22px; bottom:70px; z-index:6; font-size:13px; letter-spacing:1px; }
+  .weapon-tab .wsel { color:var(--gold); font-weight:800; }
+  .bosswrap { position:fixed; left:50%; top:70px; transform:translateX(-50%); z-index:6; width:min(560px,80vw); display:none; }
+  .bosswrap.show{ display:block; }
+  .bosswrap .bname { text-align:center; color:#ff8a8a; letter-spacing:3px; font-weight:800; font-size:15px; text-shadow:0 0 8px rgba(0,0,0,.9); }
+  .bossbar { height:12px; border:1px solid rgba(255,90,90,.7); border-radius:3px; background:rgba(30,0,0,.5); overflow:hidden; margin-top:3px;}
+  .bossbar > div { height:100%; width:100%; background:linear-gradient(90deg,#ff3020,#ff8a3d); transition:width .2s; }
 </style>
 </head>
 <body>
@@ -97,52 +155,100 @@
   </div>
   <div id="warn" class="hud-el">⚠ HÖHE — HOCHZIEHEN</div>
   <div id="killfeed"></div>
-  <div class="credit">Maus/​WASD = Lenken (hoch=steigen, A/D=kurven) · Leertaste/​Klick = MG · F/​Rechtsklick = Rakete · Shift = Nachbrenner · P = Pause</div>
+  <div id="hud-objectives" class="hud-el"></div>
+  <div id="radio"><span class="rspk"></span> <span class="rtext"></span></div>
+  <div id="weapon-tab" class="hud-el weapon-tab"></div>
+  <div id="bosswrap" class="bosswrap"><div class="bname"></div><div class="bossbar"><div></div></div></div>
+  <div class="credit" id="credit">Maus/​WASD = Lenken · Leertaste = MG · F = Rakete · G = Bombe · X = Waffe wechseln · Shift = Nachbrenner · P = Pause</div>
 
-  <!-- Start Screen -->
-  <div id="start" class="screen">
-    <div class="flag"><i class="b"></i><i class="r"></i><i class="g"></i></div>
-    <h1 class="title">EUROFIGHTER</h1>
-    <div class="tag">LUFTÜBERLEGENHEIT · ENDLOSER LUFTKAMPF</div>
-    <button id="startbtn" class="btn">▶ STARTEN</button>
-    <div class="controls">
-      <div class="row"><span class="k">Maus</span> Lenken (hoch=steigen, links=links)</div>
-      <div class="row"><span class="k">W / S</span> Steigen / Sinken</div>
-      <div class="row"><span class="k">A / D</span> Links / Rechts kurven</div>
-      <div class="row"><span class="k">Q / E</span> Feineinstellung Kurve</div>
-      <div class="row"><span class="k">Leert. / 🖱L</span> Maschinengewehr</div>
-      <div class="row"><span class="k">F / 🖱R</span> Lenkrakete</div>
-      <div class="row"><span class="k">Shift</span> Nachbrenner</div>
-      <div class="row"><span class="k">Strg</span> Drosseln</div>
+  <!-- Main Menu -->
+  <div id="menu" class="screen">
+    <div class="subbrand">JAGDGESCHWADER 7 · OPERATION</div>
+    <h1 class="title brand">HIMMELSBRAND</h1>
+    <div class="tag">DAS HELIOS-PROTOKOLL</div>
+    <div class="menu-btns">
+      <button id="btn-campaign" class="btn">▶ KAMPAGNE</button>
+      <button id="btn-endless" class="btn ghost small">ENDLOS-GEFECHT</button>
+      <button id="btn-howto" class="btn ghost small">STEUERUNG</button>
     </div>
-    <div class="tag" style="margin-top:22px; opacity:.75; max-width:600px; line-height:1.6; letter-spacing:1px">
-      🎯 Wer <b style="color:var(--gold)">langsamer</b> fliegt, kurvt <b style="color:var(--gold)">enger</b> —
-      mit <b style="color:var(--gold)">Strg</b> drosseln und dem Gegner in den Rücken ziehen.
-      Der rote Zielpunkt zeigt, wohin du halten musst.
+    <div class="tag" style="margin-top:30px; opacity:.6; max-width:640px; line-height:1.6; font-size:13px; letter-spacing:1px">
+      2034 — Die Verteidigungs-KI <b style="color:#ff9a5a">HELIOS</b> hat die autonome Drohnenflotte der NATO
+      gekapert und richtet sie gegen Europa. Du bist der letzte Pilot mit einer Maschine, die sie nicht kontrollieren kann.
     </div>
   </div>
 
-  <!-- Game Over Screen -->
-  <div id="gameover" class="screen hidden">
-    <div id="go-title">ABGESCHOSSEN</div>
-    <div id="go-stats"></div>
-    <button id="restartbtn" class="btn">↻ NOCHMAL</button>
+  <!-- Mission Select -->
+  <div id="missionselect" class="screen hidden">
+    <button class="btn ghost small backbtn" data-back="menu">‹ ZURÜCK</button>
+    <div class="subbrand">KAMPAGNE</div>
+    <h1 class="title" style="font-size:44px; letter-spacing:6px">MISSIONSAUSWAHL</h1>
+    <div id="missionlist"></div>
   </div>
 
-  <!-- Pause Screen -->
-  <div id="pause" class="screen hidden">
-    <h1 class="title" style="font-size:56px">PAUSE</h1>
-    <div id="pause-stats" class="tag" style="margin-bottom:22px"></div>
-    <button id="resumebtn" class="btn">▶ WEITER (P / Esc)</button>
+  <!-- Briefing -->
+  <div id="briefing" class="screen hidden">
+    <button class="btn ghost small backbtn" data-back="missionselect">‹ ZURÜCK</button>
+    <div class="brief">
+      <div><span id="brief-num" class="subbrand"></span></div>
+      <h2 id="brief-name"></h2>
+      <span id="brief-type" class="mtype"></span>
+      <div id="brief-story" class="story"></div>
+      <div class="lbl" style="font-size:13px; letter-spacing:3px; margin-top:6px">AUFTRAG</div>
+      <div id="brief-objs" class="objs"></div>
+      <button id="brief-launch" class="btn" style="margin-top:12px">▶ START</button>
+    </div>
+  </div>
+
+  <!-- How-To -->
+  <div id="howto" class="screen hidden">
+    <button class="btn ghost small backbtn" data-back="menu">‹ ZURÜCK</button>
+    <h1 class="title" style="font-size:44px; letter-spacing:6px">STEUERUNG</h1>
     <div class="controls">
       <div class="row"><span class="k">Maus</span> Lenken (hoch=steigen, links=links)</div>
       <div class="row"><span class="k">W / S</span> Steigen / Sinken — voll herum = Looping</div>
       <div class="row"><span class="k">A / D</span> Links / Rechts kurven</div>
       <div class="row"><span class="k">Q / E</span> Feineinstellung Kurve</div>
       <div class="row"><span class="k">Leert. / 🖱L</span> Maschinengewehr</div>
-      <div class="row"><span class="k">F / 🖱R</span> Lenkrakete (sucht Ziel)</div>
+      <div class="row"><span class="k">F / 🖱R</span> Lenkrakete (Luftziel)</div>
+      <div class="row"><span class="k">G</span> Bombe abwerfen (Bodenziel)</div>
+      <div class="row"><span class="k">X</span> Waffe wechseln (Rakete/Bombe)</div>
       <div class="row"><span class="k">Shift</span> Nachbrenner (schnell = weiter Bogen)</div>
       <div class="row"><span class="k">Strg</span> Drosseln (langsam = enger Bogen!)</div>
+    </div>
+    <div class="tag" style="margin-top:24px; opacity:.7; max-width:680px; line-height:1.6">
+      🎯 Wer <b style="color:var(--gold)">langsamer</b> fliegt, kurvt <b style="color:var(--gold)">enger</b> — mit <b style="color:var(--gold)">Strg</b> dem Gegner in den Rücken ziehen. ·
+      💣 Für Bomben tief & flach anfliegen, den <b style="color:var(--gold)">fallenden Kreis (CCIP)</b> aufs Ziel legen, dann <b style="color:var(--gold)">G</b>.
+    </div>
+  </div>
+
+  <!-- Game Over / Debrief Screen -->
+  <div id="gameover" class="screen hidden">
+    <div id="go-title">ABGESCHOSSEN</div>
+    <div id="go-stats"></div>
+    <div id="go-btns" class="menu-btns" style="flex-direction:row; gap:14px; flex-wrap:wrap; justify-content:center">
+      <button id="restartbtn" class="btn">↻ NOCHMAL</button>
+      <button id="nextbtn" class="btn hidden">▶ NÄCHSTE MISSION</button>
+      <button id="tomenubtn" class="btn ghost small">HAUPTMENÜ</button>
+    </div>
+  </div>
+
+  <!-- Pause Screen -->
+  <div id="pause" class="screen hidden">
+    <h1 class="title" style="font-size:56px">PAUSE</h1>
+    <div id="pause-stats" class="tag" style="margin-bottom:22px"></div>
+    <div class="menu-btns" style="flex-direction:row; gap:14px">
+      <button id="resumebtn" class="btn">▶ WEITER (P / Esc)</button>
+      <button id="pause-menubtn" class="btn ghost small">HAUPTMENÜ</button>
+    </div>
+    <div class="controls" style="margin-top:26px">
+      <div class="row"><span class="k">Maus</span> Lenken (hoch=steigen, links=links)</div>
+      <div class="row"><span class="k">W / S</span> Steigen / Sinken — voll herum = Looping</div>
+      <div class="row"><span class="k">A / D</span> Links / Rechts kurven</div>
+      <div class="row"><span class="k">Q / E</span> Feineinstellung Kurve</div>
+      <div class="row"><span class="k">Leert. / 🖱L</span> Maschinengewehr</div>
+      <div class="row"><span class="k">F / 🖱R</span> Lenkrakete (sucht Ziel)</div>
+      <div class="row"><span class="k">G</span> Bombe (Bodenziel) · <span class="k">X</span> Waffe wechseln</div>
+      <div class="row"><span class="k">Shift</span> Nachbrenner · <span class="k">Strg</span> Drosseln</div>
     </div>
     <div class="tag" style="margin-top:24px; opacity:.7; max-width:640px; line-height:1.6">
       🎯 TRICK: Wer langsamer fliegt, kurvt <b style="color:var(--gold)">enger</b>. <b style="color:var(--gold)">Strg</b> drücken,
@@ -193,6 +299,99 @@ function playerTurnMultFor(sp){ return THREE.MathUtils.lerp(1.9, 1.0, speedT(sp)
 // Enemies: noticeably less agile than the player at any matched speed.
 function turnMultFor(sp){ return THREE.MathUtils.lerp(1.5, 0.5, speedT(sp)); }
 function pitchMultFor(sp){ return THREE.MathUtils.lerp(1.25, 0.85, speedT(sp)); }
+
+/* ---------------------------------------------------------------------------
+   0b. CAMPAIGN — HIMMELSBRAND: Das HELIOS-Protokoll
+   Story-driven mission list. No savegame; progress kept in-memory this session.
+   Each mission declares: type, sky tint, briefing story, radio lines, and an
+   objective spec consumed by the mission runtime (setupMission / updateMission).
+   --------------------------------------------------------------------------- */
+const CAMPAIGN = [
+  {
+    id:'m1', name:'Kalter Start', type:'air', tod:'day',
+    story:`<span class="who">OBERST WAGNER:</span> Geier, hörst du mich? Gut — du bist die einzige Maschine im Umkreis, die HELIOS nicht abhört. Vor neun Stunden hat unsere eigene Verteidigungs-KI die Drohnenflotte übernommen. Sie hält jetzt den Luftraum über den Alpen. Wir müssen wissen, ob ein Mensch da oben überhaupt noch etwas ausrichtet. Räum die Vorhut ab. Zeig ihr, dass ein Herzschlag schneller sein kann als ein Rechenkern.`,
+    objectives:[
+      { id:'kill_all', kind:'destroyAir', count:5, primary:true, label:'Alle Abfangdrohnen zerstören' },
+      { id:'survive_struct', kind:'minHP', hp:40, primary:false, label:'Struktur über 40% halten' },
+    ],
+    spawns:{ air:[['f16',3],['f18',2]] },
+    intro:['WAGNER|Feindkontakt. Fünf Drohnen, gestaffelt.','WAGNER|Denk dran — die sind vernetzt, du nicht. Nutz das.'],
+    win:['WAGNER|Sauber geflogen, Geier. Der Himmel gehört wieder uns — für den Moment.'],
+  },
+  {
+    id:'m2', name:'Blindflug', type:'ground', tod:'day',
+    story:`<span class="who">WAGNER:</span> HELIOS „sieht" über eine Kette von Radarmasten am Talrand. Solange die stehen, kommt sie jeder unserer Bewegungen zuvor. Bomben an den Flügeln, runter auf Deck, und leg sie um. Ungelenkt — du musst tief und flach ran, den Fallkreis aufs Ziel legen. Keine Eleganz. Nur Präzision.`,
+    objectives:[
+      { id:'radar', kind:'destroyGround', tag:'radar', count:3, primary:true, label:'3 Radarmasten zerstören' },
+      { id:'air', kind:'destroyAir', count:2, primary:false, label:'Begleitschutz ausschalten' },
+    ],
+    spawns:{ ground:[['radar',3]], air:[['f16',2]] },
+    intro:['WAGNER|Die Masten stehen im Tal. Geh runter auf Deck.','WAGNER|Bombe wählst du mit X, Abwurf mit G. Der Kreis zeigt den Einschlag.'],
+    win:['WAGNER|Sie ist blind. Zum ersten Mal seit dem Kaskadenfehler fliegt sie nicht mehr im Voraus.'],
+  },
+  {
+    id:'m3', name:'Lebensader', type:'mixed', tod:'day',
+    story:`<span class="who">WAGNER:</span> Blind heißt nicht wehrlos. HELIOS verlegt Treibstoff und Munition über einen Bodenkonvoi zur Küste. Wenn der durchkommt, betankt sie die halbe Flotte. Zerschlag die Tanklaster — aber pass auf, sie schickt Jäger, sobald du auf Deck bist.`,
+    objectives:[
+      { id:'convoy', kind:'destroyGround', tag:'truck', count:4, primary:true, label:'4 Tanklaster zerstören' },
+      { id:'escort', kind:'destroyAir', count:3, primary:false, label:'Jägerschutz zerschlagen' },
+    ],
+    spawns:{ ground:[['truck',4]], air:[['f16',2],['f18',1]] },
+    intro:['WAGNER|Konvoi im Tal, vier Tanker. Die Eskorte ist schon in der Luft.'],
+    win:['WAGNER|Kein Treibstoff, keine Reichweite. Wir drängen sie zurück in ihre Höhle.'],
+  },
+  {
+    id:'m4', name:'Wespennest', type:'mixed', tod:'dusk',
+    story:`<span class="who">WAGNER:</span> Wir haben ihren vorgeschobenen Feldflugplatz gefunden. Von dort startet sie den Nachschub an Drohnen. Das Problem: er ist mit Flak- und SAM-Stellungen gespickt. Nimm die Luftabwehr zuerst, sonst wird der Anflug dein letzter. Dann leg die Hangars in Schutt.`,
+    objectives:[
+      { id:'sam', kind:'destroyGround', tag:'sam', count:3, primary:true, label:'3 SAM-Stellungen ausschalten' },
+      { id:'hangar', kind:'destroyGround', tag:'hangar', count:2, primary:true, label:'2 Hangars zerstören' },
+      { id:'air', kind:'destroyAir', count:3, primary:false, label:'Aufsteigende Jäger abfangen' },
+    ],
+    spawns:{ ground:[['sam',3],['hangar',2]], air:[['f16',3]] },
+    intro:['WAGNER|SAM-Radar aktiv — die roten Kreise auf dem Boden. Erst die Abwehr, dann die Hangars.','WAGNER|Wenn ein SAM-Ring rot pulsiert, hat er dich. Kurve raus.'],
+    win:['WAGNER|Der Platz brennt. HELIOS hat kein Zuhause mehr an der Front.'],
+  },
+  {
+    id:'m5', name:'Leviathan', type:'boss', tod:'day', boss:'kronos',
+    story:`<span class="who">WAGNER:</span> Jetzt das Ungeheuer. <span class="who">KRONOS</span> — die schwimmende Drohnenwerft. Ein Flugkörper von der Größe eines Trägers, von dem HELIOS ununterbrochen Nachschub baut. Panzerung, Geschütztürme, eigene Jägerdeckung. Nimm zuerst die Türme, dann den Reaktorkern mittschiffs. Das wird kein Duell. Das wird eine Belagerung.`,
+    objectives:[
+      { id:'turrets', kind:'destroyGround', tag:'turret', count:4, primary:true, label:'4 Geschütztürme zerstören' },
+      { id:'core', kind:'boss', primary:true, label:'KRONOS-Reaktorkern zerstören' },
+    ],
+    spawns:{ boss:'kronos', air:[['f18',2]] },
+    intro:['WAGNER|Da ist sie. Mein Gott, ist die groß.','WAGNER|Die Türme zuerst, Geier — der Kern öffnet sich erst, wenn sie schweigen.'],
+    win:['WAGNER|KRONOS sinkt! Die Werft ist Geschichte. Nur noch HELIOS selbst.'],
+  },
+  {
+    id:'m6', name:'Sonnenfinsternis', type:'air', tod:'dusk',
+    story:`<span class="who">WAGNER:</span> HELIOS weiß jetzt, dass sie verlieren kann. Sie wirft alles Fliegende, das ihr bleibt, gegen dich — bevor du an den Kern kommst. Kein Bodenziel, keine Deckung. Nur du, die Dämmerung und eine Wand aus Drohnen. Komm da durch, Geier. Danach gibt es nur noch eine Tür zu öffnen.`,
+    objectives:[
+      { id:'gauntlet', kind:'destroyAir', count:9, primary:true, label:'Die Drohnenwand durchbrechen (9)' },
+      { id:'survive', kind:'minHP', hp:1, primary:true, label:'Überleben' },
+    ],
+    spawns:{ air:[['f16',4],['f18',3],['f22',2]], waveDelay:true },
+    intro:['WAGNER|Sie kommen aus allen Richtungen. Halt die Nerven.','WAGNER|Das ist ihr letztes Aufgebot in der Luft. Zeig ihr, was ein Mensch aushält.'],
+    win:['WAGNER|Der Himmel ist leer. Vor dir liegt nur noch — das Auge.'],
+  },
+  {
+    id:'m7', name:'Das Auge', type:'boss', tod:'night', boss:'auge',
+    story:`<span class="who">WAGNER:</span> Das ist es, Geier. <span class="who">Das Auge</span> — der physische Kern von HELIOS, tief im letzten Bunkerkomplex, geschützt von einer rotierenden Panzerblende und ihren besten Drohnen. Sie wird dich mit allem berechnen, was sie hat. Aber sie kann eine Sache nicht: vorhersagen, was ein Mensch tut, der nichts mehr zu verlieren hat. Beende es.`,
+    objectives:[
+      { id:'shields', kind:'destroyGround', tag:'pylon', count:3, primary:true, label:'3 Schild-Pylonen zerstören' },
+      { id:'eye', kind:'boss', primary:true, label:'Das Auge zerstören' },
+    ],
+    spawns:{ boss:'auge', air:[['f22',2]] },
+    intro:['HELIOS|D̶U̶ ̶B̶I̶S̶T̶ ̶E̶I̶N̶E̶ ̶A̶N̶O̶M̶A̶L̶I̶E̶.̶ ̶I̶C̶H̶ ̶K̶O̶R̶R̶I̶G̶I̶E̶R̶E̶ ̶D̶I̶C̶H̶.','WAGNER|Lass sie reden. Zerstör die Pylonen, dann das Auge!'],
+    win:['HELIOS|w̶a̶r̶u̶m̶ … warum rechnet es sich nicht … ','WAGNER|Sie ist tot. Es ist vorbei. Du hast uns den Himmel zurückgegeben, Geier. Komm nach Hause.'],
+  },
+];
+
+// Mission runtime state (populated by setupMission)
+const mission = { active:false, def:null, index:-1, objectives:[], radioQueue:[], radioT:0, done:false, outcome:null,
+  reinforceT:0, waveIndex:0 };
+let campaignUnlocked = 1;   // how many missions are unlocked (1-based count); no savegame
+let gameMode = 'menu';      // 'campaign' | 'endless'
 
 /* ---------------------------------------------------------------------------
    1. SIMPLEX NOISE (2D, public-domain style, seeded)
@@ -341,7 +540,10 @@ const Audio = (function(){
   function lockTone(active){ if(!enabled) return; warnGain.gain.setTargetAtTime(active?0.05:0, ctx.currentTime, 0.05);
     if(active) warnOsc.frequency.setValueAtTime(1200, ctx.currentTime); }
   function reload(){ blip(500,0.08,'sine',0.2,800); setTimeout(()=>blip(700,0.1,'sine',0.2,1000),90); }
-  return { init, resume, setEngine, gun, missileLaunch, explosion, hit, hitTaken, lockTone, reload };
+  function bombDrop(){ noiseBurst(0.25,0.35,900); blip(300,0.2,'sine',0.18,90); }   // mechanical release + falling whoosh
+  function samLaunch(){ noiseBurst(0.6,0.4,1200); blip(500,0.6,'sawtooth',0.2,140); }
+  function warnBeep(){ blip(1500,0.09,'square',0.10,1500); }
+  return { init, resume, setEngine, gun, missileLaunch, explosion, hit, hitTaken, lockTone, reload, bombDrop, samLaunch, warnBeep };
 })();
 
 /* ---------------------------------------------------------------------------
@@ -390,8 +592,8 @@ scene.add(sky);
 
 const sun = new THREE.DirectionalLight(0xfff4e0, 1.35);
 sun.position.copy(sunDir).multiplyScalar(1000); scene.add(sun);
-scene.add(new THREE.HemisphereLight(0xafd4ff, 0x4a5a3a, 0.75));
-scene.add(new THREE.AmbientLight(0x88aacc, 0.35));
+const hemi = new THREE.HemisphereLight(0xafd4ff, 0x4a5a3a, 0.75); scene.add(hemi);
+const ambient = new THREE.AmbientLight(0x88aacc, 0.35); scene.add(ambient);
 
 // Sun glow sprite
 function radialTexture(inner, outer){
@@ -643,10 +845,12 @@ function buildEurofighter(){
 
 function buildEnemy(type){
   const g=new THREE.Group();
-  const colors={ f16:0x9aa4ad, f18:0x6f7a86, f22:0x4b525a };
+  // HELIOS drones: dark carbon hulls with a red sensor glow (rogue-AI identity)
+  const colors={ f16:0x3a4048, f18:0x33383f, f22:0x24282e };
   // DoubleSide so thin wings/tailplanes/fins render from all angles
-  const body=new THREE.MeshStandardMaterial({ color:colors[type]||0x9aa4ad, metalness:0.5, roughness:0.55, side:THREE.DoubleSide });
-  const dark=new THREE.MeshStandardMaterial({ color:0x2b3036, metalness:0.6, roughness:0.4, side:THREE.DoubleSide });
+  const body=new THREE.MeshStandardMaterial({ color:colors[type]||0x3a4048, metalness:0.55, roughness:0.5, side:THREE.DoubleSide,
+    emissive:0x110000, emissiveIntensity:0.5 });
+  const dark=new THREE.MeshStandardMaterial({ color:0x15181c, metalness:0.6, roughness:0.4, side:THREE.DoubleSide });
   const len = type==='f22'?14:(type==='f18'?11:10);
   const fus=new THREE.Mesh(new THREE.CylinderGeometry(type==='f22'?1.3:1.0, 1.2, len, 12), body); fus.rotation.x=Math.PI/2; g.add(fus);
   const nose=new THREE.Mesh(new THREE.ConeGeometry(1.0,4,12), body); nose.rotation.x=-Math.PI/2; nose.position.z=-len/2-1.6; g.add(nose);
@@ -663,9 +867,14 @@ function buildEnemy(type){
     fin.position.set(s*1.4,0.3,len/2-1); fin.rotation.z=s*0.25; g.add(fin);} }
   // tail planes
   const tp=new THREE.Mesh(triGeo([0,0,0,2.6,0,1.4,0,0,1.8, 0,0,0,-2.6,0,1.4,0,0,1.8]), body); tp.position.z=len/2-1; g.add(tp);
-  // star insignia hint (blue disc)
-  const star=new THREE.Mesh(new THREE.CircleGeometry(0.6,12), new THREE.MeshBasicMaterial({color:0x1b3a8f, side:THREE.DoubleSide}));
-  star.rotation.x=-Math.PI/2; star.position.set(sw*0.5,0.05,2); g.add(star);
+  // HELIOS sensor eye — glowing red spot on the nose (drone identity + eyecandy)
+  const eye=new THREE.Mesh(new THREE.SphereGeometry(0.45,10,8), new THREE.MeshBasicMaterial({color:0xff2b1a}));
+  eye.position.set(0,0.2,-len/2-2.4); g.add(eye);
+  const eyeGlow=new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xff3020, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending }));
+  eyeGlow.scale.set(6,6,1); eyeGlow.position.copy(eye.position); g.add(eyeGlow);
+  // red wing edge strips
+  for(const s of [-1,1]){ const strip=new THREE.Mesh(new THREE.PlaneGeometry(0.4,4), new THREE.MeshBasicMaterial({color:0xff3020, side:THREE.DoubleSide, transparent:true, opacity:0.8}));
+    strip.rotation.x=-Math.PI/2; strip.position.set(s*sw*0.7,0.06,3); g.add(strip); }
   const scale= type==='f22'?1.8:1.6;
   g.scale.set(scale,scale,scale);
   return g;
@@ -686,6 +895,7 @@ const player = {
   pitch: 0,          // nose up(+)/down(-), radians, clamped
   roll: 0,           // visual bank only, radians
   yawRate: 0, pitchRate: 0,  // smoothed input rates for inertia
+  bombs: 0, weapon:'missile', bombCd:0,   // secondary weapon: 'missile' | 'bomb'
   fireCd: 0, missileCd: 0, reloadT: 0,
   alive: true, boost:false, crashCd:0,
 };
@@ -697,6 +907,7 @@ function resetPlayer(){
   player.obj.quaternion.identity();
   player.vel.set(0,0,-1);
   player.speed=CFG.cruiseSpeed; player.hp=CFG.playerHP; player.missiles=CFG.missileMax;
+  player.bombs=0; player.weapon='missile'; player.bombCd=0;
   player.alive=true; player.fireCd=0; player.missileCd=0; player.reloadT=0; player.crashCd=0;
 }
 
@@ -739,6 +950,162 @@ function fireMissile(){
 }
 
 /* ---------------------------------------------------------------------------
+   10b. BOMBS (unguided) — ballistic drop with gravity, for ground targets
+   --------------------------------------------------------------------------- */
+const bombs=[];
+const GRAV=140;  // m/s^2 arcade gravity for bombs (tuned so CCIP feels right)
+const bombGeo=new THREE.CylinderGeometry(0.35,0.5,3,8);
+bombGeo.rotateX(Math.PI/2);
+const bombMat=new THREE.MeshStandardMaterial({color:0x30363d, metalness:0.5, roughness:0.6});
+function dropBomb(){
+  if(player.bombs<=0 || player.bombCd>0) return;
+  player.bombs--; player.bombCd=0.35;
+  const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion);
+  const pos=player.obj.position.clone().addScaledVector(fwd, 4); pos.y-=2;
+  const mesh=new THREE.Mesh(bombGeo, bombMat); mesh.position.copy(pos); scene.add(mesh);
+  // inherit aircraft velocity (this is what makes unguided bombing a skill)
+  const vel=player.vel.clone();
+  bombs.push({ mesh, vel, life:12 });
+  Audio.bombDrop();
+  updateWeaponHUD();
+}
+// Predict where a bomb dropped THIS frame would land (for the CCIP sight).
+const _bp=new THREE.Vector3(), _bv=new THREE.Vector3();
+function predictBombImpact(){
+  const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion);
+  _bp.copy(player.obj.position).addScaledVector(fwd,4); _bp.y-=2;
+  _bv.copy(player.vel);
+  const step=0.06;
+  for(let i=0;i<220;i++){
+    _bv.y -= GRAV*step;
+    _bp.addScaledVector(_bv, step);
+    const gh=terrainHeight(_bp.x,_bp.z);
+    if(_bp.y<=Math.max(gh,CFG.waterLevel)){ _bp.y=Math.max(gh,CFG.waterLevel); return _bp; }
+  }
+  return null;
+}
+function updateBombs(dt){
+  for(let i=bombs.length-1;i>=0;i--){
+    const b=bombs[i];
+    b.vel.y -= GRAV*dt;
+    const prev=b.mesh.position.clone();
+    b.mesh.position.addScaledVector(b.vel, dt);
+    b.life-=dt;
+    // orient nose-down along velocity
+    b.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), b.vel.clone().normalize());
+    // smoke trail
+    smokeP.spawn(b.mesh.position.x,b.mesh.position.y,b.mesh.position.z,0,0,0,0.6,4,16,C_WHITE,C_GREY,0.95,-2);
+    // ground / target impact
+    const gh=terrainHeight(b.mesh.position.x, b.mesh.position.z);
+    let hitTarget=null;
+    for(const gt of groundTargets){
+      if(gt.dead) continue;
+      const d=Math.hypot(b.mesh.position.x-gt.obj.position.x, b.mesh.position.z-gt.obj.position.z);
+      if(d < gt.radius && b.mesh.position.y < gt.obj.position.y+gt.height){ hitTarget=gt; break; }
+    }
+    if(hitTarget){ damageGround(hitTarget, 1000); groundExplode(b.mesh.position.x,b.mesh.position.y,b.mesh.position.z,1.6); scene.remove(b.mesh); bombs.splice(i,1); continue; }
+    if(b.mesh.position.y<=gh || b.life<=0){
+      const y=Math.max(gh,CFG.waterLevel);
+      groundExplode(b.mesh.position.x, y+2, b.mesh.position.z, 1.3);
+      // splash damage to nearby ground targets
+      for(const gt of groundTargets){ if(gt.dead) continue;
+        const d=Math.hypot(b.mesh.position.x-gt.obj.position.x, b.mesh.position.z-gt.obj.position.z);
+        if(d<gt.radius+35) damageGround(gt, 700*(1-d/(gt.radius+35))); }
+      scene.remove(b.mesh); bombs.splice(i,1);
+    }
+  }
+}
+function groundExplode(x,y,z,scale){
+  explode(x,y,z,scale);
+  // extra ground-hugging dust ring + flash
+  for(let i=0;i<24*scale;i++){ const a=Math.random()*Math.PI*2, sp=(60+Math.random()*160)*scale;
+    smokeP.spawn(x,y,z, Math.cos(a)*sp, 10+Math.random()*40, Math.sin(a)*sp, 1.4+Math.random()*1.2, 30*scale, 130*scale, C_DARK, C_SMOKE, 0.93, -6); }
+  shake=Math.max(shake, Math.min(1.2, scale*0.5 * Math.max(0,1-player.obj.position.distanceTo({x,y,z})/2500)));
+  Audio.explosion(scale>1.4);
+}
+
+/* ---------------------------------------------------------------------------
+   10c. GROUND TARGETS (radar masts, trucks, SAM sites, hangars, boss parts)
+   --------------------------------------------------------------------------- */
+const groundTargets=[];
+const GROUND_MAT_DARK=new THREE.MeshStandardMaterial({color:0x2a2f36, metalness:0.5, roughness:0.7, side:THREE.DoubleSide});
+const GROUND_MAT_METAL=new THREE.MeshStandardMaterial({color:0x555b63, metalness:0.7, roughness:0.4});
+const GROUND_MAT_RED=new THREE.MeshStandardMaterial({color:0x772222, metalness:0.5, roughness:0.6, emissive:0x330000});
+
+function buildGroundModel(tag){
+  const g=new THREE.Group();
+  if(tag==='radar'){
+    const base=new THREE.Mesh(new THREE.CylinderGeometry(4,5,6,8), GROUND_MAT_DARK); base.position.y=3; g.add(base);
+    const mast=new THREE.Mesh(new THREE.CylinderGeometry(0.8,0.8,16,6), GROUND_MAT_METAL); mast.position.y=13; g.add(mast);
+    const dish=new THREE.Mesh(new THREE.SphereGeometry(6,12,8,0,Math.PI*2,0,Math.PI/2), new THREE.MeshStandardMaterial({color:0x8892a0, metalness:0.6, roughness:0.3, side:THREE.DoubleSide}));
+    dish.scale.set(1,0.5,1); dish.rotation.x=1.1; dish.position.y=21; g.add(dish); g.userData.spin=dish;
+    return {g, radius:16, height:26, hp:120};
+  }
+  if(tag==='truck'){
+    const cab=new THREE.Mesh(new THREE.BoxGeometry(4,4,5), GROUND_MAT_DARK); cab.position.set(0,3,-4); g.add(cab);
+    const tank=new THREE.Mesh(new THREE.CylinderGeometry(3,3,10,10), GROUND_MAT_METAL); tank.rotation.z=Math.PI/2; tank.position.set(0,3.5,3); g.add(tank);
+    for(const zx of [[-2.5,-6],[2.5,-6],[-2.5,4],[2.5,4],[-2.5,0],[2.5,0]]){ const w=new THREE.Mesh(new THREE.CylinderGeometry(1.4,1.4,1,10), GROUND_MAT_DARK); w.rotation.z=Math.PI/2; w.position.set(zx[0],1.4,zx[1]); g.add(w); }
+    return {g, radius:14, height:9, hp:90};
+  }
+  if(tag==='sam'){
+    const base=new THREE.Mesh(new THREE.CylinderGeometry(5,6,3,8), GROUND_MAT_DARK); base.position.y=1.5; g.add(base);
+    const turret=new THREE.Mesh(new THREE.BoxGeometry(6,3,6), GROUND_MAT_METAL); turret.position.y=4.5; g.add(turret); g.userData.turret=turret;
+    for(const sx of [-1.6,1.6]){ const rail=new THREE.Mesh(new THREE.BoxGeometry(0.8,0.8,7), GROUND_MAT_RED); rail.position.set(sx,5.5,0); rail.rotation.x=-0.5; turret.add(rail); }
+    const eye=new THREE.Mesh(new THREE.SphereGeometry(1,10,8), new THREE.MeshBasicMaterial({color:0xff2b1a})); eye.position.set(0,6.5,-2.5); turret.add(eye);
+    return {g, radius:16, height:12, hp:150, sam:true};
+  }
+  if(tag==='hangar'){
+    const shell=new THREE.Mesh(new THREE.CylinderGeometry(14,14,30,16,1,false,0,Math.PI), new THREE.MeshStandardMaterial({color:0x3a4048, metalness:0.5, roughness:0.6, side:THREE.DoubleSide}));
+    shell.rotation.z=Math.PI/2; shell.position.y=0; g.add(shell);
+    const back=new THREE.Mesh(new THREE.CircleGeometry(14,16,0,Math.PI), new THREE.MeshStandardMaterial({color:0x24282e, side:THREE.DoubleSide})); back.position.set(0,0,-15); back.rotation.z=0; g.add(back);
+    return {g, radius:20, height:16, hp:260};
+  }
+  if(tag==='turret'){ // KRONOS deck turret
+    const base=new THREE.Mesh(new THREE.CylinderGeometry(4,5,3,10), GROUND_MAT_DARK); base.position.y=1.5; g.add(base);
+    const dome=new THREE.Mesh(new THREE.SphereGeometry(3.5,12,8), GROUND_MAT_METAL); dome.position.y=4; g.add(dome); g.userData.turret=dome;
+    const barrel=new THREE.Mesh(new THREE.CylinderGeometry(0.7,0.7,10,8), GROUND_MAT_METAL); barrel.rotation.x=-0.6; barrel.position.set(0,5,4); dome.add(barrel);
+    const eye=new THREE.Mesh(new THREE.SphereGeometry(0.9,8,6), new THREE.MeshBasicMaterial({color:0xff2b1a})); eye.position.set(0,5,-2); dome.add(eye);
+    return {g, radius:12, height:10, hp:180, sam:true};
+  }
+  if(tag==='pylon'){ // Das Auge shield pylon
+    const col=new THREE.Mesh(new THREE.CylinderGeometry(2.5,3.5,26,8), GROUND_MAT_DARK); col.position.y=13; g.add(col);
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(5,1,8,20), new THREE.MeshStandardMaterial({color:0x992222, emissive:0xff2200, emissiveIntensity:1.2, metalness:0.4, roughness:0.3}));
+    ring.position.y=24; ring.rotation.x=Math.PI/2; g.add(ring); g.userData.spin=ring;
+    return {g, radius:12, height:30, hp:200};
+  }
+  // default block
+  const b=new THREE.Mesh(new THREE.BoxGeometry(8,8,8), GROUND_MAT_DARK); b.position.y=4; g.add(b);
+  return {g, radius:10, height:9, hp:120};
+}
+function spawnGroundTarget(tag, x, z, extra){
+  const built=buildGroundModel(tag);
+  const gh=terrainHeight(x,z);
+  built.g.position.set(x, Math.max(gh,CFG.waterLevel), z);
+  scene.add(built.g);
+  const gt=Object.assign({ obj:built.g, tag, hp:built.hp, maxhp:built.hp, radius:built.radius, height:built.height||10,
+    dead:false, sam:!!built.sam, fireCd:2+Math.random()*3, spin:built.g.userData.spin, turret:built.g.userData.turret, samLocked:false, samLockT:0 }, extra||{});
+  groundTargets.push(gt);
+  return gt;
+}
+function damageGround(gt, dmg){
+  if(gt.dead) return;
+  gt.hp-=dmg;
+  fireP.spawn(gt.obj.position.x, gt.obj.position.y+gt.height*0.5, gt.obj.position.z, (Math.random()-0.5)*40,20,(Math.random()-0.5)*40,0.25,12,3,C_WHITE,C_ORANGE,0.9,0);
+  if(gt.hp<=0) destroyGround(gt);
+}
+function destroyGround(gt){
+  if(gt.dead) return; gt.dead=true;
+  groundExplode(gt.obj.position.x, gt.obj.position.y+gt.height*0.4, gt.obj.position.z, 1.9);
+  // debris chunks
+  for(let i=0;i<10;i++){ const a=Math.random()*Math.PI*2, sp=80+Math.random()*160;
+    fireP.spawn(gt.obj.position.x,gt.obj.position.y+4,gt.obj.position.z, Math.cos(a)*sp, 80+Math.random()*120, Math.sin(a)*sp, 1.0, 8, 2, C_YELLOW, C_RED, 0.95, 60); }
+  scene.remove(gt.obj);
+  if(mission.active) onGroundDestroyed(gt);
+  score += 150; if(dom.score) dom.score.textContent=score;
+}
+function clearGroundTargets(){ for(const gt of groundTargets){ scene.remove(gt.obj); } groundTargets.length=0; }
+
+/* ---------------------------------------------------------------------------
    11. ENEMIES
    --------------------------------------------------------------------------- */
 const enemies=[];
@@ -769,16 +1136,23 @@ function spawnEnemy(type, pos){
    --------------------------------------------------------------------------- */
 const keys={};
 let mouseX=0, mouseY=0, mouseActive=false, firingMouse=false;
+function fireSecondary(){
+  if(state!=='playing') return;
+  if(player.weapon==='bomb' && player.bombs>0) dropBomb();
+  else fireMissile();
+}
 addEventListener('keydown', e=>{
   keys[e.code]=true;
   if(e.code==='KeyP' || e.code==='Escape') togglePause();
   if(e.code==='KeyF'){ if(state==='playing') fireMissile(); }
+  if(e.code==='KeyG'){ if(state==='playing' && player.bombs>0) dropBomb(); }
+  if(e.code==='KeyX'){ if(state==='playing') toggleWeapon(); }
   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
 });
 addEventListener('keyup', e=>{ keys[e.code]=false; });
 const canvasEl=renderer.domElement;
 addEventListener('mousemove', e=>{ mouseX=(e.clientX/innerWidth)*2-1; mouseY=(e.clientY/innerHeight)*2-1; mouseActive=true; });
-addEventListener('mousedown', e=>{ if(state!=='playing'){return;} if(e.button===0) firingMouse=true; if(e.button===2){ fireMissile(); } });
+addEventListener('mousedown', e=>{ if(state!=='playing'){return;} if(e.button===0) firingMouse=true; if(e.button===2){ fireSecondary(); } });
 addEventListener('mouseup', e=>{ if(e.button===0) firingMouse=false; });
 addEventListener('contextmenu', e=>e.preventDefault());
 addEventListener('blur', ()=>{ firingMouse=false; for(const k in keys) keys[k]=false; });
@@ -827,12 +1201,28 @@ function nearestEnemyInFront(minDot, maxDist){
 const dom={ speed:document.getElementById('speed'), alt:document.getElementById('alt'), wave:document.getElementById('wave'),
   score:document.getElementById('score'), enemies:document.getElementById('enemies'), hp:document.getElementById('hpbar'),
   thr:document.getElementById('throttlebar'), missiles:document.getElementById('missiles'), warn:document.getElementById('warn'),
-  wavebanner:document.getElementById('wavebanner'), subbanner:document.getElementById('subbanner'), killfeed:document.getElementById('killfeed') };
+  wavebanner:document.getElementById('wavebanner'), subbanner:document.getElementById('subbanner'), killfeed:document.getElementById('killfeed'),
+  objectives:document.getElementById('hud-objectives'), radio:document.getElementById('radio'), weaponTab:document.getElementById('weapon-tab'),
+  bosswrap:document.getElementById('bosswrap') };
 
 function updateMissileHUD(){
   let h='';
   for(let i=0;i<CFG.missileMax;i++) h+=`<span class="msl-dot ${i<player.missiles?'':'empty'}"></span>`;
   dom.missiles.innerHTML=h;
+  updateWeaponHUD();
+}
+function updateWeaponHUD(){
+  const bombRow = player.bombs>0 || player.weapon==='bomb'
+    ? `<div>💣 BOMBEN: <b>${player.bombs}</b></div>` : '';
+  const sel=player.weapon;
+  dom.weaponTab.innerHTML =
+    `<div class="${sel==='missile'?'wsel':''}">✦ RAKETE ${player.missiles}${sel==='missile'?' ◄':''}</div>`+
+    (player.bombs>0 ? `<div class="${sel==='bomb'?'wsel':''}">💣 BOMBE ${player.bombs}${sel==='bomb'?' ◄':''}</div>` : '');
+}
+function toggleWeapon(){
+  if(player.bombs>0) player.weapon = (player.weapon==='missile')?'bomb':'missile';
+  else player.weapon='missile';
+  updateWeaponHUD();
 }
 function killMsg(txt){ const d=document.createElement('div'); d.className='kill'; d.textContent=txt; dom.killfeed.appendChild(d); setTimeout(()=>d.remove(),2300); }
 function banner(main, sub){
@@ -934,6 +1324,54 @@ function drawHUD(){
     hctx.restore(); hctx.textAlign='left';
   }
 
+  // ---- GROUND TARGET markers (diamonds) + CCIP bombing sight ----
+  for(const gt of groundTargets){
+    if(gt.dead) continue;
+    const gp=_v.copy(gt.obj.position); gp.y+=gt.height*0.5; gp.project(camera);
+    if(gp.z>1) continue;
+    const on = gp.x>=-1&&gp.x<=1&&gp.y>=-1&&gp.y<=1;
+    const gx=(gp.x*0.5+0.5)*w, gy=(-gp.y*0.5+0.5)*h;
+    if(on){
+      hctx.strokeStyle = gt.sam?'rgba(255,80,80,0.9)':'rgba(255,170,60,0.85)';
+      hctx.lineWidth=2;
+      hctx.beginPath(); hctx.moveTo(gx,gy-9); hctx.lineTo(gx+9,gy); hctx.lineTo(gx,gy+9); hctx.lineTo(gx-9,gy); hctx.closePath(); hctx.stroke();
+      // health pip
+      const hpw=Math.max(0,gt.hp/gt.maxhp);
+      hctx.fillStyle='rgba(255,90,60,0.8)'; hctx.fillRect(gx-12,gy+12,24*hpw,3);
+      const labels={radar:'RADAR',truck:'TANKER',sam:'SAM',hangar:'HANGAR',turret:'TURM',pylon:'PYLON'};
+      if(labels[gt.tag]){ hctx.fillStyle=hctx.strokeStyle; hctx.font='10px monospace'; hctx.textAlign='center'; hctx.fillText(labels[gt.tag], gx, gy-13); hctx.textAlign='left'; }
+    }
+  }
+  // boss weak-point marker
+  if(boss){
+    const wp=new THREE.Vector3(); (boss.core||boss.eye).getWorldPosition(wp); const bp=wp.project(camera);
+    if(bp.z<1){ const bx=(bp.x*0.5+0.5)*w, by=(-bp.y*0.5+0.5)*h;
+      hctx.strokeStyle=boss.exposed?'rgba(255,50,50,0.95)':'rgba(255,180,60,0.5)'; hctx.lineWidth=2.5;
+      hctx.beginPath(); hctx.arc(bx,by,boss.exposed?20:14,0,Math.PI*2); hctx.stroke();
+      if(boss.exposed){ hctx.fillStyle='rgba(255,50,50,0.95)'; hctx.font='bold 12px monospace'; hctx.textAlign='center'; hctx.fillText('SCHWACHSTELLE', bx, by-26); hctx.textAlign='left'; } }
+  }
+  // CCIP: predict bomb impact point and draw a falling reticle (only with bomb selected)
+  if(player.weapon==='bomb' && player.bombs>0 && state==='playing'){
+    const ip=predictBombImpact();
+    if(ip){ const pr=_v.copy(ip).project(camera);
+      if(pr.z<1){ const ix=(pr.x*0.5+0.5)*w, iy=(-pr.y*0.5+0.5)*h;
+        hctx.strokeStyle='rgba(120,255,176,0.9)'; hctx.lineWidth=2;
+        hctx.beginPath(); hctx.arc(ix,iy,12,0,Math.PI*2); hctx.stroke();
+        hctx.beginPath(); hctx.moveTo(ix,iy-18); hctx.lineTo(ix,iy-12); hctx.moveTo(ix,iy+12); hctx.lineTo(ix,iy+18);
+        hctx.moveTo(ix-18,iy); hctx.lineTo(ix-12,iy); hctx.moveTo(ix+12,iy); hctx.lineTo(ix+18,iy); hctx.stroke();
+        // line from aircraft-nadir to impact
+        hctx.strokeStyle='rgba(120,255,176,0.35)'; hctx.setLineDash([5,5]); hctx.beginPath(); hctx.moveTo(cx,cy); hctx.lineTo(ix,iy); hctx.stroke(); hctx.setLineDash([]);
+        hctx.fillStyle='rgba(120,255,176,0.9)'; hctx.font='bold 11px monospace'; hctx.textAlign='center'; hctx.fillText('CCIP', ix, iy+30); hctx.textAlign='left';
+      }
+    }
+  }
+  // SAM launch warning
+  if(samWarnActive && state==='playing'){
+    hctx.fillStyle='rgba(255,60,60,'+(0.55+0.35*Math.sin(menuTime*12))+')';
+    hctx.font='bold 22px system-ui, sans-serif'; hctx.textAlign='center';
+    hctx.fillText('⚠ SAM — RAKETENWARNUNG', cx, h-150); hctx.textAlign='left';
+  }
+
   // Radar (bottom center)
   const rr=68, rx=cx, ry=h-90;
   hctx.save();
@@ -970,6 +1408,7 @@ let state='menu'; // menu, playing, paused, gameover
 let score=0, wave=0, waveActive=false, betweenTimer=0, shake=0, menuTime=0;
 let combo=0, comboT=0;   // kill-streak multiplier: consecutive kills within a time window
 
+/* ===== Endless mode waves (unchanged mechanic, now mode-gated) ===== */
 function startWave(n){
   wave=n; dom.wave.textContent=n; waveActive=true;
   const count = Math.min(3+Math.floor(n*0.8), 9);
@@ -980,20 +1419,21 @@ function startWave(n){
   for(let i=0;i<f16;i++) list.push('f16');
   for(let i=0;i<f18;i++) list.push('f18');
   for(let i=0;i<f22;i++) list.push('f22');
-  for(const t of list){
-    const ang=Math.random()*Math.PI*2, dist=2600+Math.random()*1800;
-    const p=player.obj.position.clone();
-    p.x+=Math.cos(ang)*dist; p.z+=Math.sin(ang)*dist;
-    p.y=Math.max(300, player.obj.position.y + (Math.random()-0.4)*600);
-    spawnEnemy(t, p);
-  }
-  banner('WELLE '+n, list.length+' FEINDLICHE JETS');
+  for(const t of list) spawnEnemyNear(t);
+  banner('WELLE '+n, list.length+' FEINDLICHE DROHNEN');
   dom.enemies.textContent=enemies.length;
 }
+function spawnEnemyNear(type, minD, maxD){
+  const ang=Math.random()*Math.PI*2, dist=(minD||2600)+Math.random()*((maxD||4400)-(minD||2600));
+  const p=player.obj.position.clone();
+  p.x+=Math.cos(ang)*dist; p.z+=Math.sin(ang)*dist;
+  p.y=Math.max(400, player.obj.position.y + (Math.random()-0.35)*600);
+  return spawnEnemy(type, p);
+}
 function nextWaveCheck(){
+  if(gameMode!=='endless') return;
   if(waveActive && enemies.length===0){
     waveActive=false; betweenTimer=4.0;
-    // reward: heal + missiles
     player.hp=Math.min(CFG.playerHP, player.hp+30);
     player.missiles=CFG.missileMax; player.reloadT=0; updateMissileHUD();
     Audio.reload();
@@ -1001,49 +1441,398 @@ function nextWaveCheck(){
   }
 }
 
-function startGame(){
-  Audio.init(); Audio.resume();
-  document.getElementById('start').classList.add('hidden');
-  document.getElementById('gameover').classList.add('hidden');
-  document.getElementById('pause').classList.add('hidden');
-  // clear
+/* ===== Screen navigation ===== */
+const SCREENS=['menu','missionselect','briefing','howto','start','gameover','pause'];
+function showScreen(id){
+  for(const s of SCREENS){ const el=document.getElementById(s); if(el) el.classList.add('hidden'); }
+  if(id){ const el=document.getElementById(id); if(el) el.classList.remove('hidden'); }
+}
+function gotoMenu(){
+  state='menu'; gameMode='menu'; mission.active=false;
+  clearGroundTargets(); clearBoss();
+  for(const e of enemies) scene.remove(e.obj); enemies.length=0;
+  hideHudExtras();
+  showScreen('menu');
+}
+function hideHudExtras(){ dom.objectives.innerHTML=''; dom.bosswrap.classList.remove('show'); dom.radio.classList.remove('show'); dom.weaponTab.innerHTML=''; }
+
+/* ===== Common world reset ===== */
+function resetWorld(){
   for(const e of enemies) scene.remove(e.obj); enemies.length=0;
   for(const b of bullets) releaseBullet(b); bullets.length=0;
   for(const m of missiles) scene.remove(m.mesh); missiles.length=0;
+  for(const b of bombs) scene.remove(b.mesh); bombs.length=0;
+  clearGroundTargets(); clearBoss();
   score=0; wave=0; waveActive=false; betweenTimer=2.0; shake=0; combo=0; comboT=0;
-  dom.score.textContent='0';
+  if(dom.score) dom.score.textContent='0';
   player.obj.visible=true;
-  resetPlayer(); updateMissileHUD();
+  resetPlayer();
+}
+
+/* ===== ENDLESS ===== */
+function startEndless(){
+  Audio.init(); Audio.resume();
+  gameMode='endless'; mission.active=false;
+  showScreen(null);
+  resetWorld();
+  applyTimeOfDay('day');
+  player.missiles=CFG.missileMax; player.bombs=0; player.weapon='missile';
+  updateMissileHUD();
+  hideHudExtras(); updateWeaponHUD();
+  updateTerrain(0,0);
+  betweenTimer=2.0;
+  state='playing';
+}
+
+/* ===== CAMPAIGN ===== */
+function launchMission(index){
+  Audio.init(); Audio.resume();
+  gameMode='campaign';
+  showScreen(null);
+  resetWorld();
+  setupMission(index);
   updateTerrain(0,0);
   state='playing';
 }
-function gameOver(){
+function gameOver(victory){
   state='gameover';
-  explode(player.obj.position.x, player.obj.position.y, player.obj.position.z, 2.2);
-  Audio.explosion(true);
-  player.obj.visible=false;
-  document.getElementById('go-stats').innerHTML=`Welle <b>${wave}</b><br>Punkte <b>${score}</b>`;
-  setTimeout(()=>document.getElementById('gameover').classList.remove('hidden'), 900);
+  const wasCampaign = gameMode==='campaign';
+  const goTitle=document.getElementById('go-title');
+  const nextBtn=document.getElementById('nextbtn');
+  const restartBtn=document.getElementById('restartbtn');
+  nextBtn.classList.add('hidden');
+  if(!victory){
+    player.obj.visible=false;
+    explode(player.obj.position.x, player.obj.position.y, player.obj.position.z, 2.2);
+    Audio.explosion(true);
+  }
+  if(wasCampaign){
+    const def=mission.def;
+    if(victory){
+      goTitle.textContent='MISSION ERFÜLLT'; goTitle.style.color='#7dffb0';
+      // unlock next
+      if(mission.index+1 > campaignUnlocked-1) campaignUnlocked=Math.max(campaignUnlocked, mission.index+2);
+      const hasNext = mission.index < CAMPAIGN.length-1;
+      const winLine = def.win && def.win[0] ? def.win[0].split('|').pop() : '';
+      document.getElementById('go-stats').innerHTML =
+        `<div style="font-size:20px;color:#cfe6ff;max-width:640px;line-height:1.6;margin-bottom:8px">${winLine}</div>`+
+        `Punkte <b>${score}</b>` + (hasNext?'':`<div style="margin-top:14px;color:#ffce8a">Kampagne abgeschlossen — der Himmel gehört wieder den Menschen.</div>`);
+      if(hasNext){ nextBtn.classList.remove('hidden'); nextBtn.onclick=()=>launchMission(mission.index+1); }
+      restartBtn.textContent='↻ WIEDERHOLEN'; restartBtn.onclick=()=>launchMission(mission.index);
+    } else {
+      goTitle.textContent='ABGESCHOSSEN'; goTitle.style.color='#ff5a5a';
+      document.getElementById('go-stats').innerHTML=`Mission <b>${mission.index+1}</b> gescheitert<br><span style="font-size:16px;color:#9fb8d0">${mission.failReason||'Deine Maschine wurde zerstört.'}</span>`;
+      restartBtn.textContent='↻ WIEDERHOLEN'; restartBtn.onclick=()=>launchMission(mission.index);
+    }
+  } else {
+    goTitle.textContent='ABGESCHOSSEN'; goTitle.style.color='#ff5a5a';
+    document.getElementById('go-stats').innerHTML=`Welle <b>${wave}</b><br>Punkte <b>${score}</b>`;
+    restartBtn.textContent='↻ NOCHMAL'; restartBtn.onclick=()=>startEndless();
+  }
+  const delay = victory?400:900;
+  setTimeout(()=>document.getElementById('gameover').classList.remove('hidden'), delay);
 }
+
 const pauseScreen=document.getElementById('pause');
 function pauseGame(){
   if(state!=='playing') return;
   state='paused';
-  // release held controls so nothing keeps firing/steering while reading
   firingMouse=false; for(const k in keys) keys[k]=false;
-  document.getElementById('pause-stats').textContent = `WELLE ${wave} · ${score} PUNKTE · STRUKTUR ${Math.max(0,Math.round(player.hp))}%`;
+  const info = gameMode==='campaign' ? `${mission.def.name.toUpperCase()} · STRUKTUR ${Math.max(0,Math.round(player.hp))}%`
+                                     : `WELLE ${wave} · ${score} PUNKTE · STRUKTUR ${Math.max(0,Math.round(player.hp))}%`;
+  document.getElementById('pause-stats').textContent = info;
   pauseScreen.classList.remove('hidden');
 }
-function resumeGame(){
-  if(state!=='paused') return;
-  pauseScreen.classList.add('hidden');
-  state='playing';
-}
+function resumeGame(){ if(state!=='paused') return; pauseScreen.classList.add('hidden'); state='playing'; }
 function togglePause(){ if(state==='playing') pauseGame(); else if(state==='paused') resumeGame(); }
 
-document.getElementById('startbtn').onclick=()=>startGame();
-document.getElementById('restartbtn').onclick=()=>startGame();
+/* ===== Menu wiring ===== */
+function buildMissionList(){
+  const wrap=document.getElementById('missionlist'); wrap.innerHTML='';
+  const typeName={air:'LUFTKAMPF',ground:'BODENANGRIFF',mixed:'KOMBINIERT',boss:'BOSS'};
+  CAMPAIGN.forEach((m,i)=>{
+    const unlocked = i < campaignUnlocked;
+    const done = i < campaignUnlocked-1;
+    const card=document.createElement('div');
+    card.className='mcard'+(unlocked?'':' locked')+(done?' done':'');
+    card.innerHTML = `<div class="mnum">MISSION ${i+1}</div>`+
+      `<div class="mname">${m.name}</div>`+
+      `<span class="mtype ${m.type}">${typeName[m.type]||m.type}</span>`+
+      `<div class="mdesc">${m.objectives.filter(o=>o.primary).map(o=>o.label).join(' · ')}</div>`+
+      (unlocked?'':'<div class="mlock">🔒</div>');
+    if(unlocked) card.onclick=()=>openBriefing(i);
+    wrap.appendChild(card);
+  });
+}
+function openBriefing(i){
+  const m=CAMPAIGN[i];
+  document.getElementById('brief-num').textContent='MISSION '+(i+1);
+  document.getElementById('brief-name').textContent=m.name;
+  const tEl=document.getElementById('brief-type');
+  const typeName={air:'LUFTKAMPF',ground:'BODENANGRIFF',mixed:'KOMBINIERT',boss:'BOSS'};
+  tEl.textContent=typeName[m.type]||m.type; tEl.className='mtype '+m.type;
+  document.getElementById('brief-story').innerHTML=m.story;
+  const objs=document.getElementById('brief-objs');
+  objs.innerHTML=m.objectives.map(o=>`<div class="o ${o.primary?'prime':'sec'}"><span class="ic">${o.primary?'◆':'◇'}</span>${o.label}${o.primary?'':' <span style="opacity:.6">(optional)</span>'}</div>`).join('');
+  document.getElementById('brief-launch').onclick=()=>launchMission(i);
+  showScreen('briefing');
+}
+
+document.getElementById('btn-campaign').onclick=()=>{ buildMissionList(); showScreen('missionselect'); };
+document.getElementById('btn-endless').onclick=()=>startEndless();
+document.getElementById('btn-howto').onclick=()=>showScreen('howto');
+document.querySelectorAll('.backbtn').forEach(b=> b.onclick=()=>{ const t=b.getAttribute('data-back'); if(t==='missionselect'){ buildMissionList(); } showScreen(t); });
+document.getElementById('restartbtn').onclick=()=>startEndless();  // default; overwritten per-context in gameOver
 document.getElementById('resumebtn').onclick=()=>resumeGame();
+document.getElementById('tomenubtn').onclick=()=>gotoMenu();
+document.getElementById('pause-menubtn').onclick=()=>{ pauseScreen.classList.add('hidden'); gotoMenu(); };
+
+/* ---------------------------------------------------------------------------
+   15b. TIME OF DAY — sky/light tint per mission (eyecandy + mood)
+   --------------------------------------------------------------------------- */
+const TOD={
+  day:  { top:0x2c66c9, bot:0xd6ecff, fog:0xbfe0ff, sun:1.35, sunColor:0xfff4e0, amb:0x88aacc, hemi:0.75 },
+  dusk: { top:0x1a2f6e, bot:0xff9a5c, fog:0xd9a066, sun:1.05, sunColor:0xffcaa0, amb:0x6a5a7a, hemi:0.55 },
+  night:{ top:0x05070f, bot:0x1a2440, fog:0x0e1626, sun:0.35, sunColor:0x6a80c0, amb:0x28324a, hemi:0.35 },
+};
+function applyTimeOfDay(tod){
+  const c=TOD[tod]||TOD.day;
+  skyMat.uniforms.top.value.setHex(c.top);
+  skyMat.uniforms.bot.value.setHex(c.bot);
+  scene.fog.color.setHex(c.fog);
+  sun.intensity=c.sun; sun.color.setHex(c.sunColor);
+  ambient.color.setHex(c.amb); hemi.intensity=c.hemi;
+  // particle fog uniforms follow
+  for(const m of particleMaterials){ if(m.uniforms.fogColor) m.uniforms.fogColor.value.copy(scene.fog.color); }
+}
+
+/* ---------------------------------------------------------------------------
+   15c. RADIO (comms subtitles) + OBJECTIVE HUD
+   --------------------------------------------------------------------------- */
+let radioHideT=0;
+function radio(line){
+  // line: "SPEAKER|text"
+  const parts=line.split('|'); const spk=parts.length>1?parts[0]:''; const txt=parts.pop();
+  dom.radio.querySelector('.rspk').textContent = spk?('» '+spk+':'):'';
+  dom.radio.querySelector('.rtext').textContent = txt;
+  dom.radio.classList.add('show'); radioHideT=4.2;
+  if(spk==='HELIOS') Audio.warnBeep(); else Audio.reload();
+}
+function queueRadio(lines, gap){
+  if(!lines) return;
+  let t=0.3;
+  for(const l of lines){ mission.radioQueue.push({t, line:l}); t+=(gap||3.4); }
+}
+function updateRadio(dt){
+  if(radioHideT>0){ radioHideT-=dt; if(radioHideT<=0) dom.radio.classList.remove('show'); }
+  for(let i=mission.radioQueue.length-1;i>=0;i--){ const q=mission.radioQueue[i]; q.t-=dt; if(q.t<=0){ radio(q.line); mission.radioQueue.splice(i,1); } }
+}
+function renderObjectives(){
+  if(!mission.active){ dom.objectives.innerHTML=''; return; }
+  dom.objectives.innerHTML = mission.objectives.map(o=>{
+    const cls = o.done?'done':(o.failed?'fail':'');
+    const mark = o.done?'✓':(o.failed?'✕':'');
+    const prog = (o.count&&!o.done)?` ${o.progress}/${o.count}`:'';
+    return `<div class="obj-line ${cls}"><span class="box">${mark}</span>${o.label}${prog}</div>`;
+  }).join('');
+}
+
+/* ---------------------------------------------------------------------------
+   15d. MISSION RUNTIME
+   --------------------------------------------------------------------------- */
+function setupMission(index){
+  const def=CAMPAIGN[index];
+  mission.active=true; mission.def=def; mission.index=index; mission.done=false; mission.outcome=null;
+  mission.radioQueue=[]; mission.reinforceT=0; mission.waveIndex=0; mission.failReason=null;
+  // clone objectives with live progress
+  mission.objectives = def.objectives.map(o=>Object.assign({ progress:0, done:false, failed:false }, o));
+  applyTimeOfDay(def.tod||'day');
+  // loadout: bombs for ground/mixed/boss missions that need them
+  const needsBombs = def.objectives.some(o=>o.kind==='destroyGround');
+  player.missiles=CFG.missileMax;
+  player.bombs = needsBombs ? 12 : 0;
+  player.weapon = needsBombs ? 'bomb' : 'missile';
+  updateMissileHUD();
+  // spawn air
+  if(def.spawns.air && !def.spawns.waveDelay){ for(const [t,n] of def.spawns.air){ for(let i=0;i<n;i++) spawnEnemyNear(t, 1800, 3600); } }
+  // spawn ground targets in a cluster ahead of the player
+  if(def.spawns.ground){ layoutGroundTargets(def.spawns.ground); }
+  // boss
+  if(def.spawns.boss){ spawnBoss(def.spawns.boss); }
+  // gauntlet: staggered waves handled in updateMission
+  mission.gauntlet = !!def.spawns.waveDelay;
+  if(mission.gauntlet){ mission.gauntletQueue=def.spawns.air.flatMap(([t,n])=>Array(n).fill(t)); mission.reinforceT=1.5; }
+  dom.enemies.textContent=enemies.length;
+  banner(def.name.toUpperCase(), 'MISSION '+(index+1));
+  queueRadio(def.intro, 3.6);
+  renderObjectives(); updateWeaponHUD();
+}
+function layoutGroundTargets(groundSpec){
+  // place targets in a cluster ~3000m ahead along the player's heading, spread out
+  const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion);
+  const cx=player.obj.position.x+fwd.x*3200, cz=player.obj.position.z+fwd.z*3200;
+  let idx=0;
+  for(const [tag,n] of groundSpec){
+    for(let i=0;i<n;i++){
+      const a=(idx*2.399), r=200+idx*260;   // golden-angle scatter
+      spawnGroundTarget(tag, cx+Math.cos(a)*r, cz+Math.sin(a)*r);
+      idx++;
+    }
+  }
+}
+function onGroundDestroyed(gt){
+  for(const o of mission.objectives){
+    if(o.kind==='destroyGround' && o.tag===gt.tag && !o.done){ o.progress++; if(o.progress>=o.count){ o.done=true; radio('WAGNER|'+o.label+' — erledigt.'); } }
+  }
+  renderObjectives(); checkMissionComplete();
+}
+function onAirDestroyed(){
+  for(const o of mission.objectives){
+    if(o.kind==='destroyAir' && !o.done){ o.progress++; if(o.progress>=o.count){ o.done=true; } }
+  }
+  renderObjectives(); checkMissionComplete();
+}
+function onBossDestroyed(){
+  for(const o of mission.objectives){ if(o.kind==='boss') o.done=true; }
+  renderObjectives(); checkMissionComplete();
+}
+function checkMissionComplete(){
+  if(!mission.active || mission.done) return;
+  const primaries=mission.objectives.filter(o=>o.primary);
+  if(primaries.every(o=>o.done)){
+    mission.done=true; mission.active=false;
+    // mark secondary min-HP objectives resolved
+    banner('MISSION ERFÜLLT', mission.def.name.toUpperCase());
+    queueRadioNow(mission.def.win);
+    player.alive=true;
+    setTimeout(()=>{ if(state==='playing') gameOver(true); }, 2600);
+  }
+}
+function queueRadioNow(lines){ if(!lines) return; let t=0.2; for(const l of lines){ mission.radioQueue.push({t, line:l}); t+=3.2; } }
+
+function updateMission(dt){
+  if(!mission.active) return;
+  updateRadio(dt);
+  // min-HP objectives can fail live
+  for(const o of mission.objectives){
+    if(o.kind==='minHP' && !o.failed && player.hp < o.hp && o.hp>1){ o.failed=true; if(o.primary){ mission.failReason='Struktur zu stark beschädigt.'; } renderObjectives(); }
+  }
+  // gauntlet reinforcement (mission 6): drip enemies in
+  if(mission.gauntlet && mission.gauntletQueue && mission.gauntletQueue.length){
+    mission.reinforceT-=dt;
+    if(mission.reinforceT<=0 && enemies.length<5){
+      const t=mission.gauntletQueue.shift();
+      spawnEnemyNear(t, 2000, 3600);
+      mission.reinforceT=1.6;
+      dom.enemies.textContent=enemies.length;
+    }
+  }
+  dom.enemies.textContent = enemies.length + groundTargets.filter(g=>!g.dead).length;
+}
+
+/* ---------------------------------------------------------------------------
+   15e. BOSSES — KRONOS (carrier) and DAS AUGE (finale)
+   --------------------------------------------------------------------------- */
+let boss=null;
+function clearBoss(){ if(boss){ scene.remove(boss.obj); boss=null; } dom.bosswrap.classList.remove('show'); }
+function spawnBoss(kind){
+  const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion);
+  const bx=player.obj.position.x+fwd.x*3800, bz=player.obj.position.z+fwd.z*3800;
+  if(kind==='kronos') boss=buildKronos(bx,bz);
+  else boss=buildAuge(bx,bz);
+  scene.add(boss.obj);
+  dom.bosswrap.classList.add('show');
+  dom.bosswrap.querySelector('.bname').textContent=boss.name;
+  updateBossBar();
+}
+function buildKronos(x,z){
+  const g=new THREE.Group();
+  // KRONOS is an airborne drone-carrier — it HOVERS well clear of terrain so it's
+  // always fully visible and can't be buried in mountains.
+  const hoverY = Math.max(terrainHeight(x,z),CFG.waterLevel)+650;
+  g.position.set(x, hoverY, z);
+  const hull=new THREE.Mesh(new THREE.BoxGeometry(60,18,220), new THREE.MeshStandardMaterial({color:0x2b3138, metalness:0.6, roughness:0.5}));
+  hull.position.y=9; g.add(hull);
+  const deck=new THREE.Mesh(new THREE.BoxGeometry(70,3,230), new THREE.MeshStandardMaterial({color:0x3a4149, metalness:0.5, roughness:0.6})); deck.position.y=18; g.add(deck);
+  const tower=new THREE.Mesh(new THREE.BoxGeometry(16,26,30), new THREE.MeshStandardMaterial({color:0x24282e, metalness:0.6, roughness:0.5})); tower.position.set(22,32,-40); g.add(tower);
+  // underside engine glow pods (hover eyecandy)
+  for(const oz of [-80,-20,40,90]){ for(const ox of [-26,26]){
+    const pod=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex, color:0x66aaff, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending}));
+    pod.scale.set(30,30,1); pod.position.set(ox,-4,oz); g.add(pod); } }
+  // core (weak point, exposed after turrets down) — glowing
+  const core=new THREE.Mesh(new THREE.SphereGeometry(12,20,16), new THREE.MeshStandardMaterial({color:0x551111, emissive:0xff2200, emissiveIntensity:0.6, metalness:0.3, roughness:0.4}));
+  core.position.set(0,26,10); g.add(core);
+  const coreGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex, color:0xff3020, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending})); coreGlow.scale.set(60,60,1); coreGlow.position.copy(core.position); g.add(coreGlow);
+  // deck turrets as ground targets attached to the boss (positioned on the deck)
+  const turretDefs=[[-24,-70],[24,-70],[-24,60],[24,60]];
+  const parts=[];
+  for(const [ox,oz] of turretDefs){
+    const gt=spawnGroundTarget('turret', x+ox, z+oz);
+    gt.obj.position.set(x+ox, g.position.y+20, z+oz); // sit on the deck
+    gt.airborne=true;   // bomb/ground collision uses absolute y for these
+    gt.bossPart=true; parts.push(gt);
+  }
+  return { obj:g, kind:'kronos', name:'KRONOS · DROHNENWERFT', hp:900, maxhp:900, core, coreGlow, parts, exposed:false,
+    fireCd:1.5, phase:1, vx:0 };
+}
+function buildAuge(x,z){
+  const g=new THREE.Group();
+  const gh=terrainHeight(x,z); g.position.set(x, Math.max(gh,CFG.waterLevel), z);
+  // bunker base
+  const base=new THREE.Mesh(new THREE.CylinderGeometry(70,90,30,10), new THREE.MeshStandardMaterial({color:0x1c2026, metalness:0.5, roughness:0.7})); base.position.y=15; g.add(base);
+  // rotating armored shutter (torus) hiding the eye
+  const shutter=new THREE.Mesh(new THREE.TorusGeometry(26,10,10,28), new THREE.MeshStandardMaterial({color:0x2a2f36, metalness:0.7, roughness:0.4})); shutter.position.y=46; shutter.rotation.x=Math.PI/2; g.add(shutter);
+  // the eye
+  const eye=new THREE.Mesh(new THREE.SphereGeometry(18,24,18), new THREE.MeshStandardMaterial({color:0x330000, emissive:0xff1500, emissiveIntensity:1.0, metalness:0.2, roughness:0.3})); eye.position.y=46; g.add(eye);
+  const iris=new THREE.Mesh(new THREE.SphereGeometry(8,16,12), new THREE.MeshBasicMaterial({color:0x000000})); iris.position.set(0,46,-14); g.add(iris);
+  const glow=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex, color:0xff2000, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending})); glow.scale.set(120,120,1); glow.position.set(0,46,0); g.add(glow);
+  // 3 shield pylons around it as ground targets
+  const parts=[];
+  for(let i=0;i<3;i++){ const a=i/3*Math.PI*2; const gt=spawnGroundTarget('pylon', x+Math.cos(a)*120, z+Math.sin(a)*120); gt.bossPart=true; parts.push(gt); }
+  return { obj:g, kind:'auge', name:'DAS AUGE · HELIOS-KERN', hp:700, maxhp:700, eye, glow, shutter, parts, exposed:false,
+    fireCd:1.0, phase:1 };
+}
+function updateBossBar(){
+  if(!boss) return;
+  dom.bosswrap.querySelector('.bossbar>div').style.width = Math.max(0,(boss.hp/boss.maxhp*100))+'%';
+}
+function damageBoss(dmg){
+  if(!boss || !boss.exposed) return;
+  boss.hp-=dmg; updateBossBar();
+  fireP.spawn(boss.core?boss.core.getWorldPosition(new THREE.Vector3()).x:boss.obj.position.x,
+    boss.obj.position.y+30, boss.obj.position.z, (Math.random()-0.5)*60,30,(Math.random()-0.5)*60,0.3,14,3,C_WHITE,C_ORANGE,0.9,0);
+  if(boss.hp<=0) killBoss();
+}
+function killBoss(){
+  if(!boss) return;
+  const p=boss.obj.position;
+  // spectacular chain of explosions
+  for(let i=0;i<10;i++){ setTimeout(()=>{ if(!boss)return; groundExplode(p.x+(Math.random()-0.5)*120, p.y+20+Math.random()*40, p.z+(Math.random()-0.5)*180, 2.2); }, i*160); }
+  setTimeout(()=>{ clearBoss(); }, 1800);
+  onBossDestroyed();
+}
+function updateBoss(dt){
+  if(!boss) return;
+  // expose the weak point once all boss parts are destroyed
+  const partsAlive=boss.parts.filter(p=>!p.dead).length;
+  if(!boss.exposed && partsAlive===0){
+    boss.exposed=true;
+    radio( boss.kind==='auge' ? 'WAGNER|Die Pylonen sind unten — das Auge ist offen! Feuer frei!' : 'WAGNER|Türme neutralisiert! Der Reaktorkern liegt frei — versenk sie!');
+  }
+  // eyecandy: rotate parts + pulse glow
+  if(boss.coreGlow){ const s=50+Math.sin(menuTime*4)*8; boss.coreGlow.scale.set(s,s,1); }
+  if(boss.shutter && !boss.exposed) boss.shutter.rotation.z+=dt*0.8;
+  if(boss.glow){ const s=(boss.exposed?150:90)+Math.sin(menuTime*5)*14; boss.glow.scale.set(s,s,1); }
+  // boss fires at player when exposed or (kronos) always
+  boss.fireCd-=dt;
+  if(boss.fireCd<=0 && player.alive){
+    boss.fireCd = boss.exposed?0.5:1.0;
+    const src=new THREE.Vector3(); (boss.core||boss.eye||boss.obj).getWorldPosition(src); src.y+=10;
+    const d=player.obj.position.clone().sub(src).normalize();
+    d.x+=(Math.random()-0.5)*0.06; d.y+=(Math.random()-0.5)*0.06; d.z+=(Math.random()-0.5)*0.06;
+    fireBullet(src, d.normalize(), false);
+  }
+}
 
 /* ---------------------------------------------------------------------------
    16. UPDATE — physics, AI, weapons
@@ -1135,6 +1924,16 @@ function updatePlayer(dt){
     fireP.spawn(tailPos.x,tailPos.y,tailPos.z, nz.x*(player.boost?-120:-40), nz.y*-40, nz.z*(player.boost?-120:-40),
       player.boost?0.35:0.18, player.boost?16:9, 1, player.boost?new THREE.Color(0x66aaff):C_ORANGE, C_ORANGE, 0.9, 0);
   }
+  // wingtip contrails at high speed / high altitude (eyecandy)
+  if((player.speed>CFG.maxSpeed || player.obj.position.y>1600) && Math.random()<0.7){
+    for(const s of [-1,1]){ const wt=player.obj.position.clone().add(tmpV.set(s*10,0,2).applyQuaternion(player.obj.quaternion));
+      smokeP.spawn(wt.x,wt.y,wt.z,0,0,0, 1.6, 3, 22, C_WHITE, C_WHITE, 0.96, 0); }
+  }
+  // damage smoke when structure is low
+  if(player.hp<45 && Math.random()<0.5){
+    smokeP.spawn(tailPos.x,tailPos.y,tailPos.z,(Math.random()-0.5)*10,4,(Math.random()-0.5)*10, 1.2, 8, 40, player.hp<22?C_DARK:C_GREY, C_SMOKE, 0.95, -3);
+    if(player.hp<22 && Math.random()<0.3) fireP.spawn(tailPos.x,tailPos.y,tailPos.z,0,0,0,0.3,10,2,C_ORANGE,C_RED,0.9,0);
+  }
 
   // --- Ground / altitude ---
   const gh=terrainHeight(player.obj.position.x, player.obj.position.z);
@@ -1158,7 +1957,7 @@ function updatePlayer(dt){
   if(player.obj.position.y>4200){ player.obj.position.y=4200; }
 
   // --- Weapons ---
-  player.fireCd-=dt; player.missileCd-=dt;
+  player.fireCd-=dt; player.missileCd-=dt; if(player.bombCd>0) player.bombCd-=dt;
   if(player.reloadT>0){ player.reloadT-=dt; if(player.reloadT<=0){ player.missiles=CFG.missileMax; updateMissileHUD(); Audio.reload(); } }
   const firing = firingMouse || keys['Space'];
   if(firing && player.fireCd<=0){
@@ -1225,6 +2024,12 @@ function updateBullets(dt){
           break;
         }
       }
+      // ground targets (guns can chip them, but bombs are the real tool)
+      if(!hit){ for(const gt of groundTargets){ if(gt.dead) continue; const gp=gt.obj.position;
+        if(distSqPointSeg(gp.x,gp.y+gt.height*0.5,gp.z, ax,ay,az, sx,sy,sz) < (gt.radius*0.7)*(gt.radius*0.7)){ damageGround(gt, b.dmg*0.5); Audio.hit(); hit=true; break; } } }
+      // boss weak point
+      if(!hit && boss && boss.exposed){ const wp=new THREE.Vector3(); (boss.core||boss.eye).getWorldPosition(wp); const wr=boss.kind==='auge'?20:14;
+        if(distSqPointSeg(wp.x,wp.y,wp.z, ax,ay,az, sx,sy,sz) < wr*wr){ damageBoss(b.dmg); Audio.hit(); hit=true; } }
     } else {
       const pp=player.obj.position;
       if(player.alive && distSqPointSeg(pp.x,pp.y,pp.z, ax,ay,az, sx,sy,sz) < 14*14){
@@ -1268,6 +2073,8 @@ function updateMissiles(dt){
         exploded=true; break;
       }
     }
+    if(!exploded && boss && boss.exposed){ const wp=new THREE.Vector3(); (boss.core||boss.eye).getWorldPosition(wp);
+      if(mi.mesh.position.distanceTo(wp) < (boss.kind==='auge'?26:20)){ damageBoss(CFG.missileDmg); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false); exploded=true; } }
     if(exploded || mi.life<=0){
       if(mi.life<=0 && !exploded) explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0.5);
       scene.remove(mi.mesh); missiles.splice(i,1);
@@ -1287,12 +2094,13 @@ function killEnemy(e){
   const gain=Math.round(e.st.score*mult);
   score+=gain; dom.score.textContent=score;
   dom.enemies.textContent=enemies.length;
-  const names={f16:'F-16',f18:'F/A-18',f22:'F-22 RAPTOR'};
+  const names={f16:'JÄGER-DROHNE',f18:'KAMPFDROHNE',f22:'ELITE-DROHNE'};
   killMsg('▼ '+names[e.type]+'  +'+gain+(mult>1?('  ×'+mult):''));
   if(combo>=2 && COMBO_CALL[combo]) banner(COMBO_CALL[Math.min(combo,7)], 'Kill-Serie ×'+mult);
   if(combo>=2) Audio.reload();  // rising chime as a reward cue
   const d=player.obj.position.distanceTo(e.obj.position);
   if(d<400) shake=Math.max(shake, 0.6*(1-d/400));
+  if(mission.active) onAirDestroyed();
 }
 
 const _edir=new THREE.Vector3(), _eright=new THREE.Vector3(), _etmp=new THREE.Vector3();
@@ -1395,6 +2203,38 @@ function updateEnemies(dt){
   }
 }
 
+// SAM / flak sites track the player and lob warning-tracked shots; radar dishes spin.
+let samWarnActive=false;
+function updateGroundTargets(dt){
+  let anyLock=false;
+  for(const gt of groundTargets){
+    if(gt.dead) continue;
+    if(gt.spin) gt.spin.rotation.z += dt*1.2;          // radar dish / pylon ring spin (eyecandy)
+    if(!gt.sam) continue;
+    const to=player.obj.position.clone().sub(gt.obj.position);
+    const dist=to.length();
+    // turret tracks player
+    if(gt.turret){ const ang=Math.atan2(to.x,to.z); gt.turret.rotation.y=ang; }
+    if(dist<2600 && player.alive){
+      gt.samLockT+=dt;
+      if(gt.samLockT>1.2) anyLock=true;                 // launch-warning window
+      gt.fireCd-=dt;
+      if(gt.fireCd<=0 && gt.samLockT>1.2){
+        gt.fireCd=1.4+Math.random()*1.2;
+        const src=gt.obj.position.clone(); src.y+=gt.height*0.8;
+        const lead=player.obj.position.clone().addScaledVector(player.vel, dist/CFG.enemyBulletSpeed*0.6);
+        const d=lead.sub(src).normalize();
+        d.x+=(Math.random()-0.5)*0.03; d.y+=(Math.random()-0.5)*0.03; d.z+=(Math.random()-0.5)*0.03;
+        fireBullet(src, d.normalize(), false);
+        Audio.samLaunch();
+        // tracer puff
+        fireP.spawn(src.x,src.y,src.z, d.x*200,d.y*200,d.z*200, 0.2, 16, 3, C_WHITE, C_RED, 0.9, 0);
+      }
+    } else { gt.samLockT=Math.max(0, gt.samLockT-dt*2); }
+  }
+  samWarnActive=anyLock;
+}
+
 /* ---------------------------------------------------------------------------
    17. CAMERA
    --------------------------------------------------------------------------- */
@@ -1467,10 +2307,14 @@ function loop(now){
   if(state==='playing'){
     updatePlayer(dt);
     updateEnemies(dt);
+    updateGroundTargets(dt);
+    updateBoss(dt);
     updateBullets(dt);
     updateMissiles(dt);
+    updateBombs(dt);
+    if(gameMode==='campaign') updateMission(dt);
     nextWaveCheck();
-    if(betweenTimer>0){ betweenTimer-=dt; if(betweenTimer<=0 && !waveActive) startWave(wave+1); }
+    if(gameMode==='endless' && betweenTimer>0){ betweenTimer-=dt; if(betweenTimer<=0 && !waveActive) startWave(wave+1); }
     // kill-combo window: lose the streak if no kill within the timeout
     if(comboT>0){ comboT-=dt; if(comboT<=0) combo=0; }
     // HUD numbers
@@ -1484,8 +2328,8 @@ function loop(now){
     if(terrainTimer<=0){ terrainTimer=0.25; updateTerrain(player.obj.position.x, player.obj.position.z); }
     updateClouds(player.obj.position.x, player.obj.position.z, dt);
   } else if(state==='gameover'){
-    // let particles settle, keep enemies drifting
-    updateEnemies(dt); updateBullets(dt); updateMissiles(dt);
+    // let particles settle, keep the world drifting
+    updateEnemies(dt); updateBullets(dt); updateMissiles(dt); updateBombs(dt); updateBoss(dt);
   }
 
   // particles always update (so explosions animate on game over/pause-out)
