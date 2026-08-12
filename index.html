@@ -209,16 +209,18 @@
       <div class="row"><span class="k">W / S</span> Steigen / Sinken — voll herum = Looping</div>
       <div class="row"><span class="k">A / D</span> Links / Rechts kurven</div>
       <div class="row"><span class="k">Q / E</span> Feineinstellung Kurve</div>
-      <div class="row"><span class="k">Leert. / 🖱L</span> Maschinengewehr</div>
-      <div class="row"><span class="k">F / 🖱R</span> Lenkrakete (Luftziel)</div>
+      <div class="row"><span class="k">Leert. / 🖱L</span> Maschinengewehr (roter Zielpunkt = Vorhalt)</div>
+      <div class="row"><span class="k">F / 🖱R</span> Rakete — <b style="color:var(--gold)">nur mit LOCK</b> lenkbar, sonst Geradeaus</div>
       <div class="row"><span class="k">G</span> Bombe abwerfen (Bodenziel)</div>
       <div class="row"><span class="k">X</span> Waffe wechseln (Rakete/Bombe)</div>
       <div class="row"><span class="k">Shift</span> Nachbrenner (schnell = weiter Bogen)</div>
       <div class="row"><span class="k">Strg</span> Drosseln (langsam = enger Bogen!)</div>
     </div>
-    <div class="tag" style="margin-top:24px; opacity:.7; max-width:680px; line-height:1.6">
-      🎯 Wer <b style="color:var(--gold)">langsamer</b> fliegt, kurvt <b style="color:var(--gold)">enger</b> — mit <b style="color:var(--gold)">Strg</b> dem Gegner in den Rücken ziehen. ·
-      💣 Für Bomben tief & flach anfliegen, den <b style="color:var(--gold)">fallenden Kreis (CCIP)</b> aufs Ziel legen, dann <b style="color:var(--gold)">G</b>.
+    <div class="tag" style="margin-top:24px; opacity:.7; max-width:700px; line-height:1.6">
+      🎯 Halte den roten <b style="color:var(--gold)">Zielpunkt</b> aufs Ziel — „FEUER · GUNS" heißt Treffer sicher. ·
+      🚀 Raketen suchen <b style="color:var(--gold)">nur bei rotem LOCK</b>; ohne Lock fliegen sie gerade. ·
+      💣 Bomben: tief & flach, den <b style="color:var(--gold)">CCIP-Kreis</b> aufs Ziel, dann <b style="color:var(--gold)">G</b>. ·
+      👑 Boss: erst <b style="color:var(--gold)">Türme/Pylonen</b> zerstören, dann den freigelegten <b style="color:var(--gold)">Kern</b>.
     </div>
   </div>
 
@@ -246,15 +248,16 @@
       <div class="row"><span class="k">W / S</span> Steigen / Sinken — voll herum = Looping</div>
       <div class="row"><span class="k">A / D</span> Links / Rechts kurven</div>
       <div class="row"><span class="k">Q / E</span> Feineinstellung Kurve</div>
-      <div class="row"><span class="k">Leert. / 🖱L</span> Maschinengewehr</div>
-      <div class="row"><span class="k">F / 🖱R</span> Lenkrakete (sucht Ziel)</div>
+      <div class="row"><span class="k">Leert. / 🖱L</span> Maschinengewehr (Zielpunkt = Vorhalt)</div>
+      <div class="row"><span class="k">F / 🖱R</span> Rakete — nur mit LOCK lenkbar</div>
       <div class="row"><span class="k">G</span> Bombe (Bodenziel) · <span class="k">X</span> Waffe wechseln</div>
       <div class="row"><span class="k">Shift</span> Nachbrenner · <span class="k">Strg</span> Drosseln</div>
     </div>
-    <div class="tag" style="margin-top:24px; opacity:.7; max-width:640px; line-height:1.6">
-      🎯 TRICK: Wer langsamer fliegt, kurvt <b style="color:var(--gold)">enger</b>. <b style="color:var(--gold)">Strg</b> drücken,
-      um dem Gegner in den Rücken zu ziehen! · Der rote Zielpunkt zeigt, wohin du beim MG halten musst ·
-      Schnelle Abschüsse hintereinander = <b style="color:var(--gold)">Kill-Serie ×</b> mehr Punkte
+    <div class="tag" style="margin-top:24px; opacity:.7; max-width:660px; line-height:1.6">
+      🎯 Roten <b style="color:var(--gold)">Zielpunkt</b> aufs Ziel halten — „FEUER · GUNS" = sicherer Treffer ·
+      🚀 Raketen lenken <b style="color:var(--gold)">nur bei LOCK</b> ·
+      👑 Boss: erst Türme/Pylonen, dann den <b style="color:var(--gold)">Kern</b> ·
+      <b style="color:var(--gold)">Strg</b> = enger kurven
     </div>
   </div>
 
@@ -283,10 +286,10 @@ const CFG = {
   waterLevel: 0,
   minSpeed: 150, cruiseSpeed: 250, maxSpeed: 380, boostSpeed: 520,
   bulletSpeed: 1500, bulletLife: 1.2, bulletDmg: 11, fireInterval: 0.05,
-  missileSpeed: 620, missileLife: 6.0, missileTurn: 2.6, missileDmg: 220, missileMax: 6,
+  missileSpeed: 620, missileLife: 6.0, missileTurn: 2.6, missileDmg: 90, missileDmgBoss: 150, missileMax: 6,
   enemyBulletSpeed: 900, enemyBulletDmg: 3.2, enemyBulletLife: 1.6,
-  aimAssist: 0.16,         // fraction of correction applied to MG bullets
-  gunRange: 1500,          // effective MG range for the lead pipper / "GUNS" cue
+  aimAssist: 0.42,         // fraction of correction applied to MG bullets (toward lead point)
+  gunRange: 1600,          // effective MG range for the lead pipper / "GUNS" cue
   playerHP: 100,
 };
 
@@ -937,14 +940,16 @@ const missileGeo=new THREE.CylinderGeometry(0.35,0.35,4,8); missileGeo.rotateX(M
 const missileMat=new THREE.MeshStandardMaterial({color:0xdddddd, metalness:0.4, roughness:0.5, emissive:0x220000});
 function fireMissile(){
   if(player.missiles<=0 || player.reloadT>0) return;
-  const target = currentLock || nearestEnemyInFront(0.6, 4000);
+  // Only guided if there is a genuine lock. No lock = DUMB-FIRE: flies straight,
+  // never re-acquires, and only detonates on a target it physically hits.
+  const target = currentLock || null;
   player.missiles--;
   const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion);
   const side=new THREE.Vector3((player.missiles%2===0?1:-1),0,0).applyQuaternion(player.obj.quaternion);
   const startPos=player.obj.position.clone().add(side.multiplyScalar(6)).add(fwd.clone().multiplyScalar(3));
   const mesh=new THREE.Mesh(missileGeo, missileMat); mesh.position.copy(startPos); scene.add(mesh);
   const light=new THREE.PointLight(0xff8844,1.2,60); mesh.add(light);
-  missiles.push({ mesh, vel:fwd.clone().multiplyScalar(player.speed*0.6+120), target, life:CFG.missileLife, trailCd:0 });
+  missiles.push({ mesh, vel:fwd.clone().multiplyScalar(player.speed*0.6+120), target, guided:!!target, life:CFG.missileLife, trailCd:0 });
   Audio.missileLaunch();
   updateMissileHUD();
   if(player.missiles===0){ player.reloadT=6; } // auto reload after depletion
@@ -1066,13 +1071,13 @@ function buildGroundModel(tag){
     const dome=new THREE.Mesh(new THREE.SphereGeometry(3.5,12,8), GROUND_MAT_METAL); dome.position.y=4; g.add(dome); g.userData.turret=dome;
     const barrel=new THREE.Mesh(new THREE.CylinderGeometry(0.7,0.7,10,8), GROUND_MAT_METAL); barrel.rotation.x=-0.6; barrel.position.set(0,5,4); dome.add(barrel);
     const eye=new THREE.Mesh(new THREE.SphereGeometry(0.9,8,6), new THREE.MeshBasicMaterial({color:0xff2b1a})); eye.position.set(0,5,-2); dome.add(eye);
-    return {g, radius:12, height:10, hp:180, sam:true};
+    return {g, radius:16, height:10, hp:90, sam:true};
   }
   if(tag==='pylon'){ // Das Auge shield pylon
     const col=new THREE.Mesh(new THREE.CylinderGeometry(2.5,3.5,26,8), GROUND_MAT_DARK); col.position.y=13; g.add(col);
     const ring=new THREE.Mesh(new THREE.TorusGeometry(5,1,8,20), new THREE.MeshStandardMaterial({color:0x992222, emissive:0xff2200, emissiveIntensity:1.2, metalness:0.4, roughness:0.3}));
     ring.position.y=24; ring.rotation.x=Math.PI/2; g.add(ring); g.userData.spin=ring;
-    return {g, radius:12, height:30, hp:200};
+    return {g, radius:16, height:30, hp:110};
   }
   // default block
   const b=new THREE.Mesh(new THREE.BoxGeometry(8,8,8), GROUND_MAT_DARK); b.position.y=4; g.add(b);
@@ -1101,6 +1106,12 @@ function destroyGround(gt){
   for(let i=0;i<10;i++){ const a=Math.random()*Math.PI*2, sp=80+Math.random()*160;
     fireP.spawn(gt.obj.position.x,gt.obj.position.y+4,gt.obj.position.z, Math.cos(a)*sp, 80+Math.random()*120, Math.sin(a)*sp, 1.0, 8, 2, C_YELLOW, C_RED, 0.95, 60); }
   scene.remove(gt.obj);
+  if(gt.bossPart && boss){
+    const left=boss.parts.filter(p=>!p.dead).length;
+    if(left>0) radio('WAGNER|'+(boss.kind==='auge'?'Pylon':'Turm')+' zerstört — '+left+' übrig.');
+    updateBossBar();
+    checkBossExpose();   // expose core immediately if that was the last part
+  }
   if(mission.active) onGroundDestroyed(gt);
   score += 150; if(dom.score) dom.score.textContent=score;
 }
@@ -1161,8 +1172,9 @@ addEventListener('blur', ()=>{ firingMouse=false; for(const k in keys) keys[k]=f
 /* ---------------------------------------------------------------------------
    13. TARGETING / LOCK
    --------------------------------------------------------------------------- */
-let currentLock=null;
-let gunSolution=null;      // {point:Vector3, inRange:bool} intercept aim-point for currentLock
+let currentLock=null;      // tight missile-lock cone
+let gunTarget=null;        // broader gun-assist cone
+let gunSolution=null;      // {point, dist, inRange, onTarget, closure, target} for the pipper + MG aim-assist
 const _v=new THREE.Vector3(), _v2=new THREE.Vector3();
 
 // First-order intercept: where to aim so a bullet at bulletSpeed meets a moving target.
@@ -1289,28 +1301,37 @@ function drawHUD(){
     }
   }
 
-  // ---- GUN LEAD PIPPER: aim the center reticle onto this marker to hit ----
+  // ---- GUN LEAD PIPPER: put the center reticle on this marker to hit ----
   if(gunSolution){
     const lp=_v.copy(gunSolution.point).project(camera);
     if(lp.z<1){
       const px=(lp.x*0.5+0.5)*w, py=(-lp.y*0.5+0.5)*h;
       const near=gunSolution.inRange;
-      // line from reticle to pipper
-      hctx.strokeStyle = near? 'rgba(255,80,80,0.5)':'rgba(255,255,255,0.25)';
+      const onTgt=gunSolution.onTarget && near;
+      const col = onTgt ? 'rgba(120,255,120,0.98)' : (near? 'rgba(255,70,70,0.95)':'rgba(255,210,110,0.85)');
+      // guide line from center reticle to the pipper
+      hctx.strokeStyle = near? 'rgba(255,80,80,0.5)':'rgba(255,255,255,0.28)';
       hctx.lineWidth=1; hctx.setLineDash([4,4]);
       hctx.beginPath(); hctx.moveTo(cx,cy); hctx.lineTo(px,py); hctx.stroke(); hctx.setLineDash([]);
-      // pipper circle
-      hctx.strokeStyle = near? 'rgba(255,60,60,0.95)':'rgba(255,220,120,0.9)';
+      // pipper: filled dot + ring + ticks (bigger, clearer)
+      hctx.strokeStyle=col; hctx.fillStyle=col; hctx.lineWidth=2.5;
+      hctx.beginPath(); hctx.arc(px,py,13,0,Math.PI*2); hctx.stroke();
+      hctx.beginPath(); hctx.arc(px,py,2.5,0,Math.PI*2); hctx.fill();
       hctx.lineWidth=2;
-      hctx.beginPath(); hctx.arc(px,py,10,0,Math.PI*2); hctx.stroke();
-      hctx.beginPath(); hctx.moveTo(px-14,py); hctx.lineTo(px-6,py); hctx.moveTo(px+6,py); hctx.lineTo(px+14,py);
-      hctx.moveTo(px,py-14); hctx.lineTo(px,py-6); hctx.moveTo(px,py+6); hctx.lineTo(px,py+14); hctx.stroke();
-      // "GUNS" cue when reticle is aligned with the pipper AND in range
-      const aligned=Math.hypot(px-cx,py-cy)<26;
-      if(near && aligned){
-        hctx.fillStyle='rgba(255,60,60,0.95)'; hctx.font='bold 15px monospace'; hctx.textAlign='center';
-        hctx.fillText('◄ GUNS ►', cx, cy-42); hctx.textAlign='left';
-      }
+      hctx.beginPath(); hctx.moveTo(px-19,py); hctx.lineTo(px-9,py); hctx.moveTo(px+9,py); hctx.lineTo(px+19,py);
+      hctx.moveTo(px,py-19); hctx.lineTo(px,py-9); hctx.moveTo(px,py+9); hctx.lineTo(px,py+19); hctx.stroke();
+      // range readout next to the pipper
+      hctx.font='11px monospace'; hctx.textAlign='left'; hctx.fillStyle=col;
+      hctx.fillText(Math.round(gunSolution.dist)+' m', px+22, py-6);
+      const clo=Math.max(-2000,Math.min(2000,Math.round(gunSolution.closure*3.6)));   // closure km/h, clamped
+      hctx.fillStyle='rgba(200,220,240,0.75)';
+      hctx.fillText((clo>=0?'▲':'▼')+Math.abs(clo)+' km/h', px+22, py+9);
+      // big status cue under the center reticle
+      hctx.textAlign='center'; hctx.font='bold 16px monospace';
+      if(onTgt){ hctx.fillStyle='rgba(120,255,120,0.98)'; hctx.fillText('◄ FEUER · GUNS ►', cx, cy-44); }
+      else if(near){ hctx.fillStyle='rgba(255,120,120,0.9)'; hctx.font='bold 13px monospace'; hctx.fillText('IN REICHWEITE — auf Zielpunkt halten', cx, cy-44); }
+      else { hctx.fillStyle='rgba(255,210,110,0.8)'; hctx.font='12px monospace'; hctx.fillText('ausser Reichweite ('+Math.round(gunSolution.dist)+' m)', cx, cy-44); }
+      hctx.textAlign='left';
     }
   }
 
@@ -1785,7 +1806,7 @@ function buildKronos(x,z){
     gt.airborne=true;   // bomb/ground collision uses absolute y for these
     gt.bossPart=true; parts.push(gt);
   }
-  return { obj:g, kind:'kronos', name:'KRONOS · DROHNENWERFT', hp:900, maxhp:900, core, coreGlow, parts, exposed:false,
+  return { obj:g, kind:'kronos', name:'KRONOS · DROHNENWERFT', hp:420, maxhp:420, core, coreGlow, parts, exposed:false,
     fireCd:1.5, phase:1, vx:0 };
 }
 function buildAuge(x,z){
@@ -1802,12 +1823,19 @@ function buildAuge(x,z){
   // 3 shield pylons around it as ground targets
   const parts=[];
   for(let i=0;i<3;i++){ const a=i/3*Math.PI*2; const gt=spawnGroundTarget('pylon', x+Math.cos(a)*120, z+Math.sin(a)*120); gt.bossPart=true; parts.push(gt); }
-  return { obj:g, kind:'auge', name:'DAS AUGE · HELIOS-KERN', hp:700, maxhp:700, eye, glow, shutter, parts, exposed:false,
+  return { obj:g, kind:'auge', name:'DAS AUGE · HELIOS-KERN', hp:380, maxhp:380, eye, glow, shutter, parts, exposed:false,
     fireCd:1.0, phase:1 };
 }
 function updateBossBar(){
   if(!boss) return;
   dom.bosswrap.querySelector('.bossbar>div').style.width = Math.max(0,(boss.hp/boss.maxhp*100))+'%';
+  // live phase label: tell the player exactly what to shoot right now
+  const partsAlive = boss.parts.filter(p=>!p.dead).length;
+  const partName = boss.kind==='auge' ? 'PYLON' : 'TURM';
+  const phase = boss.exposed
+    ? '① KERN FREI — VERSENKEN'
+    : `Erst ${partsAlive} × ${partName} zerstören (dann Kern)`;
+  dom.bosswrap.querySelector('.bname').textContent = boss.name + '  —  ' + phase;
 }
 function damageBoss(dmg){
   if(!boss || !boss.exposed) return;
@@ -1824,14 +1852,17 @@ function killBoss(){
   setTimeout(()=>{ clearBoss(); }, 1800);
   onBossDestroyed();
 }
-function updateBoss(dt){
-  if(!boss) return;
-  // expose the weak point once all boss parts are destroyed
-  const partsAlive=boss.parts.filter(p=>!p.dead).length;
-  if(!boss.exposed && partsAlive===0){
+function checkBossExpose(){
+  // expose the weak point the instant all boss parts are destroyed (not next frame)
+  if(boss && !boss.exposed && boss.parts.filter(p=>!p.dead).length===0){
     boss.exposed=true;
     radio( boss.kind==='auge' ? 'WAGNER|Die Pylonen sind unten — das Auge ist offen! Feuer frei!' : 'WAGNER|Türme neutralisiert! Der Reaktorkern liegt frei — versenk sie!');
+    updateBossBar();
   }
+}
+function updateBoss(dt){
+  if(!boss) return;
+  checkBossExpose();
   // eyecandy: rotate parts + pulse glow
   if(boss.coreGlow){ const s=50+Math.sin(menuTime*4)*8; boss.coreGlow.scale.set(s,s,1); }
   if(boss.shutter && !boss.exposed) boss.shutter.rotation.z+=dt*0.8;
@@ -1980,26 +2011,36 @@ function updatePlayer(dt){
     for(const s of [-1,1]){
       const gp=player.obj.position.clone().add(tmpV2.set(s*4,0,-2).applyQuaternion(player.obj.quaternion));
       const d=dir.clone();
-      // mild aim assist toward the LEAD point (where the target will be) — makes
-      // the MG actually connect in a turning fight without full auto-aim
-      if(gunSolution && gunSolution.inRange){ const to=tmpV2.copy(gunSolution.point).sub(gp).normalize(); d.lerp(to, CFG.aimAssist).normalize(); }
-      // slight spread
-      d.x+=(Math.random()-0.5)*0.005; d.y+=(Math.random()-0.5)*0.005;
+      // Aim assist toward the LEAD point (where the target will be). Stronger when
+      // you're already roughly pointed at it, so it rewards aiming without full auto-lock.
+      let spread=0.006;
+      if(gunSolution && gunSolution.inRange){
+        const to=tmpV2.copy(gunSolution.point).sub(gp).normalize();
+        const align=dir.dot(to);                       // how close the nose already is
+        if(align>0.9){ const k = CFG.aimAssist * (align>0.985?1.6:1); d.lerp(to, Math.min(0.9,k)).normalize(); spread=0.0025; }
+      }
+      d.x+=(Math.random()-0.5)*spread; d.y+=(Math.random()-0.5)*spread;
       fireBullet(gp, d.normalize(), true);
       muzzle(gp.x,gp.y,gp.z, dir.x,dir.y,dir.z);
     }
     Audio.gun();
   }
 
-  // update lock
+  // Missile lock: tight forward cone (used for guided missiles).
   currentLock = nearestEnemyInFront(0.985, 3500) || nearestEnemyInFront(0.94, 2600);
   Audio.lockTone(currentLock!=null);
-  // gun firing solution (shared by the HUD pipper and the MG aim-assist)
-  if(currentLock){
+  // Gun target: a BROADER cone than the missile lock, so the pipper/aim-assist
+  // help you in a turning fight even before you have a hard missile lock.
+  gunTarget = currentLock || nearestEnemyInFront(0.86, CFG.gunRange+400);
+  if(gunTarget){
     const gp=_leadOut2.copy(player.obj.position);
-    const pt=computeLeadPoint(gp, null, currentLock.obj.position, currentLock.vel, CFG.bulletSpeed, _leadOut);
-    const d=currentLock.obj.position.distanceTo(player.obj.position);
-    gunSolution = { point: pt, dist:d, inRange: d<CFG.gunRange };
+    const pt=computeLeadPoint(gp, null, gunTarget.obj.position, gunTarget.vel, CFG.bulletSpeed, _leadOut);
+    const d=gunTarget.obj.position.distanceTo(player.obj.position);
+    // angular error between nose and the lead point (for the "ON TARGET" cue)
+    const nose=tmpV.set(0,0,-1).applyQuaternion(player.obj.quaternion);
+    const toLead=tmpV2.copy(pt).sub(player.obj.position).normalize();
+    gunSolution = { point: pt.clone(), dist:d, inRange: d<CFG.gunRange, target:gunTarget,
+      onTarget: nose.dot(toLead)>0.992, closure: gunTarget.vel? nose.dot(tmpV.copy(player.vel).sub(gunTarget.vel)) : 0 };
   } else gunSolution=null;
 
   // engine sound
@@ -2008,7 +2049,7 @@ function updatePlayer(dt){
 }
 
 // squared distance from point P to segment A->B (A = start, seg = B-A)
-const _seg=new THREE.Vector3(), _ap=new THREE.Vector3();
+const _seg=new THREE.Vector3(), _ap=new THREE.Vector3(), _wp=new THREE.Vector3();
 function distSqPointSeg(px,py,pz, ax,ay,az, sx,sy,sz){
   _seg.set(sx,sy,sz); _ap.set(px-ax,py-ay,pz-az);
   const segLen2=_seg.lengthSq();
@@ -2037,12 +2078,13 @@ function updateBullets(dt){
           break;
         }
       }
-      // ground targets (guns can chip them, but bombs are the real tool)
+      // ground targets: guns chip buildings (bombs are the main tool) but do FULL
+      // damage to boss parts (turrets/pylons) so they can be shot down with guns too.
       if(!hit){ for(const gt of groundTargets){ if(gt.dead) continue; const gp=gt.obj.position;
-        if(distSqPointSeg(gp.x,gp.y+gt.height*0.5,gp.z, ax,ay,az, sx,sy,sz) < (gt.radius*0.7)*(gt.radius*0.7)){ damageGround(gt, b.dmg*0.5); Audio.hit(); hit=true; break; } } }
-      // boss weak point
-      if(!hit && boss && boss.exposed){ const wp=new THREE.Vector3(); (boss.core||boss.eye).getWorldPosition(wp); const wr=boss.kind==='auge'?20:14;
-        if(distSqPointSeg(wp.x,wp.y,wp.z, ax,ay,az, sx,sy,sz) < wr*wr){ damageBoss(b.dmg); Audio.hit(); hit=true; } }
+        if(distSqPointSeg(gp.x,gp.y+gt.height*0.5,gp.z, ax,ay,az, sx,sy,sz) < (gt.radius*0.85)*(gt.radius*0.85)){ damageGround(gt, gt.bossPart? b.dmg : b.dmg*0.5); Audio.hit(); hit=true; break; } } }
+      // boss weak point (generous hit radius so guns are viable on the core)
+      if(!hit && boss && boss.exposed){ (boss.core||boss.eye).getWorldPosition(_wp); const wr=boss.kind==='auge'?24:18;
+        if(distSqPointSeg(_wp.x,_wp.y,_wp.z, ax,ay,az, sx,sy,sz) < wr*wr){ damageBoss(b.dmg); Audio.hit(); hit=true; } }
     } else {
       const pp=player.obj.position;
       if(player.alive && distSqPointSeg(pp.x,pp.y,pp.z, ax,ay,az, sx,sy,sz) < 14*14){
@@ -2059,16 +2101,17 @@ function updateMissiles(dt){
   for(let i=missiles.length-1;i>=0;i--){
     const mi=missiles[i];
     mi.life-=dt;
-    // retarget if lost
-    if(!mi.target || enemies.indexOf(mi.target)<0){ mi.target = nearestEnemyInFront(-1, 5000); }
-    if(mi.target && enemies.indexOf(mi.target)>=0){
-      const to=tmpV.copy(mi.target.obj.position).sub(mi.mesh.position).normalize();
-      const cur=tmpV2.copy(mi.vel).normalize();
-      // steer
-      const newDir=cur.lerp(to, Math.min(1, CFG.missileTurn*dt)).normalize();
-      mi.vel.copy(newDir).multiplyScalar(CFG.missileSpeed);
-    } else {
-      mi.vel.multiplyScalar(1); // fly straight
+    // Guided: home ONLY on the original lock target while it still exists & is ahead.
+    // If that target dies/goes cold, the missile goes ballistic — it does NOT hunt
+    // for a new one. Dumb-fired missiles never home at all.
+    if(mi.guided && mi.target && enemies.indexOf(mi.target)>=0){
+      const to=tmpV.copy(mi.target.obj.position).sub(mi.mesh.position);
+      if(to.dot(mi.vel)>0){   // only steer toward it if it's still in front
+        to.normalize();
+        const cur=tmpV2.copy(mi.vel).normalize();
+        const newDir=cur.lerp(to, Math.min(1, CFG.missileTurn*dt)).normalize();
+        mi.vel.copy(newDir).multiplyScalar(CFG.missileSpeed);
+      }
     }
     mi.mesh.position.addScaledVector(mi.vel, dt);
     mi.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), tmpV.copy(mi.vel).normalize());
@@ -2076,18 +2119,22 @@ function updateMissiles(dt){
     mi.trailCd-=dt;
     smokeP.spawn(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,(Math.random()-0.5)*10,(Math.random()-0.5)*10,(Math.random()-0.5)*10,0.9,10,60,C_WHITE,C_GREY,0.95,-2);
     fireP.spawn(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0,0,0,0.15,14,2,C_YELLOW,C_ORANGE,0.9,0);
-    // hit check
+    // hit check — enemies
     let exploded=false;
     for(const e of enemies){
-      if(mi.mesh.position.distanceTo(e.obj.position) < e.st.radius+18){
+      if(mi.mesh.position.distanceTo(e.obj.position) < e.st.radius+16){
         e.hp-=CFG.missileDmg; e.damaged=true;
         explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.1); Audio.explosion(false);
         if(e.hp<=0) killEnemy(e);
         exploded=true; break;
       }
     }
-    if(!exploded && boss && boss.exposed){ const wp=new THREE.Vector3(); (boss.core||boss.eye).getWorldPosition(wp);
-      if(mi.mesh.position.distanceTo(wp) < (boss.kind==='auge'?26:20)){ damageBoss(CFG.missileDmg); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false); exploded=true; } }
+    // boss parts (turrets/pylons) — missiles are a valid tool against them
+    if(!exploded){ for(const gt of (boss?boss.parts:[])){ if(gt.dead) continue;
+      if(mi.mesh.position.distanceTo(gt.obj.position) < gt.radius+16){ damageGround(gt, CFG.missileDmgBoss); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false); exploded=true; break; } } }
+    // boss core/eye once exposed
+    if(!exploded && boss && boss.exposed){ (boss.core||boss.eye).getWorldPosition(_wp);
+      if(mi.mesh.position.distanceTo(_wp) < (boss.kind==='auge'?30:22)){ damageBoss(CFG.missileDmgBoss); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false); exploded=true; } }
     if(exploded || mi.life<=0){
       if(mi.life<=0 && !exploded) explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0.5);
       scene.remove(mi.mesh); missiles.splice(i,1);
