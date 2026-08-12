@@ -1578,16 +1578,17 @@ function buildMissionList(){
   const wrap=document.getElementById('missionlist'); wrap.innerHTML='';
   const typeName={air:'LUFTKAMPF',ground:'BODENANGRIFF',mixed:'KOMBINIERT',boss:'BOSS'};
   CAMPAIGN.forEach((m,i)=>{
-    const unlocked = i < campaignUnlocked;
+    // All missions are freely selectable now; the badge only reflects story progress.
+    const reached = i < campaignUnlocked;      // reached in the story so far
     const done = i < campaignUnlocked-1;
     const card=document.createElement('div');
-    card.className='mcard'+(unlocked?'':' locked')+(done?' done':'');
+    card.className='mcard'+(done?' done':'');
     card.innerHTML = `<div class="mnum">MISSION ${i+1}</div>`+
       `<div class="mname">${m.name}</div>`+
       `<span class="mtype ${m.type}">${typeName[m.type]||m.type}</span>`+
       `<div class="mdesc">${m.objectives.filter(o=>o.primary).map(o=>o.label).join(' · ')}</div>`+
-      (unlocked?'':'<div class="mlock">🔒</div>');
-    if(unlocked) card.onclick=()=>openBriefing(i);
+      (reached?'':'<div class="mlock" title="Noch nicht in der Story erreicht — trotzdem spielbar">⚑</div>');
+    card.onclick=()=>openBriefing(i);
     wrap.appendChild(card);
   });
 }
@@ -1902,13 +1903,15 @@ function updatePlayer(dt){
   if(keys['KeyD']||keys['ArrowRight']) turnIn -=1;   // turn right
   if(keys['KeyQ']) turnIn+=0.7;
   if(keys['KeyE']) turnIn-=0.7;
-  // Mouse steering with a small dead-zone; up = nose up, left = turn left
+  // Mouse steering with a small dead-zone; up = nose up, left = turn left.
+  // Higher sensitivity: smaller dead-zone + steeper response so modest cursor
+  // movement already gives strong control (reaches full deflection ~65% to the edge).
   if(mouseActive){
-    const dz=0.06;
+    const dz=0.035, SENS=1.9;
     const mx=Math.abs(mouseX)>dz?(mouseX-Math.sign(mouseX)*dz)/(1-dz):0;
     const my=Math.abs(mouseY)>dz?(mouseY-Math.sign(mouseY)*dz)/(1-dz):0;
-    turnIn  += -mx*1.2;   // mouse right → turn right
-    pitchIn += -my*1.2;   // mouse up (my<0) → nose up
+    turnIn  += -mx*SENS;   // mouse right → turn right
+    pitchIn += -my*SENS;   // mouse up (my<0) → nose up
   }
   turnIn =THREE.MathUtils.clamp(turnIn,-1.4,1.4);
   pitchIn=THREE.MathUtils.clamp(pitchIn,-1,1);
@@ -2208,15 +2211,28 @@ function updateEnemies(dt){
       desired.normalize();
       targetSpeed = st.cruise*0.8;   // bleed speed to tighten the break turn
     } else if(e.state==='extend'){
-      // run away from the player to rebuild separation/energy, then re-engage
-      desired.copy(e.obj.position).sub(player.obj.position).normalize();
-      desired.y += 0.05;
+      // peel off to rebuild energy, then re-merge — but only until a modest range,
+      // after which turn back (so it re-engages instead of running to the horizon)
+      if(dist>1500){ desired.copy(toPlayer); }   // already far enough — turn back in
+      else { desired.copy(e.obj.position).sub(player.obj.position).normalize(); desired.y+=0.05; }
       desired.normalize();
-      targetSpeed = st.max;
-    } else { // flee
+      targetSpeed = st.cruise*1.1;
+    } else { // flee (low HP) — run, but the leash still reins it back
       desired.copy(e.obj.position).sub(player.obj.position).normalize();
       desired.y += 0.12; desired.normalize();
-      targetSpeed = st.max;
+      targetSpeed = st.cruise*1.15;
+    }
+
+    // ---- LEASH: enemies may extend/flee, but never run out of reach --------
+    // Beyond a soft range we bend their heading back toward the player (more the
+    // farther they are); beyond a hard range we force a full bee-line return and
+    // cap speed so they cannot outrun the player and stall a mission.
+    const LEASH_SOFT=2200, LEASH_HARD=3600;
+    if(dist>LEASH_SOFT){
+      const back=_etmp.copy(player.obj.position).sub(e.obj.position).normalize();
+      const pull=THREE.MathUtils.clamp((dist-LEASH_SOFT)/(LEASH_HARD-LEASH_SOFT),0,1);
+      desired.lerp(back, pull).normalize();
+      if(dist>LEASH_HARD){ desired.copy(back); targetSpeed=Math.min(targetSpeed, st.cruise); if(e.state!=='engage'){ e.state='engage'; e.stateT=2+Math.random()*2; } }
     }
 
     // avoid ground / ceiling (overrides)
