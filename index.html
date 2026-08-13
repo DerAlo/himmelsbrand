@@ -675,20 +675,37 @@ const Audio = (function(){
       airFilter=null, airGain=null, subOsc=null, subGain=null;
   let enabled=false;
   // --- adaptive music + spatial voices ---
-  let musicBus=null, padGain=null, bassGain=null, arpGain=null, percGain=null, menaceGain=null;
-  let musicMode='menu', musicIntensity=0, nextNoteTime=0, step16=0, schedTimer=0;
+  // A real, beat-accurate synthwave/military combat score. Every layer is a live
+  // Web Audio voice scheduled at an exact AudioContext time; a set of gain buses
+  // fades layers in/out with combat intensity so the track keeps evolving.
+  let musicBus=null, padGain=null, bassGain=null, arpGain=null, leadGain=null,
+      percGain=null, brassGain=null, menaceGain=null, musicDelay=null;
+  let musicMode='menu', musicIntensity=0, nextNoteTime=0, step16=0, musicBar=0, schedTimer=0;
   let bogeyGain=null, bogeyPan=null, bogeyOsc=null, bogeyNF=null;
   let missileVoiceCount=0;
-  const SCALE=[0,2,3,5,7,8,10];   // D natural minor
+  const SCALE=[0,2,3,5,7,8,10];   // D natural minor: D E F G A Bb C
   const BASE=73.42;               // D2
-  const SIX=0.125;                // sixteenth @120BPM
-  // Harmonic movement: a 4-section chord progression (Dm–B♭–F–C, i–VI–III–VII),
-  // each section 1 bar. The bass roots it; the arp is transposed onto the chord;
-  // and two alternating arp figures keep it from sounding like one looping riff.
-  const PROG=[0,5,2,6];           // scale-degree roots per section (D, B♭, F, C)
-  const ARP_A=[0,2,4,2, 0,4,2,4]; // two 8th-note figures (relative to the chord root)
-  const ARP_B=[4,2,0,2, 4,0,2,0];
-  let musicSection=0, musicBar=0;
+  const BPM=130, SIX=60/BPM/4, SWING=0.010;   // driving tempo; subtle swing on off-16ths
+  // 8-bar chord form (one chord per bar), scale-degree roots in D minor:
+  //   Dm  Bb  F   C  | Dm  Gm  Bb  C   (i VI III VII | i iv VI VII)
+  const PROG=[0,5,2,6, 0,3,5,6];
+  // Driving octave bass — one value per 8th (0=root, 7=octave, 4=fifth); pumps under the beat
+  const BASSDEG=[0,7,0,7, 0,7,4,7];
+  // Sequence/arp: indices into each bar's chord-tones [root,3rd,5th,oct], one per 16th
+  const CHORDTONE=[0,2,4,7];
+  const ARPIDX=[0,1,2,3, 2,3,2,1, 0,1,2,3, 3,2,1,0];
+  // Lead theme — a recurring tune in scale degrees relative to the KEY (0=D), 8 eighths/bar,
+  // null=rest. It rides above the changing chords so it reads as melody, not arpeggio.
+  const MEL=[
+    [7,null,6,7, 9,null,7,6],      // over Dm
+    [10,null,9,10, 11,null,10,9],  // over Bb
+    [9,null,7,9, 11,null,9,7],     // over F
+    [11,null,10,9, 7,null,6,7],    // over C
+    [7,null,6,7, 9,null,11,9],     // over Dm
+    [10,null,9,7, 9,null,7,6],     // over Gm
+    [11,null,10,9, 10,null,9,7],   // over Bb
+    [7,null,6,4, 4,null,null,null] // over C -> resolve, leave air to loop back
+  ];
   function mnote(deg,oct){ const d=((deg%7)+7)%7; const semi=SCALE[d]+12*(oct+Math.floor(deg/7)); return BASE*Math.pow(2,semi/12); }
   const smoothstep=(a,b,x)=>{ const t=Math.max(0,Math.min(1,(x-a)/(b-a))); return t*t*(3-2*t); };
   function panNode(pan){ if(!enabled||pan==null||!ctx.createStereoPanner) return master; const p=ctx.createStereoPanner(); p.pan.value=Math.max(-1,Math.min(1,pan)); p.connect(master); return p; }
@@ -734,24 +751,24 @@ const Audio = (function(){
     warnGain = ctx.createGain(); warnGain.gain.value=0; warnOsc.connect(warnGain); warnGain.connect(master); warnOsc.start();
 
     // ---- Adaptive music bus + layers (all under SFX) ----
-    musicBus=ctx.createGain(); musicBus.gain.value=0.5; musicBus.connect(master);
-    padGain=ctx.createGain(); padGain.gain.value=0.0; padGain.connect(musicBus);
-    bassGain=ctx.createGain(); bassGain.gain.value=0.0; bassGain.connect(musicBus);
-    arpGain=ctx.createGain(); arpGain.gain.value=0.0; arpGain.connect(musicBus);
-    percGain=ctx.createGain(); percGain.gain.value=0.0; percGain.connect(musicBus);
+    musicBus=ctx.createGain(); musicBus.gain.value=0.62; musicBus.connect(master);
+    padGain  =ctx.createGain(); padGain.gain.value=0.0;   padGain.connect(musicBus);
+    bassGain =ctx.createGain(); bassGain.gain.value=0.0;  bassGain.connect(musicBus);
+    arpGain  =ctx.createGain(); arpGain.gain.value=0.0;   arpGain.connect(musicBus);
+    leadGain =ctx.createGain(); leadGain.gain.value=0.0;  leadGain.connect(musicBus);
+    percGain =ctx.createGain(); percGain.gain.value=0.0;  percGain.connect(musicBus);
+    brassGain=ctx.createGain(); brassGain.gain.value=0.0; brassGain.connect(musicBus);
     menaceGain=ctx.createGain(); menaceGain.gain.value=0.0; menaceGain.connect(musicBus);
-    // pad: 3 detuned oscillators through a slow LFO'd lowpass
-    const padLP=ctx.createBiquadFilter(); padLP.type='lowpass'; padLP.frequency.value=600; padLP.connect(padGain);
-    for(const [f,ty,det] of [[73.42,'sawtooth',0],[110.0,'sawtooth',6],[146.83,'triangle',0]]){
-      const o=ctx.createOscillator(); o.type=ty; o.frequency.value=f; if(det)o.detune.value=det; o.connect(padLP); o.start();
-    }
-    const padLFO=ctx.createOscillator(); padLFO.frequency.value=0.1; const padLFOg=ctx.createGain(); padLFOg.gain.value=150;
-    padLFO.connect(padLFOg); padLFOg.connect(padLP.frequency); padLFO.start();
-    // menace: tritone saws through bandpass + 5Hz tremolo (boss layer)
-    const menBP=ctx.createBiquadFilter(); menBP.type='bandpass'; menBP.frequency.value=180; menBP.Q.value=3;
-    const menTrem=ctx.createGain(); menTrem.gain.value=1; menBP.connect(menTrem); menTrem.connect(menaceGain);
-    for(const f of [146.83,207.65]){ const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.value=f; o.connect(menBP); o.start(); }
-    const menLFO=ctx.createOscillator(); menLFO.frequency.value=5; const menLFOg=ctx.createGain(); menLFOg.gain.value=0.6;
+    // tempo-synced dotted-8th echo, fed by lead + sequence, for depth/space
+    musicDelay=ctx.createDelay(1.0); musicDelay.delayTime.value=SIX*3;
+    const dfb=ctx.createGain(); dfb.gain.value=0.34; musicDelay.connect(dfb); dfb.connect(musicDelay);
+    const dwet=ctx.createGain(); dwet.gain.value=0.42; musicDelay.connect(dwet); dwet.connect(musicBus);
+    leadGain.connect(musicDelay); arpGain.connect(musicDelay);
+    // boss sub-drone: detuned low saws (D + A) through a lowpass + slow tremolo, under the brass stabs
+    const menLP=ctx.createBiquadFilter(); menLP.type='lowpass'; menLP.frequency.value=280;
+    const menTrem=ctx.createGain(); menTrem.gain.value=1; menLP.connect(menTrem); menTrem.connect(menaceGain);
+    for(const f of [73.42,110.0]){ const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.value=f; o.detune.value=(f>100?7:-7); o.connect(menLP); o.start(); }
+    const menLFO=ctx.createOscillator(); menLFO.frequency.value=4.5; const menLFOg=ctx.createGain(); menLFOg.gain.value=0.5;
     menLFO.connect(menLFOg); menLFOg.connect(menTrem.gain); menLFO.start();
     // bogey spatial voice (single, shared)
     bogeyGain=ctx.createGain(); bogeyGain.gain.value=0;
@@ -766,26 +783,97 @@ const Audio = (function(){
 
     enabled=true;
   }
-  // 16-step lookahead sequencer over a rotating chord progression; layer gains
-  // still gate what's audible, but the harmony/figure now change every bar so the
-  // score keeps developing instead of looping one motif.
+  // --- music voices, each scheduled at an ABSOLUTE AudioContext time `t` (so notes
+  //     land exactly on the grid instead of clumping at currentTime like a naive loop) ---
+  function mBass(t,freq,dur){ // saw pluck with a fast filter envelope — synthwave drive
+    const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(freq,t);
+    const f=ctx.createBiquadFilter(); f.type='lowpass'; f.Q.value=7;
+    f.frequency.setValueAtTime(1500,t); f.frequency.exponentialRampToValueAtTime(240,t+dur*0.8);
+    const g=ctx.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.9,t+0.006); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(f); f.connect(g); g.connect(bassGain); o.start(t); o.stop(t+dur+0.03);
+  }
+  function mSeq(t,freq,dur,pan){ // bright resonant sequence blip, lightly panned
+    const o=ctx.createOscillator(); o.type='square'; o.frequency.setValueAtTime(freq,t);
+    const f=ctx.createBiquadFilter(); f.type='lowpass'; f.frequency.value=2800; f.Q.value=4;
+    const g=ctx.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.5,t+0.005); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(f); f.connect(g);
+    if(pan!=null && ctx.createStereoPanner){ const p=ctx.createStereoPanner(); p.pan.value=pan; g.connect(p); p.connect(arpGain); } else g.connect(arpGain);
+    o.start(t); o.stop(t+dur+0.03);
+  }
+  function mLead(t,freq,dur){ // detuned two-osc lead with soft attack + release tail (echoes via leadGain)
+    for(const det of [-6,6]){ const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(freq,t); o.detune.setValueAtTime(det,t);
+      const g=ctx.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.5,t+0.02); g.gain.setTargetAtTime(0.0001,t+dur*0.6,dur*0.4);
+      o.connect(g); g.connect(leadGain); o.start(t); o.stop(t+dur+0.25); }
+  }
+  function mPad(t,root,dur){ // sustained triad that FOLLOWS the chord (the big fix vs the old fixed drone)
+    for(const deg of [root,root+2,root+4]){ for(const det of [-8,8]){
+      const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(mnote(deg,1),t); o.detune.setValueAtTime(det,t);
+      const f=ctx.createBiquadFilter(); f.type='lowpass'; f.frequency.setValueAtTime(520,t); f.frequency.linearRampToValueAtTime(950,t+dur*0.5); f.frequency.linearRampToValueAtTime(520,t+dur);
+      const g=ctx.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.13,t+0.4); g.gain.setTargetAtTime(0.0001,t+dur*0.7,dur*0.3);
+      o.connect(f); f.connect(g); g.connect(padGain); o.start(t); o.stop(t+dur+0.3);
+    }}
+    const lo=ctx.createOscillator(); lo.type='triangle'; lo.frequency.setValueAtTime(mnote(root,0),t);
+    const lg=ctx.createGain(); lg.gain.setValueAtTime(0.0001,t); lg.gain.linearRampToValueAtTime(0.12,t+0.4); lg.gain.setTargetAtTime(0.0001,t+dur*0.7,dur*0.3);
+    lo.connect(lg); lg.connect(padGain); lo.start(t); lo.stop(t+dur+0.3);
+  }
+  function mBrass(t,root,dur){ // punchy detuned saw stab following the chord (boss)
+    for(const deg of [root,root+2,root+4]){ for(const det of [-10,10]){
+      const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(mnote(deg,0),t); o.detune.setValueAtTime(det,t);
+      const f=ctx.createBiquadFilter(); f.type='lowpass'; f.Q.value=2; f.frequency.setValueAtTime(2400,t); f.frequency.exponentialRampToValueAtTime(500,t+dur*0.7);
+      const g=ctx.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.3,t+0.01); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+      o.connect(f); f.connect(g); g.connect(brassGain); o.start(t); o.stop(t+dur+0.05);
+    }}
+  }
+  function mNoise(t,dur,vol,freq,type,dest){ // percussion/noise burst at absolute time t
+    const len=Math.max(1,(ctx.sampleRate*dur)|0); const b=ctx.createBuffer(1,len,ctx.sampleRate); const d=b.getChannelData(0);
+    for(let i=0;i<len;i++){ const e=1-i/len; d[i]=(Math.random()*2-1)*e; }
+    const s=ctx.createBufferSource(); s.buffer=b;
+    const f=ctx.createBiquadFilter(); f.type=type||'highpass'; f.frequency.setValueAtTime(freq,t);
+    const g=ctx.createGain(); g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    s.connect(f); f.connect(g); g.connect(dest); s.start(t); s.stop(t+dur+0.03);
+  }
+  function mKick(t){ const o=ctx.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(150,t); o.frequency.exponentialRampToValueAtTime(45,t+0.12);
+    const g=ctx.createGain(); g.gain.setValueAtTime(1.0,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.18);
+    o.connect(g); g.connect(percGain); o.start(t); o.stop(t+0.2); mNoise(t,0.02,0.4,4000,'highpass',percGain); }
+  function mSnare(t,vol){ mNoise(t,0.14,vol,1800,'bandpass',percGain);
+    const o=ctx.createOscillator(); o.type='triangle'; o.frequency.setValueAtTime(190,t); const g=ctx.createGain();
+    g.gain.setValueAtTime(vol*0.5,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.12); o.connect(g); g.connect(percGain); o.start(t); o.stop(t+0.14); }
+  function mHat(t,open){ mNoise(t, open?0.12:0.03, open?0.18:0.14, 9000,'highpass',percGain); }
+  function mRiser(t,dur){ // rising noise sweep into a downbeat
+    const len=Math.max(1,(ctx.sampleRate*dur)|0); const b=ctx.createBuffer(1,len,ctx.sampleRate); const d=b.getChannelData(0);
+    for(let i=0;i<len;i++) d[i]=(Math.random()*2-1);
+    const s=ctx.createBufferSource(); s.buffer=b;
+    const f=ctx.createBiquadFilter(); f.type='bandpass'; f.Q.value=2; f.frequency.setValueAtTime(400,t); f.frequency.exponentialRampToValueAtTime(6000,t+dur);
+    const g=ctx.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.16,t+dur*0.9); g.gain.exponentialRampToValueAtTime(0.0001,t+dur+0.05);
+    s.connect(f); f.connect(g); g.connect(percGain); s.start(t); s.stop(t+dur+0.08); }
+
+  // Lookahead sequencer: an 8-bar form, 16 steps/bar, every layer scheduled beat-accurately.
+  // Layer bus gains (set in updateMusic) decide what's actually audible at the current intensity,
+  // so parts stay locked in sync and simply fade in/out as the fight heats up.
   function scheduler(){
     if(!ctx || ctx.state!=='running'){ if(ctx) nextNoteTime=ctx.currentTime; return; }
-    while(nextNoteTime < ctx.currentTime+0.12){
-      const s=step16;
-      const root=PROG[musicSection%PROG.length];            // chord root for this bar
-      const arpFig=(musicBar%2===0)?ARP_A:ARP_B;             // alternate the arp figure
-      if(s%4===0){ // bass on each beat: root, then a fifth on beats 2&4 for motion
-        const beat=(s/4)|0; const deg=root + ((beat===1||beat===3)?4:0);
-        blip(mnote(deg,0),0.45,'triangle',0.8,null,bassGain); }
-      if(s%2===0){ blip(mnote(root+arpFig[(s/2)%8],1),0.12,'square',0.5,null,arpGain); }
-      if(s===0||s===8) blip(130,0.12,'sine',0.9,45,percGain);           // kick
-      if(s===4||s===12) noiseBurst(0.12,0.4,1800,'bandpass',percGain);   // snare
-      if(s%2===0) noiseBurst(0.03,0.15,7000,'highpass',percGain);        // hat
-      // a sparse high shimmer on the "and" of 4 adds variety in busier sections
-      if(s===14 && musicBar%2===1) blip(mnote(root+2,2),0.18,'triangle',0.28,null,arpGain);
+    while(nextNoteTime < ctx.currentTime+0.14){
+      const s=step16, bar=musicBar, root=PROG[bar%8];
+      const t=nextNoteTime + (s%2===1?SWING:0);       // subtle swing on off-16ths
+      const I=musicIntensity, boss=(musicMode==='boss'), fillBar=(bar%8===7);
+      if(s===0) mPad(nextNoteTime, root, SIX*16);      // one sustained chord per bar
+      // DRUMS (last bar swaps its second half for a snare fill)
+      if(!(fillBar && s>=8)){
+        if(s%4===0 || s===14) mKick(t);                // four-on-floor + a syncopated push
+        if(s===4||s===12) mSnare(t,0.5);
+        if(s===7||s===15) mSnare(t,0.16);              // ghost notes
+        if(s%2===0) mHat(t, s===6||s===14);
+      } else {
+        if(s%2===0) mSnare(t, 0.28 + (s-8)/22);        // rising fill
+        if(s===8) mHat(t,true);
+      }
+      if(s%2===0){ const off=BASSDEG[(s/2)%8]; mBass(t, mnote(root+off,0), SIX*1.7); }   // pumping octave bass
+      { const ct=CHORDTONE[ARPIDX[s]]; mSeq(t, mnote(root+ct,1), SIX*1.3, (s%2?0.18:-0.18)); } // 16th sequence
+      if(s%2===0 && I>0.45){ const m=MEL[bar%8][s/2]; if(m!=null) mLead(t, mnote(m,1), SIX*3.2); } // lead theme (combat)
+      if(boss && (s===0||s===8)) mBrass(t, root, SIX*3);                                  // boss stabs
+      if(fillBar && s===12 && I>0.5) mRiser(nextNoteTime, SIX*4);                          // riser into new phrase
       nextNoteTime+=SIX; step16=(step16+1)%16;
-      if(step16===0){ musicBar++; musicSection=(musicSection+1)%PROG.length; }  // advance a bar
+      if(step16===0) musicBar=(musicBar+1)%8;
     }
   }
   function resume(){ if(ctx && ctx.state==='suspended') ctx.resume(); }
@@ -844,13 +932,16 @@ const Audio = (function(){
     if(!enabled) return;
     const rate = intensity>musicIntensity ? dt*2.5 : dt*0.6;   // fast in, slow out
     musicIntensity += (intensity-musicIntensity)*Math.min(1,rate);
-    musicMode=mode; const I=musicIntensity, t=ctx.currentTime;
-    const set=(g,v,rising)=>g.gain.setTargetAtTime(v, t, rising?0.4:1.8);
-    const pv=(mode==='menu'?0.22:0.14); set(padGain, pv, pv>padGain.gain.value);
-    const bv=smoothstep(0.08,0.25,I)*0.16; set(bassGain, bv, bv>bassGain.gain.value);
-    const av=smoothstep(0.4,0.6,I)*0.12; set(arpGain, av, av>arpGain.gain.value);
-    const pcv=smoothstep(0.45,0.65,I)*0.14; set(percGain, pcv, pcv>percGain.gain.value);
-    const mv=(mode==='boss')?smoothstep(0.6,0.9,I)*0.12:0; set(menaceGain, mv, mv>menaceGain.gain.value);
+    musicMode=mode; const I=musicIntensity, t=ctx.currentTime, boss=(mode==='boss');
+    const set=(g,v,rising)=>g.gain.setTargetAtTime(v, t, rising?0.4:1.6);
+    // pad: always present (calm cruise = pad only); everything else fades in with intensity
+    const pv=(mode==='menu'?0.30:0.20);                     set(padGain,   pv,  pv>padGain.gain.value);
+    const bv=smoothstep(0.03,0.22,I)*0.22;                  set(bassGain,  bv,  bv>bassGain.gain.value);
+    const dv=smoothstep(0.15,0.40,I)*0.42;                  set(percGain,  dv,  dv>percGain.gain.value);
+    const av=smoothstep(0.30,0.55,I)*0.13;                  set(arpGain,   av,  av>arpGain.gain.value);
+    const lv=smoothstep(0.50,0.72,I)*0.17;                  set(leadGain,  lv,  lv>leadGain.gain.value);
+    const brv=boss?smoothstep(0.35,0.65,I)*0.16:0;          set(brassGain, brv, brv>brassGain.gain.value);
+    const mnv=boss?smoothstep(0.25,0.55,I)*0.12:0;          set(menaceGain,mnv, mnv>menaceGain.gain.value);
   }
   function updateBogey(pan,dopp,gain){
     if(!enabled) return; const t=ctx.currentTime;
@@ -878,10 +969,11 @@ const Audio = (function(){
     if(!enabled||!snd||snd._stopped) return; snd._stopped=true; const t=ctx.currentTime;
     snd.gain.gain.setTargetAtTime(0, t, 0.02); try{ snd.osc.stop(t+0.06); }catch(e){} missileVoiceCount=Math.max(0,missileVoiceCount-1);
   }
-  function _debug(){ return { state:ctx&&ctx.state, mode:musicMode, I:musicIntensity,
-    pad:padGain?padGain.gain.value:0, bass:bassGain?bassGain.gain.value:0, arp:arpGain?arpGain.gain.value:0,
-    perc:percGain?percGain.gain.value:0, menace:menaceGain?menaceGain.gain.value:0, bogey:bogeyGain?bogeyGain.gain.value:0,
-    missileVoices:missileVoiceCount }; }
+  function _debug(){ return { state:ctx&&ctx.state, mode:musicMode, I:+musicIntensity.toFixed(3), bar:musicBar, step:step16,
+    pad:padGain?+padGain.gain.value.toFixed(3):0, bass:bassGain?+bassGain.gain.value.toFixed(3):0, arp:arpGain?+arpGain.gain.value.toFixed(3):0,
+    lead:leadGain?+leadGain.gain.value.toFixed(3):0, perc:percGain?+percGain.gain.value.toFixed(3):0,
+    brass:brassGain?+brassGain.gain.value.toFixed(3):0, menace:menaceGain?+menaceGain.gain.value.toFixed(3):0,
+    bogey:bogeyGain?bogeyGain.gain.value:0, missileVoices:missileVoiceCount }; }
 
   return { init, resume, setEngine, gun, missileLaunch, explosion, hit, hitTaken, lockTone, reload, bombDrop, samLaunch, warnBeep,
     updateMusic, updateBogey, startMissileSound, updateMissileSound, stopMissileSound, _debug };
