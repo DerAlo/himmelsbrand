@@ -95,6 +95,15 @@
   .mcard.locked:hover { transform:none; border-color:rgba(140,190,255,.25); box-shadow:none; }
   .mcard .mlock { position:absolute; top:14px; right:14px; font-size:18px; }
   .mcard.done .mnum::after{ content:' ✓ ABGESCHLOSSEN'; color:#7dffb0; }
+  .mstars { margin-top:8px; }
+  .mstars span { color:#3a4a5e; font-size:15px; }
+  .mstars span.on { color:var(--gold); }
+  .mstars .mbest { margin-left:8px; font-size:11px; color:#8fb0d0; letter-spacing:1px; }
+  .debrief-stars { font-size:44px; letter-spacing:10px; color:#3a4a5e; margin-bottom:6px; }
+  .debrief-stars .on { color:var(--gold); text-shadow:0 0 18px rgba(255,200,90,.6); }
+  .unlock-note { margin-top:12px; color:#7dffb0; letter-spacing:2px; }
+  .newrec { color:#ffce8a; font-weight:800; letter-spacing:2px; }
+  body.gold-wings .title.brand, body.gold-wings .subbrand { color:var(--gold) !important; -webkit-text-fill-color:var(--gold); }
 
   /* briefing / debrief */
   .brief { width:min(860px,92vw); text-align:left; }
@@ -170,9 +179,12 @@
     <div class="menu-btns">
       <button id="btn-campaign" class="btn">▶ KAMPAGNE</button>
       <button id="btn-endless" class="btn ghost small">ENDLOS-GEFECHT</button>
+      <button id="btn-ace" class="btn ghost small hidden">ENDLOS · ASS-MODUS</button>
       <button id="btn-howto" class="btn ghost small">STEUERUNG</button>
+      <button id="btn-reset" class="btn ghost small" style="font-size:12px; padding:8px 22px; opacity:.6">FORTSCHRITT ZURÜCKSETZEN</button>
     </div>
-    <div class="tag" style="margin-top:30px; opacity:.6; max-width:640px; line-height:1.6; font-size:13px; letter-spacing:1px">
+    <div id="menu-progress" class="subbrand" style="margin-top:20px; opacity:.85; font-size:13px"></div>
+    <div class="tag" style="margin-top:16px; opacity:.6; max-width:640px; line-height:1.6; font-size:13px; letter-spacing:1px">
       2034 — Die Verteidigungs-KI <b style="color:#ff9a5a">HELIOS</b> hat die autonome Drohnenflotte der NATO
       gekapert und richtet sie gegen Europa. Du bist der letzte Pilot mit einer Maschine, die sie nicht kontrollieren kann.
     </div>
@@ -524,9 +536,63 @@ const CUTSCENES = {
 // Mission runtime state (populated by setupMission)
 const mission = { active:false, def:null, index:-1, objectives:[], radioQueue:[], radioT:0, done:false, outcome:null,
   reinforceT:0, waveIndex:0 };
-let campaignUnlocked = 1;   // how many missions are unlocked (1-based count); no savegame
+let campaignUnlocked = 1;   // how many missions are unlocked (1-based count)
 let gameMode = 'menu';      // 'campaign' | 'endless'
 let storyChoice = null;     // 'trust' | 'human' — set at the choice point, colours the ending
+let endlessMod = null;      // null | 'ace' — endless-mode difficulty modifier
+
+/* ---------------------------------------------------------------------------
+   0c. SAVE / PROGRESS (localStorage, id-keyed, degrades safely if blocked)
+   --------------------------------------------------------------------------- */
+const SAVE_KEY='himmelsbrand_save', SAVE_VERSION=1;
+const DEFAULT_SAVE = () => ({ v:SAVE_VERSION, campaignUnlocked:1, storyChoice:null,
+    missions:{}, endlessBest:0, endlessWaveBest:0, unlocks:{ ace:false, goldWings:false } });
+let SAVE = DEFAULT_SAVE();
+let storageOK = true;
+const DEFAULT_PAR = { tutorial:210, air:170, ground:160, mixed:200, boss:240, escort:210 };
+
+function loadSave(){
+  try{
+    const raw = localStorage.getItem(SAVE_KEY);
+    if(!raw) return DEFAULT_SAVE();
+    const parsed = JSON.parse(raw);
+    const s = Object.assign(DEFAULT_SAVE(), parsed);
+    if(typeof s.missions!=='object' || !s.missions) s.missions={};
+    s.unlocks = Object.assign({ ace:false, goldWings:false }, s.unlocks||{});
+    s.campaignUnlocked = Math.max(1, Math.min(CAMPAIGN.length, s.campaignUnlocked|0));
+    return s;
+  }catch(e){ storageOK=false; return DEFAULT_SAVE(); }
+}
+function persistSave(){ if(!storageOK) return; try{ localStorage.setItem(SAVE_KEY, JSON.stringify(SAVE)); }catch(e){ storageOK=false; } }
+function recordMission(def, res){
+  const m = SAVE.missions[def.id] || {};
+  const improvedStars = res.stars > (m.stars||0);
+  const improvedScore = score > (m.bestScore||0);
+  m.cleared=true;
+  m.stars=Math.max(m.stars||0, res.stars);
+  m.bestScore=Math.max(m.bestScore||0, score);
+  m.bestTime=Math.min(m.bestTime||1e9, res.elapsed);
+  SAVE.missions[def.id]=m;
+  return { improvedScore, improvedStars };
+}
+function totalStars(){ let n=0; for(const m of CAMPAIGN){ const r=SAVE.missions[m.id]; if(r) n+=(r.stars||0); } return n; }
+function refreshUnlocks(){
+  SAVE.unlocks.ace = CAMPAIGN.slice(0,8).every(m=>SAVE.missions[m.id] && SAVE.missions[m.id].cleared);
+  SAVE.unlocks.goldWings = totalStars()>=21;
+}
+function rateMission(def, r){
+  const par = def.par || DEFAULT_PAR[def.type] || 200;
+  const cStruct  = r.hp >= 65;
+  const cTime    = r.elapsed <= par;
+  const cFinesse = r.landReq ? r.landClean : (r.hp >= 92);
+  return Math.min(3, 1 + (cStruct?1:0) + (cTime?1:0) + (cFinesse?1:0));
+}
+const MEDAL=['','BRONZE','SILBER','GOLD'];
+
+// initialise from disk
+SAVE = loadSave();
+campaignUnlocked = Math.max(campaignUnlocked, SAVE.campaignUnlocked);
+if(SAVE.storyChoice) storyChoice = SAVE.storyChoice;
 
 /* ---------------------------------------------------------------------------
    1. SIMPLEX NOISE (2D, public-domain style, seeded)
@@ -1470,6 +1536,7 @@ function toggleWeapon(){
   updateWeaponHUD();
 }
 function killMsg(txt){ const d=document.createElement('div'); d.className='kill'; d.textContent=txt; dom.killfeed.appendChild(d); setTimeout(()=>d.remove(),2300); }
+function fmtTime(s){ s=Math.max(0,Math.round(s)); const m=(s/60)|0; const r=s%60; return m+':'+(r<10?'0':'')+r; }
 function banner(main, sub){
   dom.wavebanner.textContent=main; dom.subbanner.textContent=sub||'';
   dom.wavebanner.style.opacity=1; dom.subbanner.style.opacity=1;
@@ -1731,8 +1798,9 @@ let combo=0, comboT=0;   // kill-streak multiplier: consecutive kills within a t
 /* ===== Endless mode waves (unchanged mechanic, now mode-gated) ===== */
 function startWave(n){
   wave=n; dom.wave.textContent=n; waveActive=true;
-  const count = Math.min(3+Math.floor(n*0.8), 9);
-  let f22 = n>=3 ? Math.floor((n-1)/3) : 0;
+  const ace = endlessMod==='ace';
+  const count = Math.min((ace?4:3)+Math.floor(n*0.8), ace?10:9);
+  let f22 = (n>=3 ? Math.floor((n-1)/3) : 0) + (ace?1:0);
   let f18 = Math.floor(n/2);
   let f16 = Math.max(1, count - f18 - f22);
   const list=[];
@@ -1776,6 +1844,7 @@ function gotoMenu(){
   clearGroundTargets(); clearBoss(); clearRunway(); clearAlly();
   for(const e of enemies) scene.remove(e.obj); enemies.length=0;
   hideHudExtras();
+  refreshMenu();
   showScreen('menu');
 }
 function hideHudExtras(){ dom.objectives.innerHTML=''; dom.bosswrap.classList.remove('show'); dom.radio.classList.remove('show'); dom.weaponTab.innerHTML=''; }
@@ -1795,17 +1864,19 @@ function resetWorld(){
 }
 
 /* ===== ENDLESS ===== */
-function startEndless(){
+function startEndless(mod){
   Audio.init(); Audio.resume();
+  endlessMod = mod || null;           // set fresh every run (never carried over)
   gameMode='endless'; mission.active=false;
   showScreen(null);
   resetWorld();
-  applyTimeOfDay('day');
+  applyTimeOfDay(endlessMod==='ace' ? 'night' : 'day');
   player.missiles=CFG.missileMax; player.bombs=0; player.weapon='missile';
   updateMissileHUD();
   hideHudExtras(); updateWeaponHUD();
   updateTerrain(0,0);
   betweenTimer=2.0;
+  if(endlessMod==='ace') banner('ASS-MODUS','Nur für die Besten — volle Härte');
   state='playing';
 }
 
@@ -1837,11 +1908,27 @@ function gameOver(victory){
       goTitle.textContent='MISSION ERFÜLLT'; goTitle.style.color='#7dffb0';
       // unlock next
       if(mission.index+1 > campaignUnlocked-1) campaignUnlocked=Math.max(campaignUnlocked, mission.index+2);
+      // --- rating + persistence (wall-clock time, unaffected by slow-mo) ---
+      const elapsed=(performance.now()-mission.startT-(mission.pausedMs||0))/1000;
+      const res={ hp:Math.max(0,player.hp), elapsed, landReq:mission.landReq, landClean:(mission.landed && !mission.landHard) };
+      res.stars=rateMission(def,res);
+      const wasAce=SAVE.unlocks.ace, wasGold=SAVE.unlocks.goldWings;
+      const rec=recordMission(def,res);
+      SAVE.campaignUnlocked=Math.max(SAVE.campaignUnlocked,campaignUnlocked);
+      SAVE.storyChoice=storyChoice; refreshUnlocks(); persistSave();
+      document.body.classList.toggle('gold-wings', SAVE.unlocks.goldWings);
       const hasNext = mission.index < CAMPAIGN.length-1;
       const winLine = def.win && def.win[0] ? def.win[0].split('|').pop() : '';
+      const starRow = `<div class="debrief-stars">`+[0,1,2].map(k=>`<span class="${k<res.stars?'on':''}">${k<res.stars?'★':'☆'}</span>`).join('')+`</div>`;
+      const unlockNote = (!wasAce&&SAVE.unlocks.ace?'<div class="unlock-note">FREIGESCHALTET: ASS-MODUS (Endlos)</div>':'')
+                       + (!wasGold&&SAVE.unlocks.goldWings?'<div class="unlock-note">FREIGESCHALTET: FLIEGERASS (goldene Schwingen)</div>':'');
       document.getElementById('go-stats').innerHTML =
-        `<div style="font-size:20px;color:#cfe6ff;max-width:640px;line-height:1.6;margin-bottom:8px">${winLine}</div>`+
-        `Punkte <b>${score}</b>` + (hasNext?'':`<div style="margin-top:14px;color:#ffce8a">Kampagne abgeschlossen — der Himmel gehört wieder den Menschen.</div>`);
+        starRow +
+        `<div style="font-size:16px;color:#ffce8a;letter-spacing:3px;margin-bottom:8px">${MEDAL[res.stars]}${(rec.improvedScore||rec.improvedStars)?' &nbsp;<span class="newrec">◆ NEUER REKORD</span>':''}</div>`+
+        `<div style="font-size:19px;color:#cfe6ff;max-width:640px;line-height:1.6;margin-bottom:10px">${winLine}</div>`+
+        `<div>Punkte <b>${score}</b> &nbsp;·&nbsp; Zeit <b>${fmtTime(res.elapsed)}</b> &nbsp;·&nbsp; Struktur <b>${Math.round(res.hp)}%</b></div>`+
+        unlockNote +
+        (hasNext?'':`<div style="margin-top:14px;color:#ffce8a">Kampagne abgeschlossen — der Himmel gehört wieder den Menschen.</div>`);
       const nextIdx=mission.index+1;
       const cut=def.cutsceneAfter;   // interstitial to play before the next mission
       if(hasNext){ nextBtn.classList.remove('hidden');
@@ -1855,8 +1942,10 @@ function gameOver(victory){
     }
   } else {
     goTitle.textContent='ABGESCHOSSEN'; goTitle.style.color='#ff5a5a';
-    document.getElementById('go-stats').innerHTML=`Welle <b>${wave}</b><br>Punkte <b>${score}</b>`;
-    restartBtn.textContent='↻ NOCHMAL'; restartBtn.onclick=()=>startEndless();
+    SAVE.endlessBest=Math.max(SAVE.endlessBest,score); SAVE.endlessWaveBest=Math.max(SAVE.endlessWaveBest,wave); persistSave();
+    document.getElementById('go-stats').innerHTML=`Welle <b>${wave}</b><br>Punkte <b>${score}</b>`+
+      `<div style="margin-top:10px;font-size:15px;color:#8fb0d0">Bester Lauf: ${SAVE.endlessWaveBest} Wellen · ${SAVE.endlessBest} Pkt</div>`;
+    restartBtn.textContent='↻ NOCHMAL'; restartBtn.onclick=()=>startEndless(endlessMod);
   }
   const delay = victory?400:900;
   setTimeout(()=>document.getElementById('gameover').classList.remove('hidden'), delay);
@@ -1886,7 +1975,7 @@ function showCutscene(key, after){
     for(const ch of cs.choices){
       const b=document.createElement('button'); b.className='btn ghost'; b.style.textAlign='left';
       b.innerHTML=`<b>${ch.label}</b><br><span style="font-size:12px;opacity:.7;font-weight:400">${ch.note}</span>`;
-      b.onclick=()=>{ storyChoice=ch.key; after&&after(); };
+      b.onclick=()=>{ storyChoice=ch.key; SAVE.storyChoice=ch.key; persistSave(); after&&after(); };
       choicesEl.appendChild(b);
     }
   } else {
@@ -1900,29 +1989,34 @@ const pauseScreen=document.getElementById('pause');
 function pauseGame(){
   if(state!=='playing') return;
   state='paused';
+  if(mission.active) mission.pauseStart=performance.now();
   firingMouse=false; for(const k in keys) keys[k]=false;
   const info = gameMode==='campaign' ? `${mission.def.name.toUpperCase()} · STRUKTUR ${Math.max(0,Math.round(player.hp))}%`
                                      : `WELLE ${wave} · ${score} PUNKTE · STRUKTUR ${Math.max(0,Math.round(player.hp))}%`;
   document.getElementById('pause-stats').textContent = info;
   pauseScreen.classList.remove('hidden');
 }
-function resumeGame(){ if(state!=='paused') return; pauseScreen.classList.add('hidden'); state='playing'; }
+function resumeGame(){ if(state!=='paused') return;
+  if(mission.active && mission.pauseStart){ mission.pausedMs+=performance.now()-mission.pauseStart; mission.pauseStart=0; }
+  pauseScreen.classList.add('hidden'); state='playing'; }
 function togglePause(){ if(state==='playing') pauseGame(); else if(state==='paused') resumeGame(); }
 
 /* ===== Menu wiring ===== */
+const TYPE_NAME={air:'LUFTKAMPF',ground:'BODENANGRIFF',mixed:'KOMBINIERT',boss:'BOSS',tutorial:'FLUGSCHULE',escort:'ESKORTE'};
 function buildMissionList(){
   const wrap=document.getElementById('missionlist'); wrap.innerHTML='';
-  const typeName={air:'LUFTKAMPF',ground:'BODENANGRIFF',mixed:'KOMBINIERT',boss:'BOSS'};
   CAMPAIGN.forEach((m,i)=>{
-    // All missions are freely selectable now; the badge only reflects story progress.
+    const rec=SAVE.missions[m.id];
     const reached = i < campaignUnlocked;      // reached in the story so far
-    const done = i < campaignUnlocked-1;
+    const done = !!(rec && rec.cleared);
     const card=document.createElement('div');
     card.className='mcard'+(done?' done':'');
     card.innerHTML = `<div class="mnum">MISSION ${i+1}</div>`+
       `<div class="mname">${m.name}</div>`+
-      `<span class="mtype ${m.type}">${typeName[m.type]||m.type}</span>`+
+      `<span class="mtype ${m.type}">${TYPE_NAME[m.type]||m.type}</span>`+
       `<div class="mdesc">${m.objectives.filter(o=>o.primary).map(o=>o.label).join(' · ')}</div>`+
+      `<div class="mstars">`+[0,1,2].map(k=>`<span class="${rec&&k<rec.stars?'on':''}">${rec&&k<rec.stars?'★':'☆'}</span>`).join('')+
+        (rec?`<span class="mbest">BEST ${rec.bestScore} · ${fmtTime(rec.bestTime)}</span>`:'')+`</div>`+
       (reached?'':'<div class="mlock" title="Noch nicht in der Story erreicht — trotzdem spielbar">⚑</div>');
     card.onclick=()=>openBriefing(i);
     wrap.appendChild(card);
@@ -1933,8 +2027,7 @@ function openBriefing(i){
   document.getElementById('brief-num').textContent='MISSION '+(i+1);
   document.getElementById('brief-name').textContent=m.name;
   const tEl=document.getElementById('brief-type');
-  const typeName={air:'LUFTKAMPF',ground:'BODENANGRIFF',mixed:'KOMBINIERT',boss:'BOSS'};
-  tEl.textContent=typeName[m.type]||m.type; tEl.className='mtype '+m.type;
+  tEl.textContent=TYPE_NAME[m.type]||m.type; tEl.className='mtype '+m.type;
   document.getElementById('brief-story').innerHTML=m.story;
   const objs=document.getElementById('brief-objs');
   objs.innerHTML=m.objectives.map(o=>`<div class="o ${o.primary?'prime':'sec'}"><span class="ic">${o.primary?'◆':'◇'}</span>${o.label}${o.primary?'':' <span style="opacity:.6">(optional)</span>'}</div>`).join('');
@@ -1942,9 +2035,19 @@ function openBriefing(i){
   showScreen('briefing');
 }
 
-document.getElementById('btn-campaign').onclick=()=>{ buildMissionList(); showScreen('missionselect'); };
+function refreshMenu(){
+  document.body.classList.toggle('gold-wings', !!SAVE.unlocks.goldWings);
+  document.getElementById('btn-ace').classList.toggle('hidden', !SAVE.unlocks.ace);
+  const mp=document.getElementById('menu-progress');
+  if(mp){ mp.innerHTML = `★ ${totalStars()} / ${CAMPAIGN.length*3}`
+    + (SAVE.endlessWaveBest?` &nbsp;·&nbsp; ENDLOS-REKORD: ${SAVE.endlessWaveBest} WELLEN`:'')
+    + (!storageOK?` &nbsp;·&nbsp; <span style="color:#ff9a5a">Speichern blockiert</span>`:''); }
+}
+document.getElementById('btn-campaign').onclick=()=>{ buildMissionList(); refreshMenu(); showScreen('missionselect'); };
 document.getElementById('btn-endless').onclick=()=>startEndless();
+document.getElementById('btn-ace').onclick=()=>startEndless('ace');
 document.getElementById('btn-howto').onclick=()=>showScreen('howto');
+document.getElementById('btn-reset').onclick=()=>{ if(confirm('Gesamten Fortschritt wirklich löschen?')){ SAVE=DEFAULT_SAVE(); campaignUnlocked=1; storyChoice=null; persistSave(); buildMissionList(); refreshMenu(); } };
 document.querySelectorAll('.backbtn').forEach(b=> b.onclick=()=>{ const t=b.getAttribute('data-back'); if(t==='missionselect'){ buildMissionList(); } showScreen(t); });
 document.getElementById('restartbtn').onclick=()=>startEndless();  // default; overwritten per-context in gameOver
 document.getElementById('resumebtn').onclick=()=>resumeGame();
@@ -2009,6 +2112,9 @@ function setupMission(index){
   mission.active=true; mission.def=def; mission.index=index; mission.done=false; mission.outcome=null;
   mission.radioQueue=[]; mission.reinforceT=0; mission.waveIndex=0; mission.failReason=null;
   mission.spawnDelayT=0; mission.pendingAir=null; mission.landReady=false;
+  // progress/rating: wall-clock timing (unaffected by slow-mo) + landing quality
+  mission.startT=performance.now(); mission.pausedMs=0; mission.pauseStart=0;
+  mission.landReq=def.objectives.some(o=>o.kind==='land'); mission.landed=false; mission.landHard=false;
   // clone objectives with live progress
   mission.objectives = def.objectives.map(o=>Object.assign({ progress:0, done:false, failed:false }, o));
   applyTimeOfDay(def.tod||'day');
@@ -2088,6 +2194,7 @@ function onBossDestroyed(){
   renderObjectives(); checkMissionComplete();
 }
 function onLanded(hard){
+  mission.landHard=hard; mission.landed=true;
   for(const o of mission.objectives){ if(o.kind==='land' && !o.done){ o.done=true; } }
   renderObjectives(); checkMissionComplete();
 }
@@ -2974,6 +3081,7 @@ function updateCamera(dt){
 seedClouds(0,0);
 updateTerrain(0,0);
 document.getElementById('loading').style.display='none';
+refreshMenu();   // reflect any saved progress (gold wings, ace unlock, star total) on first paint
 
 let last=performance.now();
 let terrainTimer=0;
