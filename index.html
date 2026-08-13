@@ -999,6 +999,50 @@ const C_ORANGE=new THREE.Color(0xff8a1e), C_YELLOW=new THREE.Color(0xffe36b), C_
       C_SMOKE=new THREE.Color(0x555555), C_DARK=new THREE.Color(0x1a1a1a), C_WHITE=new THREE.Color(0xffffff),
       C_GREY=new THREE.Color(0x888888);
 
+/* ---- Juice: timescale tuning + hit markers + debris ---- */
+const SLOWMO_MIN=0.28, SLOWMO_DUR=1.1;         // boss-kill slow-mo: floor factor, real-seconds
+const HITSTOP_HIT=0.045, HITSTOP_KILL=0.07;    // micro-freeze on solid hits / kills
+const HITMARK_DUR=0.18, KILLPOP_DUR=0.35;
+const DEBRIS_MAX=120, DEBRIS_GRAV=220;
+const debris=[];
+const DEBRIS_GEO=new THREE.BoxGeometry(1,1,1);
+const DEBRIS_MAT_METAL=new THREE.MeshStandardMaterial({color:0x2a2d33, metalness:0.6, roughness:0.6});
+const DEBRIS_MAT_HOT=new THREE.MeshStandardMaterial({color:0x662211, emissive:0xff5a1e, emissiveIntensity:0.9, metalness:0.4, roughness:0.5});
+function markHit(kill, solid){
+  if(!kill && hitMarkT<=0) hitMarkKill=false;    // fresh non-kill marker resets the kill styling
+  hitMarkT=HITMARK_DUR; if(kill) hitMarkKill=true;
+  if(solid) hitStop=Math.max(hitStop, kill?HITSTOP_KILL:HITSTOP_HIT);
+  if(kill) killPopT=KILLPOP_DUR;
+}
+function spawnDebris(x,y,z,n,scale,hot){
+  scale=scale||1;
+  for(let i=0;i<n;i++){
+    if(debris.length>=DEBRIS_MAX){ const old=debris.shift(); scene.remove(old.mesh); }
+    const mat=(hot && Math.random()<0.4)?DEBRIS_MAT_HOT:DEBRIS_MAT_METAL;
+    const mesh=new THREE.Mesh(DEBRIS_GEO, mat);
+    const s=(1.5+Math.random()*2.5)*scale;
+    mesh.scale.set(s*(0.6+Math.random()*0.8), s*(0.6+Math.random()*0.8), s*(0.6+Math.random()*0.8));
+    mesh.position.set(x,y,z);
+    const th=Math.random()*Math.PI*2, ph=Math.acos(Math.random()*2-1), sp=60+Math.random()*160;
+    const vel=new THREE.Vector3(Math.sin(ph)*Math.cos(th)*sp, Math.abs(Math.cos(ph)*sp)+40, Math.sin(ph)*Math.sin(th)*sp);
+    const av=new THREE.Vector3((Math.random()-0.5)*24,(Math.random()-0.5)*24,(Math.random()-0.5)*24);
+    scene.add(mesh);
+    debris.push({ mesh, vel, av, life:1.4+Math.random()*1.2 });
+  }
+}
+function updateDebris(dt){
+  for(let i=debris.length-1;i>=0;i--){
+    const d=debris[i]; d.life-=dt;
+    if(d.life<=0){ scene.remove(d.mesh); debris.splice(i,1); continue; }
+    d.vel.y-=DEBRIS_GRAV*dt;
+    d.mesh.position.addScaledVector(d.vel, dt);
+    d.mesh.rotation.x+=d.av.x*dt; d.mesh.rotation.y+=d.av.y*dt; d.mesh.rotation.z+=d.av.z*dt;
+    const gy=Math.max(terrainHeight(d.mesh.position.x,d.mesh.position.z),CFG.waterLevel)+1;
+    if(d.mesh.position.y<=gy){ d.mesh.position.y=gy; d.vel.set(0,0,0); d.av.multiplyScalar(Math.pow(0.02,dt)); }
+    if(d.life<0.5) d.mesh.scale.multiplyScalar(Math.pow(0.02,dt));
+  }
+}
+
 function explode(x,y,z,scale){
   scale=scale||1;
   const nf=Math.floor(60*scale);
@@ -1515,6 +1559,7 @@ const dom={ speed:document.getElementById('speed'), alt:document.getElementById(
   wavebanner:document.getElementById('wavebanner'), subbanner:document.getElementById('subbanner'), killfeed:document.getElementById('killfeed'),
   objectives:document.getElementById('hud-objectives'), radio:document.getElementById('radio'), weaponTab:document.getElementById('weapon-tab'),
   bosswrap:document.getElementById('bosswrap') };
+dom.score.style.display='inline-block'; dom.score.style.transformOrigin='center';  // allow the kill-pop transform
 
 function updateMissileHUD(){
   let h='';
@@ -1546,6 +1591,9 @@ function banner(main, sub){
 // Canvas HUD: reticle, target boxes, lock, off-screen arrows, radar
 function drawHUD(){
   const w=hudCanvas.width, h=hudCanvas.height; hctx.clearRect(0,0,w,h);
+  // red damage flash — drawn in ALL states so a fatal crash punch is visible
+  // during the gameover delay (Conflict G).
+  if(damageFlash>0){ hctx.fillStyle='rgba(210,25,20,'+Math.min(0.5,damageFlash*0.85)+')'; hctx.fillRect(0,0,w,h); }
   if(state!=='playing' && state!=='paused') return;
   const cx=w/2, cy=h/2;
   // center reticle
@@ -1558,6 +1606,20 @@ function drawHUD(){
   hctx.moveTo(cx,cy-30); hctx.lineTo(cx,cy-20); hctx.moveTo(cx,cy+20); hctx.lineTo(cx,cy+30);
   hctx.stroke();
   hctx.fillStyle=hctx.strokeStyle; hctx.fillRect(cx-1,cy-1,2,2);
+
+  // hit marker: an X of 4 diagonal ticks, white on a hit, red+bigger on a kill
+  if(hitMarkT>0){
+    const t=hitMarkT/HITMARK_DUR;
+    const sz=(hitMarkKill?18:11)*(1+0.6*t);
+    hctx.strokeStyle=hitMarkKill?`rgba(255,60,50,${0.4+0.5*t})`:`rgba(255,255,255,${0.4+0.5*t})`;
+    hctx.lineWidth=hitMarkKill?3:2;
+    hctx.beginPath();
+    hctx.moveTo(cx-sz,cy-sz); hctx.lineTo(cx-sz*0.5,cy-sz*0.5);
+    hctx.moveTo(cx+sz,cy-sz); hctx.lineTo(cx+sz*0.5,cy-sz*0.5);
+    hctx.moveTo(cx-sz,cy+sz); hctx.lineTo(cx-sz*0.5,cy+sz*0.5);
+    hctx.moveTo(cx+sz,cy+sz); hctx.lineTo(cx+sz*0.5,cy+sz*0.5);
+    hctx.stroke();
+  } else hitMarkKill=false;
 
   // target boxes for each enemy
   const proj=new THREE.Vector3();
@@ -1794,6 +1856,11 @@ function drawHUD(){
 let state='menu'; // menu, playing, paused, gameover
 let score=0, wave=0, waveActive=false, betweenTimer=0, shake=0, menuTime=0;
 let combo=0, comboT=0;   // kill-streak multiplier: consecutive kills within a time window
+// --- Juice / hit-feel timers (ALL decay on real time = rawDt, never scaled dt) ---
+let hitStop=0, slowmo=0;            // drive the global timescale in loop()
+let hitMarkT=0, hitMarkKill=false;  // reticle X marker
+let damageFlash=0;                  // red full-screen tint amount
+let killPopT=0;                     // HUD score pop
 
 /* ===== Endless mode waves (unchanged mechanic, now mode-gated) ===== */
 function startWave(n){
@@ -2440,6 +2507,9 @@ function damageBoss(dmg){
 function killBoss(){
   if(!boss) return;
   const p=boss.obj.position;
+  // cinematic killing blow: slow-mo + heavy shake + a burst of big hot debris
+  slowmo=SLOWMO_DUR; shake=Math.max(shake,1.3); markHit(true,false);
+  spawnDebris(p.x,p.y+20,p.z, 24, 2.2, true);
   // spectacular chain of explosions
   for(let i=0;i<10;i++){ setTimeout(()=>{ if(!boss)return; groundExplode(p.x+(Math.random()-0.5)*120, p.y+20+Math.random()*40, p.z+(Math.random()-0.5)*180, 2.2); }, i*160); }
   setTimeout(()=>{ clearBoss(); }, 1800);
@@ -2671,8 +2741,9 @@ function updatePlayer(dt){
       const align=Math.abs(fwd.dot(runHead));
       if(sink>CFG.touchHard || align<0.55){
         // too hard / too crooked → crash
-        player.hp=0; player.alive=false;
+        player.hp=0; player.alive=false; damageFlash=Math.max(damageFlash,1.2);
         explode(player.obj.position.x, groundY+6, player.obj.position.z, 2.0); Audio.explosion(true);
+        spawnDebris(player.obj.position.x, groundY+4, player.obj.position.z, 14, 1.4, true);
         mission.failReason='Harte Bruchlandung — Maschine zerstört.';
         gameOver(false); return;
       }
@@ -2680,7 +2751,7 @@ function updatePlayer(dt){
       player.onGround=true; player.vy=0; player.pitch=0.05; player.pitchRate=0;
       player.obj.position.y=groundY+1.9;
       const hard = sink>CFG.touchGood || align<CFG.touchAlignGood;
-      if(hard){ player.hp=Math.max(1,player.hp-18); shake=Math.max(shake,0.8); Audio.hitTaken();
+      if(hard){ player.hp=Math.max(1,player.hp-18); shake=Math.max(shake,0.8); damageFlash=Math.max(damageFlash,0.6); Audio.hitTaken();
         banner('HARTE LANDUNG','Struktur beschädigt — aber unten'); }
       else { shake=Math.max(shake,0.25); banner('AUFGESETZT','Saubere Landung, Geier'); Audio.reload(); }
       // touchdown smoke puffs
@@ -2689,7 +2760,7 @@ function updatePlayer(dt){
       if(mission.active) onLanded(hard);
     } else if(player.crashCd<=0){
       // hard terrain impact (no gear / not a runway / nose down) — forgiving bounce
-      player.hp-=34; player.crashCd=1.0; shake=Math.max(shake,1.2);
+      player.hp-=34; player.crashCd=1.0; shake=Math.max(shake,1.2); damageFlash=Math.max(damageFlash,1.0);
       explode(player.obj.position.x, groundY+8, player.obj.position.z, 1.0);
       Audio.explosion(false); Audio.hitTaken();
       player.obj.position.y = groundY+16;
@@ -2775,7 +2846,7 @@ function updateBullets(dt){
         if(distSqPointSeg(ep.x,ep.y,ep.z, ax,ay,az, sx,sy,sz) < r*r){
           e.hp-=b.dmg; e.damaged=true; hit=true;
           fireP.spawn(ep.x,ep.y,ep.z, (Math.random()-0.5)*80,(Math.random()-0.5)*80,(Math.random()-0.5)*80,0.2,10,2,C_WHITE,C_ORANGE,0.9,0);
-          Audio.hit();
+          Audio.hit(); markHit(false,false);   // gun hit: marker only, no freeze (keeps autocannon smooth)
           if(e.hp<=0) killEnemy(e);
           break;
         }
@@ -2783,14 +2854,14 @@ function updateBullets(dt){
       // ground targets: guns chip buildings (bombs are the main tool) but do FULL
       // damage to boss parts (turrets/pylons) so they can be shot down with guns too.
       if(!hit){ for(const gt of groundTargets){ if(gt.dead) continue; const gp=gt.obj.position;
-        if(distSqPointSeg(gp.x,gp.y+gt.height*0.5,gp.z, ax,ay,az, sx,sy,sz) < (gt.radius*0.85)*(gt.radius*0.85)){ damageGround(gt, gt.bossPart? b.dmg : b.dmg*0.5); Audio.hit(); hit=true; break; } } }
+        if(distSqPointSeg(gp.x,gp.y+gt.height*0.5,gp.z, ax,ay,az, sx,sy,sz) < (gt.radius*0.85)*(gt.radius*0.85)){ damageGround(gt, gt.bossPart? b.dmg : b.dmg*0.5); Audio.hit(); markHit(false,false); hit=true; break; } } }
       // boss weak point (generous hit radius so guns are viable on the core)
       if(!hit && boss && boss.exposed){ (boss.core||boss.eye).getWorldPosition(_wp); const wr=boss.kind==='auge'?24:18;
-        if(distSqPointSeg(_wp.x,_wp.y,_wp.z, ax,ay,az, sx,sy,sz) < wr*wr){ damageBoss(b.dmg); Audio.hit(); hit=true; } }
+        if(distSqPointSeg(_wp.x,_wp.y,_wp.z, ax,ay,az, sx,sy,sz) < wr*wr){ damageBoss(b.dmg); Audio.hit(); markHit(false,false); hit=true; } }
     } else {
       const pp=player.obj.position;
       if(player.alive && distSqPointSeg(pp.x,pp.y,pp.z, ax,ay,az, sx,sy,sz) < 14*14){
-        player.hp-=b.dmg; hit=true; shake=Math.max(shake,0.4); Audio.hitTaken();
+        player.hp-=b.dmg; hit=true; shake=Math.max(shake,0.55); damageFlash=Math.max(damageFlash,0.5); Audio.hitTaken();
         fireP.spawn(pp.x,pp.y,pp.z,(Math.random()-0.5)*60,20,(Math.random()-0.5)*60,0.25,10,2,C_WHITE,C_RED,0.9,0);
         if(player.hp<=0){ player.alive=false; gameOver(); }
       }
@@ -2830,17 +2901,17 @@ function updateMissiles(dt){
     for(const e of enemies){
       if(mi.mesh.position.distanceTo(e.obj.position) < e.st.radius+16){
         e.hp-=CFG.missileDmg; e.damaged=true;
-        explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.1); Audio.explosion(false);
+        explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.1); Audio.explosion(false); markHit(false,true);
         if(e.hp<=0) killEnemy(e);
         exploded=true; break;
       }
     }
     // boss parts (turrets/pylons) — missiles are a valid tool against them
     if(!exploded){ for(const gt of (boss?boss.parts:[])){ if(gt.dead) continue;
-      if(mi.mesh.position.distanceTo(gt.obj.position) < gt.radius+16){ damageGround(gt, CFG.missileDmgBoss); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false); exploded=true; break; } } }
+      if(mi.mesh.position.distanceTo(gt.obj.position) < gt.radius+16){ damageGround(gt, CFG.missileDmgBoss); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false); markHit(false,true); exploded=true; break; } } }
     // boss core/eye once exposed
     if(!exploded && boss && boss.exposed){ (boss.core||boss.eye).getWorldPosition(_wp);
-      if(mi.mesh.position.distanceTo(_wp) < (boss.kind==='auge'?30:22)){ damageBoss(CFG.missileDmgBoss); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false); exploded=true; } }
+      if(mi.mesh.position.distanceTo(_wp) < (boss.kind==='auge'?30:22)){ damageBoss(CFG.missileDmgBoss); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false); markHit(false,true); exploded=true; } }
     if(exploded || mi.life<=0){
       if(mi.life<=0 && !exploded) explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0.5);
       scene.remove(mi.mesh); missiles.splice(i,1);
@@ -2854,6 +2925,8 @@ function killEnemy(e){
   enemies.splice(idx,1); scene.remove(e.obj);
   explode(e.obj.position.x,e.obj.position.y,e.obj.position.z, e.type==='f22'?1.8:1.2);
   Audio.explosion(e.type==='f22');
+  markHit(true,true);   // kill juice: red X + micro hit-stop + score pop
+  spawnDebris(e.obj.position.x,e.obj.position.y,e.obj.position.z, e.type==='f22'?12:7, e.type==='f22'?1.6:1.0, true);
   // kill-streak combo: each kill within the window bumps the multiplier
   combo++; comboT=4.0;
   const mult=Math.min(combo,5);
@@ -3087,7 +3160,18 @@ let last=performance.now();
 let terrainTimer=0;
 function loop(now){
   requestAnimationFrame(loop);
-  let dt=(now-last)/1000; last=now; if(dt>0.05) dt=0.05; if(dt<=0) dt=0.0001;
+  // rawDt = real elapsed time. Juice timers decay on rawDt so a hit-stop (ts=0)
+  // can end itself; the world runs on the SCALED dt (slow-mo / freeze).
+  let rawDt=(now-last)/1000; last=now; if(rawDt>0.05) rawDt=0.05; if(rawDt<=0) rawDt=0.0001;
+  if(hitStop>0) hitStop-=rawDt;
+  if(slowmo>0) slowmo-=rawDt;
+  if(hitMarkT>0) hitMarkT-=rawDt;
+  if(damageFlash>0) damageFlash-=rawDt;
+  if(killPopT>0) killPopT-=rawDt;
+  let ts=1;
+  if(slowmo>0) ts=SLOWMO_MIN+(1-SLOWMO_MIN)*(1-slowmo/SLOWMO_DUR);
+  if(hitStop>0) ts=0;                 // hit-stop overrides slow-mo
+  let dt=rawDt*ts;                    // world/physics timestep
 
   // follow-world elements
   sky.position.copy(camera.position);
@@ -3114,6 +3198,7 @@ function loop(now){
     dom.hp.style.width=Math.max(0,player.hp)+'%';
     dom.hp.classList.toggle('low', player.hp<35);
     dom.thr.style.width=((player.speed-CFG.minSpeed)/(CFG.boostSpeed-CFG.minSpeed)*100)+'%';
+    dom.score.style.transform = killPopT>0 ? 'scale('+(1+0.4*(killPopT/KILLPOP_DUR))+')' : 'none';
     // terrain streaming
     terrainTimer-=dt;
     if(terrainTimer<=0){ terrainTimer=0.25; updateTerrain(player.obj.position.x, player.obj.position.z); }
@@ -3123,8 +3208,8 @@ function loop(now){
     updateEnemies(dt); updateBullets(dt); updateMissiles(dt); updateBombs(dt); updateBoss(dt);
   }
 
-  // particles always update (so explosions animate on game over/pause-out)
-  fireP.update(dt); smokeP.update(dt);
+  // particles + debris always update (ride scaled dt so they freeze/slow with the world)
+  fireP.update(dt); smokeP.update(dt); updateDebris(dt);
 
   updateCamera(dt);
   drawHUD();
