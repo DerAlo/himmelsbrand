@@ -672,6 +672,19 @@ const Audio = (function(){
   let whineOsc=null, whineGain=null, whineHi=null, noiseFilter=null, roarGain=null,
       airFilter=null, airGain=null, subOsc=null, subGain=null;
   let enabled=false;
+  // --- adaptive music + spatial voices ---
+  let musicBus=null, padGain=null, bassGain=null, arpGain=null, percGain=null, menaceGain=null;
+  let musicMode='menu', musicIntensity=0, nextNoteTime=0, step16=0, schedTimer=0;
+  let bogeyGain=null, bogeyPan=null, bogeyOsc=null, bogeyNF=null;
+  let missileVoiceCount=0;
+  const SCALE=[0,2,3,5,7,8,10];   // D natural minor
+  const BASE=73.42;               // D2
+  const SIX=0.125;                // sixteenth @120BPM
+  const ARP=[0,4,2,4,0,4,3,4];    // eighth-note motif (degrees)
+  const BASSPAT=[0,0,4,0, 0,0,4,2]; // per-beat over 2 bars (degrees; 4=A,2=F)
+  function mnote(deg,oct){ const d=((deg%7)+7)%7; const semi=SCALE[d]+12*(oct+Math.floor(deg/7)); return BASE*Math.pow(2,semi/12); }
+  const smoothstep=(a,b,x)=>{ const t=Math.max(0,Math.min(1,(x-a)/(b-a))); return t*t*(3-2*t); };
+  function panNode(pan){ if(!enabled||pan==null||!ctx.createStereoPanner) return master; const p=ctx.createStereoPanner(); p.pan.value=Math.max(-1,Math.min(1,pan)); p.connect(master); return p; }
   function makeNoise(){
     const nb = ctx.createBuffer(1, ctx.sampleRate*2, ctx.sampleRate); const nd=nb.getChannelData(0);
     for(let i=0;i<nd.length;i++) nd[i]=Math.random()*2-1;
@@ -712,7 +725,52 @@ const Audio = (function(){
     // Lock warning tone
     warnOsc = ctx.createOscillator(); warnOsc.type='square'; warnOsc.frequency.value=880;
     warnGain = ctx.createGain(); warnGain.gain.value=0; warnOsc.connect(warnGain); warnGain.connect(master); warnOsc.start();
+
+    // ---- Adaptive music bus + layers (all under SFX) ----
+    musicBus=ctx.createGain(); musicBus.gain.value=0.5; musicBus.connect(master);
+    padGain=ctx.createGain(); padGain.gain.value=0.0; padGain.connect(musicBus);
+    bassGain=ctx.createGain(); bassGain.gain.value=0.0; bassGain.connect(musicBus);
+    arpGain=ctx.createGain(); arpGain.gain.value=0.0; arpGain.connect(musicBus);
+    percGain=ctx.createGain(); percGain.gain.value=0.0; percGain.connect(musicBus);
+    menaceGain=ctx.createGain(); menaceGain.gain.value=0.0; menaceGain.connect(musicBus);
+    // pad: 3 detuned oscillators through a slow LFO'd lowpass
+    const padLP=ctx.createBiquadFilter(); padLP.type='lowpass'; padLP.frequency.value=600; padLP.connect(padGain);
+    for(const [f,ty,det] of [[73.42,'sawtooth',0],[110.0,'sawtooth',6],[146.83,'triangle',0]]){
+      const o=ctx.createOscillator(); o.type=ty; o.frequency.value=f; if(det)o.detune.value=det; o.connect(padLP); o.start();
+    }
+    const padLFO=ctx.createOscillator(); padLFO.frequency.value=0.1; const padLFOg=ctx.createGain(); padLFOg.gain.value=150;
+    padLFO.connect(padLFOg); padLFOg.connect(padLP.frequency); padLFO.start();
+    // menace: tritone saws through bandpass + 5Hz tremolo (boss layer)
+    const menBP=ctx.createBiquadFilter(); menBP.type='bandpass'; menBP.frequency.value=180; menBP.Q.value=3;
+    const menTrem=ctx.createGain(); menTrem.gain.value=1; menBP.connect(menTrem); menTrem.connect(menaceGain);
+    for(const f of [146.83,207.65]){ const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.value=f; o.connect(menBP); o.start(); }
+    const menLFO=ctx.createOscillator(); menLFO.frequency.value=5; const menLFOg=ctx.createGain(); menLFOg.gain.value=0.6;
+    menLFO.connect(menLFOg); menLFOg.connect(menTrem.gain); menLFO.start();
+    // bogey spatial voice (single, shared)
+    bogeyGain=ctx.createGain(); bogeyGain.gain.value=0;
+    bogeyPan = ctx.createStereoPanner? ctx.createStereoPanner() : null;
+    if(bogeyPan){ bogeyGain.connect(bogeyPan); bogeyPan.connect(master); } else bogeyGain.connect(master);
+    bogeyOsc=ctx.createOscillator(); bogeyOsc.type='sawtooth'; bogeyOsc.frequency.value=220; bogeyOsc.connect(bogeyGain); bogeyOsc.start();
+    const bn=makeNoise(); bogeyNF=ctx.createBiquadFilter(); bogeyNF.type='bandpass'; bogeyNF.frequency.value=1200; bogeyNF.Q.value=1.5;
+    bn.connect(bogeyNF); bogeyNF.connect(bogeyGain); bn.start();
+    // start the lookahead scheduler
+    nextNoteTime=ctx.currentTime;
+    schedTimer=setInterval(scheduler,25);
+
     enabled=true;
+  }
+  // 16-step lookahead sequencer: always schedules; silent layers are just muted gains.
+  function scheduler(){
+    if(!ctx || ctx.state!=='running'){ if(ctx) nextNoteTime=ctx.currentTime; return; }
+    while(nextNoteTime < ctx.currentTime+0.12){
+      const s=step16;
+      if(s%4===0){ const deg=BASSPAT[((s/4)|0)%8]; blip(mnote(deg,0),0.45,'triangle',0.8,null,bassGain); }
+      if(s%2===0){ blip(mnote(ARP[(s/2)%8],1),0.12,'square',0.5,null,arpGain); }
+      if(s===0||s===8) blip(130,0.12,'sine',0.9,45,percGain);           // kick
+      if(s===4||s===12) noiseBurst(0.12,0.4,1800,'bandpass',percGain);   // snare
+      if(s%2===0) noiseBurst(0.03,0.15,7000,'highpass',percGain);        // hat
+      nextNoteTime+=SIX; step16=(step16+1)%16;
+    }
   }
   function resume(){ if(ctx && ctx.state==='suspended') ctx.resume(); }
   function setEngine(speed01, boost){
@@ -731,40 +789,86 @@ const Audio = (function(){
     // air hiss — bright top end, grows with speed/boost
     airGain.gain.setTargetAtTime(0.03 + speed01*0.09 + b*0.07, t, 0.2);
   }
-  function blip(freq, dur, type, vol, slideTo){
+  function blip(freq, dur, type, vol, slideTo, dest){
     if(!enabled) return;
     const t=ctx.currentTime; const o=ctx.createOscillator(); const g=ctx.createGain();
     o.type=type||'square'; o.frequency.setValueAtTime(freq,t);
     if(slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t+dur);
     g.gain.setValueAtTime(vol||0.2,t); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
-    o.connect(g); g.connect(master); o.start(t); o.stop(t+dur+0.02);
+    o.connect(g); g.connect(dest||master); o.start(t); o.stop(t+dur+0.02);
   }
-  function noiseBurst(dur, vol, filterFreq, type){
+  function noiseBurst(dur, vol, filterFreq, type, dest){
     if(!enabled) return;
     const t=ctx.currentTime; const len=Math.max(1,(ctx.sampleRate*dur)|0);
     const b=ctx.createBuffer(1,len,ctx.sampleRate); const d=b.getChannelData(0);
     for(let i=0;i<len;i++){ const e=1-i/len; d[i]=(Math.random()*2-1)*e; }
     const s=ctx.createBufferSource(); s.buffer=b;
     const f=ctx.createBiquadFilter(); f.type=type||'lowpass'; f.frequency.setValueAtTime(filterFreq||1000,t);
-    if(type!=='highpass') f.frequency.exponentialRampToValueAtTime(Math.max(80,(filterFreq||1000)*0.3), t+dur);
+    if(type!=='highpass' && type!=='bandpass') f.frequency.exponentialRampToValueAtTime(Math.max(80,(filterFreq||1000)*0.3), t+dur);
     const g=ctx.createGain(); g.gain.setValueAtTime(vol||0.4,t); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
-    s.connect(f); f.connect(g); g.connect(master); s.start(t); s.stop(t+dur+0.02);
+    s.connect(f); f.connect(g); g.connect(dest||master); s.start(t); s.stop(t+dur+0.02);
   }
   let lastGun=0;
   function gun(){ if(!enabled) return; const t=ctx.currentTime; if(t-lastGun<0.03) return; lastGun=t;
-    noiseBurst(0.05, 0.28, 2600, 'highpass'); blip(160, 0.05, 'square', 0.12, 90); }
-  function missileLaunch(){ noiseBurst(0.5, 0.5, 1400); blip(420, 0.5, 'sawtooth', 0.25, 120); }
-  function explosion(big){ noiseBurst(big?1.1:0.6, big?0.9:0.6, big?700:1100); blip(big?70:110, big?0.8:0.5,'sine', big?0.5:0.3, 30);
-    setTimeout(()=>noiseBurst(0.4,0.3,2000,'highpass'), 40); }
-  function hit(){ noiseBurst(0.08,0.3,3000,'highpass'); blip(220,0.08,'square',0.15,140); }
+    noiseBurst(0.05, 0.28, 2600, 'highpass'); blip(160, 0.05, 'square', 0.12, 90); }   // own gun stays centred
+  function missileLaunch(pan){ const d=panNode(pan); noiseBurst(0.5, 0.5, 1400, 'lowpass', d); blip(420, 0.5, 'sawtooth', 0.25, 120, d); }
+  function explosion(big,pan){ const d=panNode(pan); noiseBurst(big?1.1:0.6, big?0.9:0.6, big?700:1100, 'lowpass', d); blip(big?70:110, big?0.8:0.5,'sine', big?0.5:0.3, 30, d);
+    setTimeout(()=>noiseBurst(0.4,0.3,2000,'highpass', panNode(pan)), 40); }
+  function hit(pan){ const d=panNode(pan); noiseBurst(0.08,0.3,3000,'highpass', d); blip(220,0.08,'square',0.15,140, d); }
   function hitTaken(){ noiseBurst(0.18,0.5,600); blip(90,0.2,'sawtooth',0.3,40); }
   function lockTone(active){ if(!enabled) return; warnGain.gain.setTargetAtTime(active?0.05:0, ctx.currentTime, 0.05);
     if(active) warnOsc.frequency.setValueAtTime(1200, ctx.currentTime); }
   function reload(){ blip(500,0.08,'sine',0.2,800); setTimeout(()=>blip(700,0.1,'sine',0.2,1000),90); }
-  function bombDrop(){ noiseBurst(0.25,0.35,900); blip(300,0.2,'sine',0.18,90); }   // mechanical release + falling whoosh
-  function samLaunch(){ noiseBurst(0.6,0.4,1200); blip(500,0.6,'sawtooth',0.2,140); }
+  function bombDrop(){ noiseBurst(0.25,0.35,900); blip(300,0.2,'sine',0.18,90); }
+  function samLaunch(pan){ const d=panNode(pan); noiseBurst(0.6,0.4,1200,'lowpass',d); blip(500,0.6,'sawtooth',0.2,140,d); }
   function warnBeep(){ blip(1500,0.09,'square',0.10,1500); }
-  return { init, resume, setEngine, gun, missileLaunch, explosion, hit, hitTaken, lockTone, reload, bombDrop, samLaunch, warnBeep };
+
+  // --- Adaptive music dispatch (called every frame from loop; dt is REAL time) ---
+  function updateMusic(dt, mode, intensity){
+    if(!enabled) return;
+    const rate = intensity>musicIntensity ? dt*2.5 : dt*0.6;   // fast in, slow out
+    musicIntensity += (intensity-musicIntensity)*Math.min(1,rate);
+    musicMode=mode; const I=musicIntensity, t=ctx.currentTime;
+    const set=(g,v,rising)=>g.gain.setTargetAtTime(v, t, rising?0.4:1.8);
+    const pv=(mode==='menu'?0.22:0.14); set(padGain, pv, pv>padGain.gain.value);
+    const bv=smoothstep(0.08,0.25,I)*0.16; set(bassGain, bv, bv>bassGain.gain.value);
+    const av=smoothstep(0.4,0.6,I)*0.12; set(arpGain, av, av>arpGain.gain.value);
+    const pcv=smoothstep(0.45,0.65,I)*0.14; set(percGain, pcv, pcv>percGain.gain.value);
+    const mv=(mode==='boss')?smoothstep(0.6,0.9,I)*0.12:0; set(menaceGain, mv, mv>menaceGain.gain.value);
+  }
+  function updateBogey(pan,dopp,gain){
+    if(!enabled) return; const t=ctx.currentTime;
+    if(bogeyPan) bogeyPan.pan.setTargetAtTime(Math.max(-1,Math.min(1,pan||0)), t, 0.1);
+    bogeyOsc.frequency.setTargetAtTime(220*(dopp||1), t, 0.1);
+    bogeyNF.frequency.setTargetAtTime(1200*(dopp||1), t, 0.1);
+    bogeyGain.gain.setTargetAtTime(gain||0, t, 0.15);
+  }
+  function startMissileSound(){
+    if(!enabled) return null;
+    const osc=ctx.createOscillator(); osc.type='sawtooth'; osc.frequency.value=380;
+    const gain=ctx.createGain(); gain.gain.value=0;
+    const pan= ctx.createStereoPanner? ctx.createStereoPanner() : null;
+    osc.connect(gain); if(pan){ gain.connect(pan); pan.connect(master); } else gain.connect(master);
+    osc.start(); missileVoiceCount++;
+    return {osc,gain,pan};
+  }
+  function updateMissileSound(snd,pan,dopp,gain){
+    if(!enabled||!snd) return; const t=ctx.currentTime;
+    if(snd.pan) snd.pan.pan.setTargetAtTime(Math.max(-1,Math.min(1,pan||0)), t, 0.08);
+    snd.osc.frequency.setTargetAtTime(380*(dopp||1), t, 0.08);
+    snd.gain.gain.setTargetAtTime(gain||0, t, 0.08);
+  }
+  function stopMissileSound(snd){
+    if(!enabled||!snd||snd._stopped) return; snd._stopped=true; const t=ctx.currentTime;
+    snd.gain.gain.setTargetAtTime(0, t, 0.02); try{ snd.osc.stop(t+0.06); }catch(e){} missileVoiceCount=Math.max(0,missileVoiceCount-1);
+  }
+  function _debug(){ return { state:ctx&&ctx.state, mode:musicMode, I:musicIntensity,
+    pad:padGain?padGain.gain.value:0, bass:bassGain?bassGain.gain.value:0, arp:arpGain?arpGain.gain.value:0,
+    perc:percGain?percGain.gain.value:0, menace:menaceGain?menaceGain.gain.value:0, bogey:bogeyGain?bogeyGain.gain.value:0,
+    missileVoices:missileVoiceCount }; }
+
+  return { init, resume, setEngine, gun, missileLaunch, explosion, hit, hitTaken, lockTone, reload, bombDrop, samLaunch, warnBeep,
+    updateMusic, updateBogey, startMissileSound, updateMissileSound, stopMissileSound, _debug };
 })();
 
 /* ---------------------------------------------------------------------------
@@ -1290,8 +1394,9 @@ function fireMissile(){
   const light=new THREE.PointLight(0xff8844,1.2,60); mesh.add(light);
   // Launch at a modest speed along the nose, then accelerate to missileSpeed in
   // updateMissiles so it always pulls AWAY from the aircraft (you can't overtake it).
-  missiles.push({ mesh, vel:fwd.clone().multiplyScalar(Math.max(player.speed, CFG.missileLaunchSpeed)), speed:Math.max(player.speed, CFG.missileLaunchSpeed), target, guided:!!target, life:CFG.missileLife, trailCd:0 });
-  Audio.missileLaunch();
+  const mi={ mesh, vel:fwd.clone().multiplyScalar(Math.max(player.speed, CFG.missileLaunchSpeed)), speed:Math.max(player.speed, CFG.missileLaunchSpeed), target, guided:!!target, life:CFG.missileLife, trailCd:0 };
+  mi.snd=Audio.startMissileSound(); missiles.push(mi);
+  Audio.missileLaunch(0);
   updateMissileHUD();
   if(player.missiles===0){ player.reloadT=6; } // auto reload after depletion
 }
@@ -1368,7 +1473,7 @@ function groundExplode(x,y,z,scale){
   for(let i=0;i<24*scale;i++){ const a=Math.random()*Math.PI*2, sp=(60+Math.random()*160)*scale;
     smokeP.spawn(x,y,z, Math.cos(a)*sp, 10+Math.random()*40, Math.sin(a)*sp, 1.4+Math.random()*1.2, 30*scale, 130*scale, C_DARK, C_SMOKE, 0.93, -6); }
   shake=Math.max(shake, Math.min(1.2, scale*0.5 * Math.max(0,1-player.obj.position.distanceTo({x,y,z})/2500)));
-  Audio.explosion(scale>1.4);
+  Audio.explosion(scale>1.4, screenPanX(_panV.set(x,y,z)));
 }
 
 /* ---------------------------------------------------------------------------
@@ -1510,6 +1615,8 @@ addEventListener('mousedown', e=>{ if(state!=='playing'){return;} if(e.button===
 addEventListener('mouseup', e=>{ if(e.button===0) firingMouse=false; });
 addEventListener('contextmenu', e=>e.preventDefault());
 addEventListener('blur', ()=>{ firingMouse=false; for(const k in keys) keys[k]=false; });
+// Autoplay policy: unlock + start menu music on the first user gesture.
+addEventListener('pointerdown', ()=>{ Audio.init(); Audio.resume(); }, {passive:true});
 
 /* ---------------------------------------------------------------------------
    13. TARGETING / LOCK
@@ -1921,7 +2028,7 @@ function resetWorld(){
   clearVictoryTimer();
   for(const e of enemies) scene.remove(e.obj); enemies.length=0;
   for(const b of bullets) releaseBullet(b); bullets.length=0;
-  for(const m of missiles) scene.remove(m.mesh); missiles.length=0;
+  for(const m of missiles){ Audio.stopMissileSound(m.snd); scene.remove(m.mesh); } missiles.length=0;
   for(const b of bombs) scene.remove(b.mesh); bombs.length=0;
   clearGroundTargets(); clearBoss(); clearRunway(); clearAlly();
   score=0; wave=0; waveActive=false; betweenTimer=2.0; shake=0; combo=0; comboT=0;
@@ -2547,6 +2654,14 @@ function updateBoss(dt){
 const UP=new THREE.Vector3(0,1,0);
 const tmpQ=new THREE.Quaternion(), tmpE=new THREE.Euler(), tmpV=new THREE.Vector3(), tmpV2=new THREE.Vector3();
 const _lookM=new THREE.Matrix4(), _zero=new THREE.Vector3(0,0,0);
+// Spatial-audio helpers (shared with the AI stage). screenPanX → stereo pan in
+// [-1,1] from a world point; dopp → Doppler pitch factor from radial closing rate.
+const AUDIO_C=520;
+const _panV=new THREE.Vector3(), _relV=new THREE.Vector3();
+function screenPanX(v){ _panV.copy(v).project(camera); return _panV.z<1 ? Math.max(-1,Math.min(1,_panV.x)) : (_panV.x<0?-0.9:0.9); }
+function dopp(pos, vel){ _relV.copy(pos).sub(player.obj.position); const d=_relV.length()||1;
+  const closing = -_relV.dot(tmpV2.copy(vel||_zero).sub(player.vel))/d;
+  return Math.max(0.55, Math.min(1.9, 1+closing/AUDIO_C)); }
 
 // gear visual: retract/extend smoothly by scaling the gear group on Y
 function updateGearVisual(dt){
@@ -2846,7 +2961,7 @@ function updateBullets(dt){
         if(distSqPointSeg(ep.x,ep.y,ep.z, ax,ay,az, sx,sy,sz) < r*r){
           e.hp-=b.dmg; e.damaged=true; hit=true;
           fireP.spawn(ep.x,ep.y,ep.z, (Math.random()-0.5)*80,(Math.random()-0.5)*80,(Math.random()-0.5)*80,0.2,10,2,C_WHITE,C_ORANGE,0.9,0);
-          Audio.hit(); markHit(false,false);   // gun hit: marker only, no freeze (keeps autocannon smooth)
+          Audio.hit(screenPanX(ep)); markHit(false,false);   // gun hit: marker only, no freeze
           if(e.hp<=0) killEnemy(e);
           break;
         }
@@ -2854,10 +2969,10 @@ function updateBullets(dt){
       // ground targets: guns chip buildings (bombs are the main tool) but do FULL
       // damage to boss parts (turrets/pylons) so they can be shot down with guns too.
       if(!hit){ for(const gt of groundTargets){ if(gt.dead) continue; const gp=gt.obj.position;
-        if(distSqPointSeg(gp.x,gp.y+gt.height*0.5,gp.z, ax,ay,az, sx,sy,sz) < (gt.radius*0.85)*(gt.radius*0.85)){ damageGround(gt, gt.bossPart? b.dmg : b.dmg*0.5); Audio.hit(); markHit(false,false); hit=true; break; } } }
+        if(distSqPointSeg(gp.x,gp.y+gt.height*0.5,gp.z, ax,ay,az, sx,sy,sz) < (gt.radius*0.85)*(gt.radius*0.85)){ damageGround(gt, gt.bossPart? b.dmg : b.dmg*0.5); Audio.hit(screenPanX(gp)); markHit(false,false); hit=true; break; } } }
       // boss weak point (generous hit radius so guns are viable on the core)
       if(!hit && boss && boss.exposed){ (boss.core||boss.eye).getWorldPosition(_wp); const wr=boss.kind==='auge'?24:18;
-        if(distSqPointSeg(_wp.x,_wp.y,_wp.z, ax,ay,az, sx,sy,sz) < wr*wr){ damageBoss(b.dmg); Audio.hit(); markHit(false,false); hit=true; } }
+        if(distSqPointSeg(_wp.x,_wp.y,_wp.z, ax,ay,az, sx,sy,sz) < wr*wr){ damageBoss(b.dmg); Audio.hit(screenPanX(_wp)); markHit(false,false); hit=true; } }
     } else {
       const pp=player.obj.position;
       if(player.alive && distSqPointSeg(pp.x,pp.y,pp.z, ax,ay,az, sx,sy,sz) < 14*14){
@@ -2892,28 +3007,32 @@ function updateMissiles(dt){
     mi.vel.multiplyScalar(mi.speed);
     mi.mesh.position.addScaledVector(mi.vel, dt);
     mi.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), tmpV.copy(mi.vel).normalize());
-    // trail
+    // trail + spatial voice
     mi.trailCd-=dt;
     smokeP.spawn(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,(Math.random()-0.5)*10,(Math.random()-0.5)*10,(Math.random()-0.5)*10,0.9,10,60,C_WHITE,C_GREY,0.95,-2);
     fireP.spawn(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0,0,0,0.15,14,2,C_YELLOW,C_ORANGE,0.9,0);
+    const mdist=mi.mesh.position.distanceTo(player.obj.position);
+    Audio.updateMissileSound(mi.snd, screenPanX(mi.mesh.position), dopp(mi.mesh.position,mi.vel), Math.max(0,Math.min(1,1-mdist/2500))*0.18);
+    const mpan=screenPanX(mi.mesh.position);
     // hit check — enemies
     let exploded=false;
     for(const e of enemies){
       if(mi.mesh.position.distanceTo(e.obj.position) < e.st.radius+16){
         e.hp-=CFG.missileDmg; e.damaged=true;
-        explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.1); Audio.explosion(false); markHit(false,true);
+        explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.1); Audio.explosion(false,mpan); markHit(false,true);
         if(e.hp<=0) killEnemy(e);
         exploded=true; break;
       }
     }
     // boss parts (turrets/pylons) — missiles are a valid tool against them
     if(!exploded){ for(const gt of (boss?boss.parts:[])){ if(gt.dead) continue;
-      if(mi.mesh.position.distanceTo(gt.obj.position) < gt.radius+16){ damageGround(gt, CFG.missileDmgBoss); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false); markHit(false,true); exploded=true; break; } } }
+      if(mi.mesh.position.distanceTo(gt.obj.position) < gt.radius+16){ damageGround(gt, CFG.missileDmgBoss); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false,mpan); markHit(false,true); exploded=true; break; } } }
     // boss core/eye once exposed
     if(!exploded && boss && boss.exposed){ (boss.core||boss.eye).getWorldPosition(_wp);
-      if(mi.mesh.position.distanceTo(_wp) < (boss.kind==='auge'?30:22)){ damageBoss(CFG.missileDmgBoss); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false); markHit(false,true); exploded=true; } }
+      if(mi.mesh.position.distanceTo(_wp) < (boss.kind==='auge'?30:22)){ damageBoss(CFG.missileDmgBoss); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false,mpan); markHit(false,true); exploded=true; } }
     if(exploded || mi.life<=0){
       if(mi.life<=0 && !exploded) explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0.5);
+      Audio.stopMissileSound(mi.snd);
       scene.remove(mi.mesh); missiles.splice(i,1);
     }
   }
@@ -2922,9 +3041,10 @@ function updateMissiles(dt){
 const COMBO_CALL=['','','DOPPELKILL!','TRIPLE KILL!','QUAD KILL!','RAMPAGE!','UNAUFHALTSAM!','LEGENDÄR!'];
 function killEnemy(e){
   const idx=enemies.indexOf(e); if(idx<0) return;
+  const _kpan=screenPanX(e.obj.position);
   enemies.splice(idx,1); scene.remove(e.obj);
   explode(e.obj.position.x,e.obj.position.y,e.obj.position.z, e.type==='f22'?1.8:1.2);
-  Audio.explosion(e.type==='f22');
+  Audio.explosion(e.type==='f22', _kpan);
   markHit(true,true);   // kill juice: red X + micro hit-stop + score pop
   spawnDebris(e.obj.position.x,e.obj.position.y,e.obj.position.z, e.type==='f22'?12:7, e.type==='f22'?1.6:1.0, true);
   // kill-streak combo: each kill within the window bumps the multiplier
@@ -3088,7 +3208,7 @@ function updateGroundTargets(dt){
         const d=lead.sub(src).normalize();
         d.x+=(Math.random()-0.5)*0.03; d.y+=(Math.random()-0.5)*0.03; d.z+=(Math.random()-0.5)*0.03;
         fireBullet(src, d.normalize(), false);
-        Audio.samLaunch();
+        Audio.samLaunch(screenPanX(src));
         // tracer puff
         fireP.spawn(src.x,src.y,src.z, d.x*200,d.y*200,d.z*200, 0.2, 16, 3, C_WHITE, C_RED, 0.9, 0);
       }
@@ -3210,6 +3330,22 @@ function loop(now){
 
   // particles + debris always update (ride scaled dt so they freeze/slow with the world)
   fireP.update(dt); smokeP.update(dt); updateDebris(dt);
+
+  // --- Adaptive music + spatial bogey (runs every frame incl. menu/pause; uses REAL time) ---
+  if(state==='playing'){
+    let nearest=null, nd=1e9, within=0;
+    for(const e of enemies){ const d=e.obj.position.distanceTo(player.obj.position);
+      if(d<1800) within++; if(d<nd){ nd=d; nearest=e; } }
+    let I = Math.min(within/3,1) + Math.max(0,(1800-nd)/1800)*0.3 + (samWarnActive?0.15:0) + (player.hp<35?0.15:0);
+    let mode = boss ? 'boss' : (I>0.4?'combat':'cruise');
+    if(boss) I=Math.max(I, boss.exposed?0.9:0.7);
+    I=Math.min(1,I);
+    Audio.updateBogey(nearest?screenPanX(nearest.obj.position):0, nearest?dopp(nearest.obj.position,nearest.vel):1,
+      (nearest&&nd<1600)?Math.min(1,(1600-nd)/1600)*0.12:0);
+    Audio.updateMusic(rawDt, mode, I);
+  } else if(state!=='paused'){
+    Audio.updateBogey(0,1,0); Audio.updateMusic(rawDt, 'menu', 0);
+  }
 
   updateCamera(dt);
   drawHUD();
