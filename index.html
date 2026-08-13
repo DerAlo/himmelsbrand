@@ -556,8 +556,8 @@ const Noise = (function(){
   return { noise2 };
 })();
 
-// Terrain height field (meters). Combines mountain regions, hills, detail + rivers/lakes.
-function terrainHeight(x, z){
+// Raw procedural terrain height field (meters): mountains, hills, detail, rivers/lakes.
+function terrainHeightRaw(x, z){
   const continent = Noise.noise2(x*0.00018, z*0.00018);       // large regions
   const mountainMask = Math.max(0, Noise.noise2(x*0.00035+100, z*0.00035-50)); // where mountains rise
   let mtn = Noise.noise2(x*0.0009, z*0.0009);
@@ -570,6 +570,26 @@ function terrainHeight(x, z){
   const water = Noise.noise2(x*0.0012-500, z*0.0012+800);
   if (water < -0.15) h = Math.min(h, -18 + (water+0.15)*40);   // lakes/rivers below sea level
   return h;
+}
+
+// Active airfield plateau. When set, terrainHeight() flattens the ground to a
+// smooth level pad around the runway so (a) no mountain pokes through the strip
+// and (b) the rendered ground and the landing collision use the SAME height.
+let AIRFIELD=null;   // {x,z,cos,sin,halfL,halfW,ramp,y}
+function terrainHeight(x, z){
+  const h = terrainHeightRaw(x, z);
+  const A = AIRFIELD;
+  if(!A) return h;
+  // into runway-local frame (lx across width, lz along length)
+  const dx=x-A.x, dz=z-A.z;
+  const lx = dx*A.cos - dz*A.sin;
+  const lz = dx*A.sin + dz*A.cos;
+  const outX = Math.max(0, Math.abs(lx) - A.halfW);
+  const outZ = Math.max(0, Math.abs(lz) - A.halfL);
+  const d = Math.hypot(outX, outZ);
+  if(d >= A.ramp) return h;                 // fully outside the plateau → natural
+  let t = 1 - d/A.ramp; t = t*t*(3-2*t);    // smoothstep ramp to the flat pad
+  return h + (A.y - h)*t;
 }
 
 /* ---------------------------------------------------------------------------
@@ -995,8 +1015,20 @@ let runwayMesh=null;
 function buildRunway(x, z, heading){
   if(runwayMesh){ scene.remove(runwayMesh); runwayMesh=null; }
   const grp=new THREE.Group();
-  const gy=Math.max(terrainHeight(x,z),CFG.waterLevel);
   const L=1400, W=60;
+  // Pad height = a robust average of the RAW terrain across the strip footprint,
+  // lifted above any water. The plateau then flattens the ground to this level.
+  const cosH=Math.cos(heading), sinH=Math.sin(heading);
+  let sum=0, cnt=0;
+  for(let lz=-L/2; lz<=L/2; lz+=100){ for(let lx=-W/2; lx<=W/2; lx+=30){
+    const wx = x + lx*cosH + lz*sinH;   // local→world (inverse of terrainHeight's frame)
+    const wz = z - lx*sinH + lz*cosH;
+    sum += terrainHeightRaw(wx, wz); cnt++;
+  }}
+  const gy = Math.max(sum/cnt, CFG.waterLevel+8);
+  // Register the plateau BEFORE rebuilding terrain so chunks bake in the flat pad.
+  AIRFIELD = { x, z, cos:cosH, sin:sinH, halfL:L/2+40, halfW:W/2+30, ramp:420, y:gy };
+  rebuildTerrainAround(x, z);
   const strip=new THREE.Mesh(new THREE.PlaneGeometry(W,L), new THREE.MeshStandardMaterial({color:0x2b2e33, roughness:0.95, metalness:0.0}));
   strip.rotation.x=-Math.PI/2; strip.position.y=0.4; grp.add(strip);
   // centre dashes
@@ -1017,7 +1049,23 @@ function buildRunway(x, z, heading){
   scene.add(grp); runwayMesh=grp;
   return { x, z, heading, length:L, width:W, y:gy };
 }
-function clearRunway(){ if(runwayMesh){ scene.remove(runwayMesh); runwayMesh=null; } player.runway=null; }
+function clearRunway(){
+  if(runwayMesh){ scene.remove(runwayMesh); runwayMesh=null; }
+  player.runway=null;
+  if(AIRFIELD){ const a=AIRFIELD; AIRFIELD=null; rebuildTerrainAround(a.x, a.z); }  // restore natural terrain
+}
+// Rebuild the terrain chunks overlapping a point so plateau flattening is baked in.
+function rebuildTerrainAround(wx, wz){
+  const size=CFG.chunkSize;
+  const ccx=Math.round(wx/size), ccz=Math.round(wz/size);
+  for(let dz=-1;dz<=1;dz++) for(let dx=-1;dx<=1;dx++){
+    const key=(ccx+dx)+','+(ccz+dz);
+    const m=chunks.get(key);
+    if(m){ terrainGroup.remove(m); m.geometry.dispose(); chunks.delete(key); }
+  }
+  // let updateTerrain recreate the needed chunks (with the current AIRFIELD applied)
+  updateTerrain(player.obj.position.x, player.obj.position.z);
+}
 
 function buildEnemy(type){
   const g=new THREE.Group();
