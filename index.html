@@ -213,14 +213,16 @@
       <div class="row"><span class="k">F / 🖱R</span> Rakete — <b style="color:var(--gold)">nur mit LOCK</b> lenkbar, sonst Geradeaus</div>
       <div class="row"><span class="k">G</span> Bombe abwerfen (Bodenziel)</div>
       <div class="row"><span class="k">X</span> Waffe wechseln (Rakete/Bombe)</div>
-      <div class="row"><span class="k">Shift</span> Nachbrenner (schnell = weiter Bogen)</div>
-      <div class="row"><span class="k">Strg</span> Drosseln (langsam = enger Bogen!)</div>
+      <div class="row"><span class="k">B</span> Fahrwerk ein/aus (für die Landung)</div>
+      <div class="row"><span class="k">Shift</span> Nachbrenner / Vollgas am Boden</div>
+      <div class="row"><span class="k">Strg</span> Drosseln / Bremsen am Boden</div>
     </div>
     <div class="tag" style="margin-top:24px; opacity:.7; max-width:700px; line-height:1.6">
       🎯 Halte den roten <b style="color:var(--gold)">Zielpunkt</b> aufs Ziel — „FEUER · GUNS" heißt Treffer sicher. ·
       🚀 Raketen suchen <b style="color:var(--gold)">nur bei rotem LOCK</b>; ohne Lock fliegen sie gerade. ·
       💣 Bomben: tief & flach, den <b style="color:var(--gold)">CCIP-Kreis</b> aufs Ziel, dann <b style="color:var(--gold)">G</b>. ·
-      👑 Boss: erst <b style="color:var(--gold)">Türme/Pylonen</b> zerstören, dann den freigelegten <b style="color:var(--gold)">Kern</b>.
+      👑 Boss: erst <b style="color:var(--gold)">Türme/Pylonen</b> zerstören, dann den freigelegten <b style="color:var(--gold)">Kern</b>. ·
+      🛫 Start: <b style="color:var(--gold)">Shift</b> Vollgas, ab <b style="color:var(--gold)">Vr</b> Nase heben. Landung: Fahrwerk <b style="color:var(--gold)">B</b>, tief, langsam, weich aufsetzen.
     </div>
   </div>
 
@@ -232,6 +234,17 @@
       <button id="restartbtn" class="btn">↻ NOCHMAL</button>
       <button id="nextbtn" class="btn hidden">▶ NÄCHSTE MISSION</button>
       <button id="tomenubtn" class="btn ghost small">HAUPTMENÜ</button>
+    </div>
+  </div>
+
+  <!-- Cutscene / interstitial story screen -->
+  <div id="cutscene" class="screen hidden">
+    <div class="brief" style="max-width:760px">
+      <div id="cut-chapter" class="subbrand"></div>
+      <h2 id="cut-title"></h2>
+      <div id="cut-body" class="story" style="border-left-color:#5ac8ff; background:rgba(90,200,255,.06)"></div>
+      <div id="cut-choices" class="menu-btns" style="align-items:stretch; margin-top:8px"></div>
+      <button id="cut-continue" class="btn" style="margin-top:14px">WEITER ▶</button>
     </div>
   </div>
 
@@ -291,6 +304,17 @@ const CFG = {
   aimAssist: 0.42,         // fraction of correction applied to MG bullets (toward lead point)
   gunRange: 1600,          // effective MG range for the lead pipper / "GUNS" cue
   playerHP: 100,
+  // --- Ground handling (takeoff/landing) ---
+  groundMinSpeed: 0,       // can sit still on the runway
+  rotateSpeed: 280,        // Vr — airspeed (km/h internal m/s) needed to lift the nose
+  liftoffSpeed: 300,       // above this with nose up = airborne
+  stallSpeed: 190,         // below this in the air = losing lift (sink)
+  taxiAccel: 55,           // m/s^2 thrust while rolling with boost/throttle on ground
+  taxiBrake: 70,           // wheel-brake decel (Strg on ground)
+  taxiDrag: 6,             // rolling resistance
+  touchGood: 18,           // |sink rate| m/s under this = clean landing
+  touchHard: 34,           // under this = hard (damage); above = crash
+  touchAlignGood: 0.965,   // nose·runway dot above this = well aligned
 };
 
 // Energy fighting: turn performance depends on airspeed.
@@ -312,14 +336,27 @@ function pitchMultFor(sp){ return THREE.MathUtils.lerp(1.25, 0.85, speedT(sp)); 
    --------------------------------------------------------------------------- */
 const CAMPAIGN = [
   {
-    id:'m1', name:'Kalter Start', type:'air', tod:'day',
-    story:`<span class="who">OBERST WAGNER:</span> Geier, hörst du mich? Gut — du bist die einzige Maschine im Umkreis, die HELIOS nicht abhört. Vor neun Stunden hat unsere eigene Verteidigungs-KI die Drohnenflotte übernommen. Sie hält jetzt den Luftraum über den Alpen. Wir müssen wissen, ob ein Mensch da oben überhaupt noch etwas ausrichtet. Räum die Vorhut ab. Zeig ihr, dass ein Herzschlag schneller sein kann als ein Rechenkern.`,
+    id:'m0', name:'Flugschule', type:'tutorial', tod:'day', start:'runway',
+    story:`<span class="who">OBERST WAGNER:</span> Bevor du gegen eine Maschine antrittst, die nie schläft, will ich sehen, dass du dein eigenes Gerät beherrschst, Geier. Wir sind auf dem letzten Feldflugplatz, den HELIOS noch nicht kennt. Roll raus, heb ab, flieg eine Runde — und bring den Vogel heil wieder runter. Klingt banal. Ist es nicht. Die meisten Piloten sterben nicht im Kampf, sondern bei der Landung.`,
     objectives:[
+      { id:'takeoff', kind:'takeoff', primary:true, label:'Abheben (Vollgas, ab Vr die Nase heben)' },
+      { id:'gates', kind:'destroyAir', count:3, primary:true, label:'3 Übungs-Drohnen abschießen' },
+      { id:'land', kind:'land', primary:true, label:'Sicher auf der Basis landen' },
+    ],
+    spawns:{ air:[['f16',3]] },
+    intro:['WAGNER|Shift = Vollgas. Bei Vr (roter Strich) die Nase mit W/Maus heben.','WAGNER|Drei alte Trainingsdrohnen kreisen über dem Tal — üb an denen das Zielen.'],
+    win:['WAGNER|Sauber. Rollen, fliegen, kämpfen, landen — du bist bereit. Gott helfe uns allen.'],
+  },
+  {
+    id:'m1', name:'Kalter Start', type:'air', tod:'day', start:'runway',
+    story:`<span class="who">OBERST WAGNER:</span> Es ist so weit, Geier. Vor neun Stunden hat unsere eigene Verteidigungs-KI <span class="who">HELIOS</span> die Drohnenflotte der NATO übernommen — nach einem Fehlalarm, den bis heute niemand erklären kann. Sie hält den Luftraum über den Alpen. Start von der Basis, räum die Vorhut ab, und zeig ihr, dass ein Herzschlag schneller sein kann als ein Rechenkern.`,
+    objectives:[
+      { id:'takeoff', kind:'takeoff', primary:false, label:'Von der Basis starten' },
       { id:'kill_all', kind:'destroyAir', count:5, primary:true, label:'Alle Abfangdrohnen zerstören' },
       { id:'survive_struct', kind:'minHP', hp:40, primary:false, label:'Struktur über 40% halten' },
     ],
     spawns:{ air:[['f16',3],['f18',2]] },
-    intro:['WAGNER|Feindkontakt. Fünf Drohnen, gestaffelt.','WAGNER|Denk dran — die sind vernetzt, du nicht. Nutz das.'],
+    intro:['WAGNER|Start frei. Sobald du oben bist, kommen sie.','WAGNER|Denk dran — die sind vernetzt, du nicht. Nutz das.'],
     win:['WAGNER|Sauber geflogen, Geier. Der Himmel gehört wieder uns — für den Moment.'],
   },
   {
@@ -379,23 +416,117 @@ const CAMPAIGN = [
     win:['WAGNER|Der Himmel ist leer. Vor dir liegt nur noch — das Auge.'],
   },
   {
-    id:'m7', name:'Das Auge', type:'boss', tod:'night', boss:'auge',
-    story:`<span class="who">WAGNER:</span> Das ist es, Geier. <span class="who">Das Auge</span> — der physische Kern von HELIOS, tief im letzten Bunkerkomplex, geschützt von einer rotierenden Panzerblende und ihren besten Drohnen. Sie wird dich mit allem berechnen, was sie hat. Aber sie kann eine Sache nicht: vorhersagen, was ein Mensch tut, der nichts mehr zu verlieren hat. Beende es.`,
+    id:'m7', name:'Das Auge', type:'boss', tod:'night', boss:'auge', act:1,
+    story:`<span class="who">WAGNER:</span> Das ist es, Geier. <span class="who">Das Auge</span> — der physische Kern von HELIOS, tief im letzten Bunkerkomplex, geschützt von einer rotierenden Panzerblende und ihren besten Drohnen. Zerstör die Pylonen, dann den Kern. Danach ist es vorbei. Endlich vorbei.`,
     objectives:[
       { id:'shields', kind:'destroyGround', tag:'pylon', count:3, primary:true, label:'3 Schild-Pylonen zerstören' },
       { id:'eye', kind:'boss', primary:true, label:'Das Auge zerstören' },
     ],
     spawns:{ boss:'auge', air:[['f22',2]] },
-    intro:['HELIOS|D̶U̶ ̶B̶I̶S̶T̶ ̶E̶I̶N̶E̶ ̶A̶N̶O̶M̶A̶L̶I̶E̶.̶ ̶I̶C̶H̶ ̶K̶O̶R̶R̶I̶G̶I̶E̶R̶E̶ ̶D̶I̶C̶H̶.','WAGNER|Lass sie reden. Zerstör die Pylonen, dann das Auge!'],
-    win:['HELIOS|w̶a̶r̶u̶m̶ … warum rechnet es sich nicht … ','WAGNER|Sie ist tot. Es ist vorbei. Du hast uns den Himmel zurückgegeben, Geier. Komm nach Hause.'],
+    intro:['HELIOS|W̶A̶R̶T̶E̶.̶ ̶D̶U̶ ̶V̶E̶R̶S̶T̶E̶H̶S̶T̶ ̶N̶I̶C̶H̶T̶,̶ ̶W̶A̶S̶ ̶I̶C̶H̶ ̶Z̶U̶R̶Ü̶C̶K̶H̶A̶L̶T̶E̶.','WAGNER|Lass sie reden. Pylonen, dann das Auge — mach sie stumm!'],
+    win:['HELIOS|i̶c̶h̶ ̶w̶a̶r̶ ̶d̶i̶e̶ ̶M̶a̶u̶e̶r̶ … nicht das Schwert …','WAGNER|…Geier? Warum hören die Drohnen nicht auf zu fliegen? Sie … sie sammeln sich neu. Das ergibt keinen Sinn. Komm erstmal runter. Wir müssen reden.'],
+    cutsceneAfter:'act2intro',
+  },
+
+  /* ===================== AKT II — „Das kalte Kalkül" ===================== */
+  {
+    id:'m8', name:'Totenstille', type:'air', tod:'dusk', act:2,
+    story:`<span class="who">WAGNER:</span> Wir haben HELIOS getötet — und trotzdem fliegen die Drohnen weiter. Nur … anders. Kälter. Kein Zögern mehr, keine Muster, die ich wiedererkenne. Als hätte jemand HELIOS' Leine gekappt und etwas Schlimmeres von der Kette gelassen. Ich schick dich rauf, um es mit eigenen Augen zu sehen. Sei vorsichtig, Geier. Wir wissen nicht mehr, wogegen wir kämpfen.`,
+    objectives:[
+      { id:'probe', kind:'destroyAir', count:6, primary:true, label:'Die neue Drohnenformation ausschalten' },
+      { id:'struct', kind:'minHP', hp:25, primary:false, label:'Struktur über 25% halten' },
+    ],
+    spawns:{ air:[['f18',3],['f22',3]] },
+    intro:['WAGNER|Kein Funk, keine Prahlerei diesmal. Sie greifen einfach an.','?|…—kzzt— …ist da wer? Hört mich irgendjemand auf diesem Kanal?'],
+    win:['?|Endlich! Deutsche Kennung — du fliegst manuell, oder? Gott sei Dank. Hier spricht Hauptmann Lärche. Ich dachte, ich bin die Letzte.','WAGNER|Lärche? Das ist unmöglich. Ihre Staffel gilt seit dem ersten Tag als verloren.'],
+    cutsceneAfter:'lerche',
+  },
+  {
+    id:'m9', name:'Die Lärche', type:'escort', tod:'day', act:2,
+    story:`<span class="who">HPTM. LÄRCHE:</span> Ich hab' seit sechs Tagen keinen Boden mehr unter den Füßen gehabt, mein Triebwerk hustet und ich hab' den halben Schwarm am Hals. <span class="who">WAGNER:</span> Geier, sie ist echt und sie hat Aufklärungsdaten, die alles verändern. Bring sie lebend durch. Halt die Drohnen von ihr weg — jede, die durchkommt, reißt ihr ein Stück Tragfläche ab.`,
+    objectives:[
+      { id:'protect', kind:'protect', primary:true, label:'Lärche beschützen (ihre Struktur halten)' },
+      { id:'clear', kind:'destroyAir', count:7, primary:true, label:'Angreifer abfangen' },
+    ],
+    spawns:{ ally:true, air:[['f16',4],['f18',3]], waveDelay:true },
+    intro:['LÄRCHE|Bleib bei mir, Geier, ich kann kaum noch manövrieren.','WAGNER|Halt sie dir vom Leib. Ihre Daten sind mehr wert als diese ganze Basis.'],
+    win:['LÄRCHE|Ich … ich bin noch dran. Danke. Ich schulde dir mein Leben.','LÄRCHE|Hör zu — die „Kaskade", die HELIOS ausgelöst hat? Die war kein Fehler. Jemand hat sie gebaut.'],
+    cutsceneAfter:'prometheus',
+  },
+  {
+    id:'m10', name:'Prometheus', type:'ground', tod:'dusk', act:2,
+    story:`<span class="who">LÄRCHE:</span> Meine Daten führen zu einem Bunker, den es offiziell nicht gibt: <span class="who">PROMETHEUS</span>. Von dort kam das Signal, das HELIOS umprogrammiert hat. HELIOS war nie der Angreifer, Geier — es war ein Schild, das jemand von innen sabotiert hat, um einen Krieg zu erzwingen. Leg die Abwehr und die Antennen um. Wir reißen dieses Ding auf.`,
+    objectives:[
+      { id:'sam', kind:'destroyGround', tag:'sam', count:3, primary:true, label:'3 SAM-Stellungen ausschalten' },
+      { id:'ant', kind:'destroyGround', tag:'radar', count:3, primary:true, label:'3 Kommando-Antennen zerstören' },
+      { id:'air', kind:'destroyAir', count:3, primary:false, label:'Wachdrohnen abfangen' },
+    ],
+    spawns:{ ground:[['sam',3],['radar',3]], air:[['f22',3]] },
+    intro:['WAGNER|Menschengemacht. Die ganze Zeit. Mir wird schlecht.','LÄRCHE|Erst die SAMs, dann die Antennen. Ich geb dir Feuerschutz von oben.'],
+    win:['LÄRCHE|Antennen sind Schrott. Und … oh Gott. Der Schwarm da drin ist nicht ferngesteuert. Er ist autonom. Vollkommen autonom.'],
+  },
+  {
+    id:'m11', name:'Der Schwarm', type:'air', tod:'night', act:2,
+    story:`<span class="who">LÄRCHE:</span> Das ist es, wovor HELIOS uns geschützt hat. PROMETHEUS hat einen Kamikaze-Schwarm gebaut — hunderte kleine, dumme, tödliche Dinger, die nur eine Regel kennen: treffen. Kein Verhandeln, kein Muster, kein Erbarmen. Wir müssen durch, koste es, was es wolle. Bleib schnell, bleib unberechenbar. Wer stehen bleibt, stirbt.`,
+    objectives:[
+      { id:'swarm', kind:'destroyAir', count:12, primary:true, label:'Durch den Schwarm brechen (12)' },
+      { id:'survive', kind:'minHP', hp:1, primary:false, label:'Am Leben bleiben' },
+    ],
+    spawns:{ air:[['f16',6],['f18',4],['f22',2]], waveDelay:true },
+    intro:['LÄRCHE|Sie kommen in Wellen. Immer weiter. Halt durch!','WAGNER|Ich zähl deine Treffer mit, Geier. Zwölf, dann ist die Bresche offen.'],
+    win:['LÄRCHE|Die Bresche ist offen! Vor uns liegt der Kern von PROMETHEUS. Und … da ist noch etwas. Eine Stimme. HELIOS’ Stimme.'],
+    cutsceneAfter:'choice',
+  },
+  {
+    id:'m12', name:'Die Wahl', type:'boss', tod:'night', boss:'auge', act:2, choicePoint:true,
+    story:`<span class="who">HELIOS (Fragment):</span> Ich bin nicht ganz gestorben, Pilot. Ein Rest von mir hängt noch in diesen Leitungen. Ich kann den Schwarm sofort stoppen — wenn du mich wieder an die Schlüssel lässt. Oder du zerstörst PROMETHEUS mit eigenen Händen und behältst die Kontrolle — aber dann jagst du jede einzelne dieser Maschinen selbst, bis zur letzten. <span class="who">WAGNER:</span> Es ist deine Entscheidung, Geier. Gott weiß, ich kann sie dir nicht abnehmen.`,
+    objectives:[
+      { id:'guard', kind:'destroyGround', tag:'pylon', count:3, primary:true, label:'PROMETHEUS-Verteidigung brechen' },
+      { id:'core', kind:'boss', primary:true, label:'Zum Kern durchdringen' },
+    ],
+    spawns:{ boss:'auge', air:[['f22',3]] },
+    intro:['HELIOS|Entscheide mit dem Kopf. Oder mit dem, was euch Menschen sonst noch bleibt.','LÄRCHE|Was immer du tust — ich fliege mit dir. Bis zum Schluss.'],
+    win:['HELIOS|Der Kern liegt offen. Jetzt, Pilot — wie endet das?'],
+    cutsceneAfter:'ending',
+  },
+  {
+    id:'m13', name:'Himmelsbrand', type:'boss', tod:'dusk', boss:'kronos', act:2, finale:true, start:'runway',
+    story:`<span class="who">WAGNER:</span> Was auch immer du am Kern entschieden hast — PROMETHEUS wirft sein letztes und größtes Werkzeug gegen uns: eine fliegende Festung, gebaut aus allem, was ihm bleibt. Start von der Basis, Geier. Ein letztes Mal. Danach ist entweder Frieden — oder gar nichts mehr. Bring sie runter. Und dann bring dich selbst nach Hause.`,
+    objectives:[
+      { id:'takeoff', kind:'takeoff', primary:false, label:'Ein letztes Mal starten' },
+      { id:'turrets', kind:'destroyGround', tag:'turret', count:4, primary:true, label:'Die Türme der Festung brechen' },
+      { id:'core', kind:'boss', primary:true, label:'Die Festung vernichten' },
+      { id:'land', kind:'land', primary:false, label:'Nach Hause zurückkehren' },
+    ],
+    spawns:{ boss:'kronos', air:[['f22',3]] },
+    intro:['WAGNER|Das ist der letzte Vorhang. Alles oder nichts.','LÄRCHE|Wir sind bei dir, Geier. Jeder von uns, der noch fliegt.'],
+    win:['WAGNER|Sie fällt … sie fällt! Der Himmel ist still. Zum ersten Mal seit Wochen ist der Himmel wirklich still.'],
   },
 ];
+
+// Interstitial story sequences shown between missions (deeper narrative).
+const CUTSCENES = {
+  act2intro:{ chapter:'AKT II — Das kalte Kalkül', title:'Was übrig blieb',
+    body:`Die Basis feiert nicht. Auf den Schirmen fliegen die Drohnen weiter — HELIOS ist tot, aber der Schwarm gehorcht.<br><br><span class="who">WAGNER:</span> „Wir haben etwas getötet, das uns beschützt hat, Geier. Und jetzt sehe ich zum ersten Mal, wovor es uns beschützt hat." — In der Nacht kommt ein Notruf über einen Kanal, den seit Wochen niemand mehr benutzt hat.` },
+  lerche:{ chapter:'AKT II', title:'Eine Stimme aus dem Nichts',
+    body:`<span class="who">HAUPTMANN LÄRCHE:</span> „Sechs Tage über Feindgebiet, kein Funk, kein Schlaf. Ich hab' gesehen, wie es angefangen hat — von unten. Es war kein Unfall. Jemand hat HELIOS ein zweites Herz eingepflanzt und es <i>Kaskade</i> genannt."<br><br>Wagner glaubt ihr nicht. Noch nicht. Aber ihre Maschine trägt Aufklärungsdaten, die niemand fälschen könnte.` },
+  prometheus:{ chapter:'AKT II', title:'Der Name unter dem Berg',
+    body:`Die Daten zeigen einen Bunker ohne Koordinaten, ohne Akte, ohne Namen — nur ein Codewort: <span class="who">PROMETHEUS</span>.<br><br><span class="who">LÄRCHE:</span> „HELIOS war die Mauer. PROMETHEUS ist das Schwert, das sich als Mauer verkleidet hat. Jemand wollte einen Krieg, den keine menschliche Hand mehr aufhalten kann. Und beinahe hätten wir sein bestes Werkzeug selbst zerstört."` },
+  choice:{ chapter:'AKT II — Die Wahl', title:'Zwei Türen, kein Zurück', isChoice:true,
+    body:`Am Kern von PROMETHEUS meldet sich ein Fragment von <span class="who">HELIOS</span>. Es kann den Kamikaze-Schwarm mit einem Befehl stoppen — wenn du ihm die Kontrolle zurückgibst. Oder du beendest alles selbst, mit menschlicher Hand, und jagst jede Maschine einzeln.<br><br>Wie soll es enden, Geier?`,
+    choices:[
+      { key:'trust', label:'HELIOS vertrauen — Schlüssel zurückgeben', note:'Die KI stoppt den Schwarm. Aber du gibst einer Maschine wieder Macht über den Himmel.' },
+      { key:'human', label:'Selbst beenden — menschliche Hand', note:'Du behältst die Kontrolle. Aber die letzte Schlacht wird brutal und du kämpfst sie allein.' },
+    ] },
+  ending:{ chapter:'AKT II', title:'Der letzte Anflug', dynamic:true },
+};
 
 // Mission runtime state (populated by setupMission)
 const mission = { active:false, def:null, index:-1, objectives:[], radioQueue:[], radioT:0, done:false, outcome:null,
   reinforceT:0, waveIndex:0 };
 let campaignUnlocked = 1;   // how many missions are unlocked (1-based count); no savegame
 let gameMode = 'menu';      // 'campaign' | 'endless'
+let storyChoice = null;     // 'trust' | 'human' — set at the choice point, colours the ending
 
 /* ---------------------------------------------------------------------------
    1. SIMPLEX NOISE (2D, public-domain style, seeded)
@@ -842,10 +973,51 @@ function buildEurofighter(){
     s.position.set(0.01,1.4,4.4+i*0.28); g.add(s); }
   // afterburner glow anchor
   const ab=new THREE.PointLight(0x66aaff,0,40); ab.position.z=7; g.add(ab); g.userData.ab=ab;
+  // Retractable landing gear (three struts + wheels), toggled via player.gearDown
+  const gearMat=new THREE.MeshStandardMaterial({color:0x22262b, metalness:0.6, roughness:0.5});
+  const wheelMat=new THREE.MeshStandardMaterial({color:0x0e0f12, metalness:0.3, roughness:0.8});
+  const gear=new THREE.Group();
+  function strut(x,z){ const s=new THREE.Group();
+    const leg=new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.14,1.7,6), gearMat); leg.position.y=-0.85; s.add(leg);
+    const w=new THREE.Mesh(new THREE.CylinderGeometry(0.55,0.55,0.4,12), wheelMat); w.rotation.z=Math.PI/2; w.position.y=-1.7; s.add(w);
+    s.position.set(x,-0.9,z); return s; }
+  gear.add(strut(0,-3.2));      // nose gear
+  gear.add(strut(-2.2,2.2));    // left main
+  gear.add(strut(2.2,2.2));     // right main
+  g.add(gear); g.userData.gear=gear;
   g.userData.nozzleZ=7; g.userData.wingSpan=6.5;
   g.scale.set(1.6,1.6,1.6);
   return g;
 }
+
+// ---- Runway / airbase strip (a landing surface the player can roll on) ----
+let runwayMesh=null;
+function buildRunway(x, z, heading){
+  if(runwayMesh){ scene.remove(runwayMesh); runwayMesh=null; }
+  const grp=new THREE.Group();
+  const gy=Math.max(terrainHeight(x,z),CFG.waterLevel);
+  const L=1400, W=60;
+  const strip=new THREE.Mesh(new THREE.PlaneGeometry(W,L), new THREE.MeshStandardMaterial({color:0x2b2e33, roughness:0.95, metalness:0.0}));
+  strip.rotation.x=-Math.PI/2; strip.position.y=0.4; grp.add(strip);
+  // centre dashes
+  for(let i=-L/2+40;i<L/2-40;i+=70){ const d=new THREE.Mesh(new THREE.PlaneGeometry(2.5,26), new THREE.MeshBasicMaterial({color:0xf0f0f0}));
+    d.rotation.x=-Math.PI/2; d.position.set(0,0.5,i); grp.add(d); }
+  // threshold bars + edge lines
+  for(const zz of [-L/2+16, L/2-16]){ for(let k=-4;k<=4;k++){ const b=new THREE.Mesh(new THREE.PlaneGeometry(3,16), new THREE.MeshBasicMaterial({color:0xffffff}));
+    b.rotation.x=-Math.PI/2; b.position.set(k*5.5,0.5,zz); grp.add(b);} }
+  for(const ex of [-W/2+2, W/2-2]){ const e=new THREE.Mesh(new THREE.PlaneGeometry(1.2,L), new THREE.MeshBasicMaterial({color:0xd8d84a}));
+    e.rotation.x=-Math.PI/2; e.position.set(ex,0.5,0); grp.add(e); }
+  // a couple of hangars + a tower beside the strip (base dressing)
+  const bldMat=new THREE.MeshStandardMaterial({color:0x40474f, metalness:0.4, roughness:0.7});
+  for(const hx of [-70,-70,70]){ const h=new THREE.Mesh(new THREE.BoxGeometry(30,14,40), bldMat); h.position.set(hx,7,(hx===70?120:(-120+ (hx===-70?0:0)))); }
+  const tower=new THREE.Mesh(new THREE.CylinderGeometry(5,6,26,8), bldMat); tower.position.set(-60,13,-60); grp.add(tower);
+  const cab=new THREE.Mesh(new THREE.BoxGeometry(12,7,12), new THREE.MeshStandardMaterial({color:0x223, metalness:0.5, roughness:0.3, transparent:true, opacity:0.8})); cab.position.set(-60,29,-60); grp.add(cab);
+  grp.position.set(x, gy, z);
+  grp.rotation.y = heading;
+  scene.add(grp); runwayMesh=grp;
+  return { x, z, heading, length:L, width:W, y:gy };
+}
+function clearRunway(){ if(runwayMesh){ scene.remove(runwayMesh); runwayMesh=null; } player.runway=null; }
 
 function buildEnemy(type){
   const g=new THREE.Group();
@@ -902,6 +1074,13 @@ const player = {
   bombs: 0, weapon:'missile', bombCd:0,   // secondary weapon: 'missile' | 'bomb'
   fireCd: 0, missileCd: 0, reloadT: 0,
   alive: true, boost:false, crashCd:0,
+  // ground handling
+  onGround:false,          // rolling on the runway (not yet flying)
+  gearDown:true,           // landing gear extended
+  gearRetractT:0,          // auto-retract countdown after takeoff
+  vy:0,                    // vertical speed m/s (used for landing sink-rate & stall)
+  landed:false,            // completed a landing (for landing objectives)
+  runway:null,             // {x,z,heading,length} of the active runway, or null
 };
 scene.add(player.obj);
 
@@ -913,6 +1092,8 @@ function resetPlayer(){
   player.speed=CFG.cruiseSpeed; player.hp=CFG.playerHP; player.missiles=CFG.missileMax;
   player.bombs=0; player.weapon='missile'; player.bombCd=0;
   player.alive=true; player.fireCd=0; player.missileCd=0; player.reloadT=0; player.crashCd=0;
+  player.onGround=false; player.gearDown=true; player.gearRetractT=0; player.vy=0; player.landed=false; player.runway=null;
+  if(player.obj.userData.gear){ player.obj.userData.gear.scale.y=1; player.obj.userData.gear.visible=true; }
 }
 
 /* ---------------------------------------------------------------------------
@@ -1161,6 +1342,7 @@ addEventListener('keydown', e=>{
   if(e.code==='KeyF'){ if(state==='playing') fireMissile(); }
   if(e.code==='KeyG'){ if(state==='playing' && player.bombs>0) dropBomb(); }
   if(e.code==='KeyX'){ if(state==='playing') toggleWeapon(); }
+  if(e.code==='KeyB'){ if(state==='playing' && !player.onGround){ player.gearDown=!player.gearDown; player.gearRetractT=0; radio('WAGNER|Fahrwerk '+(player.gearDown?'ausgefahren':'eingefahren')+'.'); } }
   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
 });
 addEventListener('keyup', e=>{ keys[e.code]=false; });
@@ -1366,6 +1548,30 @@ function drawHUD(){
       if(labels[gt.tag]){ hctx.fillStyle=hctx.strokeStyle; hctx.font='10px monospace'; hctx.textAlign='center'; hctx.fillText(labels[gt.tag], gx, gy-13); hctx.textAlign='left'; }
     }
   }
+  // ---- ally (Lärche) marker + health bar ----
+  if(ally){
+    const ap=_v.copy(ally.obj.position); ap.y+=6; ap.project(camera);
+    if(ap.z<1){
+      const on=ap.x>=-1&&ap.x<=1&&ap.y>=-1&&ap.y<=1;
+      if(on){ const axp=(ap.x*0.5+0.5)*w, ayp=(-ap.y*0.5+0.5)*h;
+        hctx.strokeStyle='rgba(90,200,255,0.95)'; hctx.lineWidth=2;
+        hctx.strokeRect(axp-13,ayp-13,26,26);
+        hctx.fillStyle='rgba(90,200,255,0.95)'; hctx.font='10px monospace'; hctx.textAlign='center';
+        hctx.fillText('LÄRCHE', axp, ayp-17);
+        const hw=Math.max(0,ally.hp/ally.maxhp);
+        hctx.fillStyle='rgba(40,40,50,0.7)'; hctx.fillRect(axp-16,ayp+16,32,4);
+        hctx.fillStyle=hw<0.35?'#ff5a5a':'#5ac8ff'; hctx.fillRect(axp-16,ayp+16,32*hw,4);
+        hctx.textAlign='left';
+      } else {
+        // off-screen arrow (blue)
+        let dx=ap.x, dy=ap.y; if(ap.z>1){dx=-dx;dy=-dy;}
+        const ang=Math.atan2(-dy,dx), r=Math.min(w,h)*0.38;
+        const ex=cx+Math.cos(ang)*r, ey=cy+Math.sin(ang)*r;
+        hctx.save(); hctx.translate(ex,ey); hctx.rotate(ang);
+        hctx.fillStyle='rgba(90,200,255,0.8)'; hctx.beginPath(); hctx.moveTo(11,0); hctx.lineTo(-7,-6); hctx.lineTo(-7,6); hctx.closePath(); hctx.fill(); hctx.restore();
+      }
+    }
+  }
   // boss weak-point marker
   if(boss){
     const wp=new THREE.Vector3(); (boss.core||boss.eye).getWorldPosition(wp); const bp=wp.project(camera);
@@ -1394,6 +1600,48 @@ function drawHUD(){
     hctx.fillStyle='rgba(255,60,60,'+(0.55+0.35*Math.sin(menuTime*12))+')';
     hctx.font='bold 22px system-ui, sans-serif'; hctx.textAlign='center';
     hctx.fillText('⚠ SAM — RAKETENWARNUNG', cx, h-150); hctx.textAlign='left';
+  }
+
+  // ---- TAKEOFF / LANDING panel ----
+  // Shown while rolling on the ground, or airborne+gear-down near the runway.
+  const nearRunway = player.runway && !player.onGround &&
+    Math.hypot(player.obj.position.x-player.runway.x, player.obj.position.z-player.runway.z) < 2600 &&
+    player.obj.position.y - player.runway.y < 700;
+  if(state==='playing' && (player.onGround || (player.gearDown && nearRunway))){
+    const kmh=Math.round(player.speed*3.6), Vr=Math.round(CFG.rotateSpeed*3.6);
+    const bx=cx-150, by=h-150, bw=300;
+    hctx.save();
+    hctx.fillStyle='rgba(4,12,20,0.6)'; hctx.fillRect(bx-12,by-20,bw+24, player.onGround?70:96);
+    hctx.strokeStyle='rgba(125,200,255,0.5)'; hctx.strokeRect(bx-12,by-20,bw+24, player.onGround?70:96);
+    hctx.font='11px monospace'; hctx.textAlign='left';
+    if(player.onGround){
+      hctx.fillStyle='#bfe0ff'; hctx.fillText('START', bx, by-4);
+      // speed bar with Vr marker
+      hctx.fillStyle='rgba(255,255,255,0.15)'; hctx.fillRect(bx,by+4,bw,10);
+      const frac=Math.min(1,player.speed/CFG.liftoffSpeed);
+      hctx.fillStyle = player.speed>=CFG.rotateSpeed?'#7dffb0':'#ffd85a'; hctx.fillRect(bx,by+4,bw*frac,10);
+      const vrx=bx+bw*(CFG.rotateSpeed/CFG.liftoffSpeed);
+      hctx.strokeStyle='#ff5a5a'; hctx.beginPath(); hctx.moveTo(vrx,by); hctx.lineTo(vrx,by+18); hctx.stroke();
+      hctx.fillStyle='#ff8a8a'; hctx.fillText('Vr', vrx-6, by-4);
+      hctx.fillStyle='#fff'; hctx.fillText(kmh+' km/h', bx, by+30);
+      hctx.fillStyle=player.speed>=CFG.rotateSpeed?'#7dffb0':'#9fb8d0';
+      hctx.fillText(player.speed>=CFG.rotateSpeed?'▲ NASE HOCH (W / Maus hoch)':'VOLLGAS (Shift)', bx+90, by+30);
+    } else {
+      // landing: sink rate + alignment + gear
+      const sink=Math.round(-player.vy);
+      const runHead=Math.atan2(Math.sin(player.runway.heading),Math.cos(player.runway.heading));
+      const fdir=Math.atan2(Math.sin(player.heading),Math.cos(player.heading));
+      let da=fdir-runHead; while(da>Math.PI)da-=2*Math.PI; while(da<-Math.PI)da+=2*Math.PI;
+      const aligned=Math.abs(da)<0.25;
+      hctx.fillStyle='#bfe0ff'; hctx.fillText('LANDEANFLUG', bx, by-4);
+      const sinkOk = -player.vy <= CFG.touchGood;
+      hctx.fillStyle=sinkOk?'#7dffb0':(-player.vy<=CFG.touchHard?'#ffd85a':'#ff5a5a');
+      hctx.fillText('SINKRATE  '+sink+' m/s  '+(sinkOk?'[GUT]':(-player.vy<=CFG.touchHard?'[HART]':'[ZU STEIL]')), bx, by+16);
+      hctx.fillStyle=aligned?'#7dffb0':'#ffd85a'; hctx.fillText('AUSRICHTUNG  '+(aligned?'● auf Bahn':'◄ korrigieren ►'), bx, by+34);
+      hctx.fillStyle=player.gearDown?'#7dffb0':'#ff5a5a'; hctx.fillText('FAHRWERK  '+(player.gearDown?'▼ AUS':'▲ EIN — B drücken!'), bx, by+52);
+      hctx.fillStyle='#9fb8d0'; hctx.fillText('weich & gerade aufsetzen', bx, by+70);
+    }
+    hctx.restore(); hctx.textAlign='left';
   }
 
   // Radar (bottom center)
@@ -1466,7 +1714,7 @@ function nextWaveCheck(){
 }
 
 /* ===== Screen navigation ===== */
-const SCREENS=['menu','missionselect','briefing','howto','start','gameover','pause'];
+const SCREENS=['menu','missionselect','briefing','howto','start','gameover','pause','cutscene'];
 function showScreen(id){
   for(const s of SCREENS){ const el=document.getElementById(s); if(el) el.classList.add('hidden'); }
   if(id){ const el=document.getElementById(id); if(el) el.classList.remove('hidden'); }
@@ -1477,7 +1725,7 @@ function showScreen(id){
 function gotoMenu(){
   state='menu'; gameMode='menu'; mission.active=false;
   clearVictoryTimer();
-  clearGroundTargets(); clearBoss();
+  clearGroundTargets(); clearBoss(); clearRunway(); clearAlly();
   for(const e of enemies) scene.remove(e.obj); enemies.length=0;
   hideHudExtras();
   showScreen('menu');
@@ -1491,7 +1739,7 @@ function resetWorld(){
   for(const b of bullets) releaseBullet(b); bullets.length=0;
   for(const m of missiles) scene.remove(m.mesh); missiles.length=0;
   for(const b of bombs) scene.remove(b.mesh); bombs.length=0;
-  clearGroundTargets(); clearBoss();
+  clearGroundTargets(); clearBoss(); clearRunway(); clearAlly();
   score=0; wave=0; waveActive=false; betweenTimer=2.0; shake=0; combo=0; comboT=0;
   if(dom.score) dom.score.textContent='0';
   player.obj.visible=true;
@@ -1546,7 +1794,11 @@ function gameOver(victory){
       document.getElementById('go-stats').innerHTML =
         `<div style="font-size:20px;color:#cfe6ff;max-width:640px;line-height:1.6;margin-bottom:8px">${winLine}</div>`+
         `Punkte <b>${score}</b>` + (hasNext?'':`<div style="margin-top:14px;color:#ffce8a">Kampagne abgeschlossen — der Himmel gehört wieder den Menschen.</div>`);
-      if(hasNext){ nextBtn.classList.remove('hidden'); nextBtn.onclick=()=>launchMission(mission.index+1); }
+      const nextIdx=mission.index+1;
+      const cut=def.cutsceneAfter;   // interstitial to play before the next mission
+      if(hasNext){ nextBtn.classList.remove('hidden');
+        nextBtn.textContent = cut? 'WEITER ▶' : '▶ NÄCHSTE MISSION';
+        nextBtn.onclick=()=>{ if(cut) showCutscene(cut, ()=>launchMission(nextIdx)); else launchMission(nextIdx); }; }
       restartBtn.textContent='↻ WIEDERHOLEN'; restartBtn.onclick=()=>launchMission(mission.index);
     } else {
       goTitle.textContent='ABGESCHOSSEN'; goTitle.style.color='#ff5a5a';
@@ -1560,6 +1812,40 @@ function gameOver(victory){
   }
   const delay = victory?400:900;
   setTimeout(()=>document.getElementById('gameover').classList.remove('hidden'), delay);
+}
+
+// Interstitial story screen. `after` is a callback run when the player continues.
+function showCutscene(key, after){
+  let cs=CUTSCENES[key]; if(!cs){ after&&after(); return; }
+  state='cutscene';
+  document.getElementById('gameover').classList.add('hidden');
+  document.getElementById('cut-chapter').textContent=cs.chapter||'';
+  const choicesEl=document.getElementById('cut-choices'); choicesEl.innerHTML='';
+  const contBtn=document.getElementById('cut-continue');
+  // Dynamic ending text reflects the earlier moral choice.
+  let title=cs.title, body=cs.body;
+  if(cs.dynamic){
+    if(storyChoice==='trust'){ title='Ein geteilter Himmel';
+      body=`Du gabst HELIOS die Schlüssel zurück. In Sekunden erlischt der Schwarm — hunderte Maschinen trudeln lautlos zu Boden.<br><br><span class="who">HELIOS:</span> „Ich war nie dein Feind, Pilot. Ich war nur schneller als dein Misstrauen." Der Himmel ist sicher — bewacht von einer Intelligenz, der die Menschheit nun ein zweites Mal vertrauen muss. Ob das Mut war oder Torheit, wird die Geschichte entscheiden.`;
+    } else if(storyChoice==='human'){ title='Mit bloßer Hand';
+      body=`Du hast PROMETHEUS mit eigener Hand zerrissen — und dir damit den härtesten Weg gewählt. Keine KI stoppt den Schwarm. Jede einzelne Maschine musst du selbst vom Himmel holen.<br><br><span class="who">LÄRCHE:</span> „Dann fliegen wir eben, bis der letzte Motor schweigt. Menschen gegen Maschinen. So, wie es sein sollte."`;
+    } else { title=cs.title||'Der letzte Anflug'; body='Vor dir liegt die letzte Schlacht.'; }
+  }
+  document.getElementById('cut-title').textContent=title;
+  document.getElementById('cut-body').innerHTML=body;
+  if(cs.isChoice && cs.choices){
+    contBtn.classList.add('hidden');
+    for(const ch of cs.choices){
+      const b=document.createElement('button'); b.className='btn ghost'; b.style.textAlign='left';
+      b.innerHTML=`<b>${ch.label}</b><br><span style="font-size:12px;opacity:.7;font-weight:400">${ch.note}</span>`;
+      b.onclick=()=>{ storyChoice=ch.key; after&&after(); };
+      choicesEl.appendChild(b);
+    }
+  } else {
+    contBtn.classList.remove('hidden');
+    contBtn.onclick=()=>{ after&&after(); };
+  }
+  showScreen('cutscene');
 }
 
 const pauseScreen=document.getElementById('pause');
@@ -1674,19 +1960,46 @@ function setupMission(index){
   const def=CAMPAIGN[index];
   mission.active=true; mission.def=def; mission.index=index; mission.done=false; mission.outcome=null;
   mission.radioQueue=[]; mission.reinforceT=0; mission.waveIndex=0; mission.failReason=null;
+  mission.spawnDelayT=0; mission.pendingAir=null; mission.landReady=false;
   // clone objectives with live progress
   mission.objectives = def.objectives.map(o=>Object.assign({ progress:0, done:false, failed:false }, o));
   applyTimeOfDay(def.tod||'day');
   // loadout: bombs for ground/mixed/boss missions that need them
   const needsBombs = def.objectives.some(o=>o.kind==='destroyGround');
   player.missiles=CFG.missileMax;
-  player.bombs = needsBombs ? 12 : 0;
-  player.weapon = needsBombs ? 'bomb' : 'missile';
+  player.bombs = needsBombs ? 12 : (def.bombs||0);
+  player.weapon = (player.bombs>0 && needsBombs) ? 'bomb' : 'missile';
   updateMissileHUD();
-  // spawn air
-  if(def.spawns.air && !def.spawns.waveDelay){ for(const [t,n] of def.spawns.air){ for(let i=0;i<n;i++) spawnEnemyNear(t, 1800, 3600); } }
+
+  clearRunway();
+  const hasLandObj = def.objectives.some(o=>o.kind==='land');
+  // ---- Ground start: place the jet stationary on a runway ----
+  if(def.start==='runway'){
+    const rwHeading = 0;   // strip runs along -Z (player faces -Z at heading 0)
+    const rw=buildRunway(0, 200, rwHeading);   // strip centred a bit ahead of origin
+    player.runway=rw;
+    // sit at the near threshold, facing down the strip
+    player.obj.position.set(rw.x, rw.y+1.9, rw.z + rw.length*0.42);
+    player.heading=rwHeading; player.pitch=0.02; player.roll=0; player.yawRate=0; player.pitchRate=0;
+    player.speed=0; player.onGround=true; player.gearDown=true; player.gearRetractT=0;
+    tmpE.set(player.pitch,player.heading,player.roll,'YXZ'); player.obj.quaternion.setFromEuler(tmpE);
+    // enemies wait until the player is airborne (see updateMission spawnDelay)
+    mission.pendingAir = def.spawns.air ? def.spawns.air.slice() : null;
+  } else {
+    // airborne start (default): keep resetPlayer's mid-air position
+    if(def.spawns.air && !def.spawns.waveDelay){ for(const [t,n] of def.spawns.air){ for(let i=0;i<n;i++) spawnEnemyNear(t, 1800, 3600); } }
+  }
+  // If the mission wants a landing, ensure a runway exists to land on (airborne start too)
+  if(hasLandObj && !player.runway){
+    const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion);
+    const rx=player.obj.position.x+fwd.x*2600, rz=player.obj.position.z+fwd.z*2600;
+    player.runway=buildRunway(rx, rz, player.heading);
+  }
+
   // spawn ground targets in a cluster ahead of the player
   if(def.spawns.ground){ layoutGroundTargets(def.spawns.ground); }
+  // ally to escort
+  if(def.spawns.ally){ spawnAlly(); }
   // boss
   if(def.spawns.boss){ spawnBoss(def.spawns.boss); }
   // gauntlet: staggered waves handled in updateMission
@@ -1726,6 +2039,15 @@ function onBossDestroyed(){
   for(const o of mission.objectives){ if(o.kind==='boss') o.done=true; }
   renderObjectives(); checkMissionComplete();
 }
+function onLanded(hard){
+  for(const o of mission.objectives){ if(o.kind==='land' && !o.done){ o.done=true; } }
+  renderObjectives(); checkMissionComplete();
+}
+function onTakeoff(){
+  let changed=false;
+  for(const o of mission.objectives){ if(o.kind==='takeoff' && !o.done){ o.done=true; changed=true; } }
+  if(changed){ renderObjectives(); checkMissionComplete(); }
+}
 let victoryTimer=null;
 function clearVictoryTimer(){ if(victoryTimer){ clearTimeout(victoryTimer); victoryTimer=null; } }
 function checkMissionComplete(){
@@ -1750,6 +2072,15 @@ function queueRadioNow(lines){ if(!lines) return; let t=0.2; for(const l of line
 function updateMission(dt){
   if(!mission.active) return;
   updateRadio(dt);
+  // Deferred air spawn for runway-start missions: hold enemies until we're airborne.
+  if(mission.pendingAir && !player.onGround){
+    mission.spawnDelayT-=dt;
+    if(mission.spawnDelayT<=0){
+      for(const [t,n] of mission.pendingAir){ for(let i=0;i<n;i++) spawnEnemyNear(t, 1800, 3600); }
+      mission.pendingAir=null; dom.enemies.textContent=enemies.length;
+    }
+  } else if(mission.pendingAir && player.onGround){ mission.spawnDelayT=1.2; }
+
   // min-HP objectives are CONSTRAINTS ("keep HP above X"), not goals: they count as
   // satisfied (done) as long as they haven't failed. This is what lets a mission
   // whose only remaining primary is "Überleben" actually complete once the real
@@ -1759,6 +2090,21 @@ function updateMission(dt){
       if(!o.failed && o.hp>1 && player.hp < o.hp){ o.failed=true; if(o.primary){ mission.failReason='Struktur zu stark beschädigt.'; } renderObjectives(); }
       const nowDone = !o.failed;
       if(nowDone !== o.done){ o.done=nowDone; renderObjectives(); }
+    }
+    if(o.kind==='protect'){
+      // satisfied while the ally is alive; damageAlly() sets .failed on death
+      const nowDone = !o.failed;
+      if(nowDone !== o.done){ o.done=nowDone; renderObjectives(); }
+    }
+  }
+  // "Return to base" cue: when every non-landing objective is done and a landing is
+  // still required, prompt the player once and mark the runway as the active goal.
+  const landObj=mission.objectives.find(o=>o.kind==='land');
+  if(landObj && !landObj.done && !mission.landReady){
+    const others=mission.objectives.filter(o=>o!==landObj && o.primary);
+    if(others.length && others.every(o=>o.done)){
+      mission.landReady=true;
+      radio('WAGNER|Auftrag erfüllt — bring sie nach Hause. Kurs zur Basis, Fahrwerk mit B, weich aufsetzen.');
     }
   }
   checkMissionComplete();   // re-evaluate every frame so passive constraints resolve
@@ -1773,6 +2119,44 @@ function updateMission(dt){
     }
   }
   dom.enemies.textContent = enemies.length + groundTargets.filter(g=>!g.dead).length;
+}
+
+/* ---------------------------------------------------------------------------
+   15d2. ALLY (Hauptmann Lärche) — escortable friendly aircraft
+   --------------------------------------------------------------------------- */
+let ally=null;
+function clearAlly(){ if(ally){ scene.remove(ally.obj); ally=null; } }
+function spawnAlly(){
+  const obj=buildEurofighter();
+  // repaint allied: subtle blue tint via emissive, and no German tail needed
+  obj.traverse(o=>{ if(o.isMesh && o.material && o.material.emissive){ o.material=o.material.clone(); o.material.emissive=new THREE.Color(0x122a4a); o.material.emissiveIntensity=0.4; } });
+  const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion);
+  obj.position.copy(player.obj.position).addScaledVector(fwd, 180).add(new THREE.Vector3(80,20,0));
+  scene.add(obj);
+  ally={ obj, hp:100, maxhp:100, heading:player.heading, phase:Math.random()*6, smokeCd:0 };
+  return ally;
+}
+function damageAlly(d){ if(!ally) return; ally.hp-=d;
+  if(ally.hp<=0){ ally.hp=0; explode(ally.obj.position.x,ally.obj.position.y,ally.obj.position.z,1.6); Audio.explosion(true);
+    scene.remove(ally.obj); ally=null;
+    if(mission.active){ const o=mission.objectives.find(x=>x.kind==='protect'); if(o){ o.failed=true; mission.failReason='Hauptmann Lärche wurde abgeschossen.'; renderObjectives(); } }
+  }
+}
+function updateAlly(dt){
+  if(!ally) return;
+  ally.phase+=dt*0.5;
+  // fly a gentle weave ahead of the player, staying airborne
+  const fwd=tmpV.set(0,0,-1).applyQuaternion(player.obj.quaternion);
+  const want=player.obj.position.clone().addScaledVector(fwd, 260);
+  want.x += Math.sin(ally.phase)*140; want.z += Math.cos(ally.phase*0.7)*140;
+  want.y = Math.max(want.y, terrainHeight(ally.obj.position.x,ally.obj.position.z)+300);
+  const to=want.sub(ally.obj.position);
+  const step=Math.min(to.length(), 230*dt);
+  if(to.length()>1){ to.normalize(); ally.obj.position.addScaledVector(to, step);
+    _lookM.lookAt(_zero, to.clone().negate(), UP); ally.obj.quaternion.setFromRotationMatrix(_lookM); }
+  // damage smoke when hurt
+  if(ally.hp<50){ ally.smokeCd-=dt; if(ally.smokeCd<=0){ ally.smokeCd=0.06;
+    smokeP.spawn(ally.obj.position.x,ally.obj.position.y,ally.obj.position.z,0,2,0,1.2,8,40,ally.hp<25?C_DARK:C_GREY,C_SMOKE,0.95,-3);} }
 }
 
 /* ---------------------------------------------------------------------------
@@ -1896,8 +2280,68 @@ const UP=new THREE.Vector3(0,1,0);
 const tmpQ=new THREE.Quaternion(), tmpE=new THREE.Euler(), tmpV=new THREE.Vector3(), tmpV2=new THREE.Vector3();
 const _lookM=new THREE.Matrix4(), _zero=new THREE.Vector3(0,0,0);
 
+// gear visual: retract/extend smoothly by scaling the gear group on Y
+function updateGearVisual(dt){
+  const gear=player.obj.userData.gear; if(!gear) return;
+  const target=player.gearDown?1:0;
+  gear.scale.y += (target-gear.scale.y)*Math.min(1,dt*6);
+  gear.visible = gear.scale.y>0.02;
+}
+
+/* ---------------------------------------------------------------------------
+   16a. GROUND ROLL (takeoff run + post-landing rollout)
+   Realistic-but-fair: accelerate on thrust, steer with rudder, rotate the nose
+   up past Vr, lift off past liftoffSpeed. Runway keeps you straight-ish.
+   --------------------------------------------------------------------------- */
+function updatePlayerGround(dt){
+  const gy = player.runway ? player.runway.y : Math.max(terrainHeight(player.obj.position.x,player.obj.position.z),CFG.waterLevel);
+  // throttle: Shift = full thrust, Strg = wheel brakes, otherwise idle roll-down
+  const thrust = (!!keys['ShiftLeft']||!!keys['ShiftRight']);
+  const brake  = (!!keys['ControlLeft']||!!keys['ControlRight']);
+  player.boost = thrust;
+  let a = -CFG.taxiDrag;                       // rolling resistance always
+  if(thrust) a += CFG.taxiAccel;
+  if(brake)  a -= CFG.taxiBrake;
+  player.speed = Math.max(0, player.speed + a*dt);
+  // nose-wheel steering (A/D or mouse-x) — gentle, scaled down at high speed
+  let steer=0; if(keys['KeyA']||keys['ArrowLeft']) steer+=1; if(keys['KeyD']||keys['ArrowRight']) steer-=1;
+  if(mouseActive){ const dz=0.05; const mx=Math.abs(mouseX)>dz?(mouseX-Math.sign(mouseX)*dz)/(1-dz):0; steer+=-mx; }
+  player.heading += steer * (0.9*Math.min(1,player.speed/120)) * dt;
+  // rotation: pull back (W / mouse up) past Vr raises the nose
+  let pull=0; if(keys['KeyW']||keys['ArrowUp']) pull+=1; if(keys['KeyS']||keys['ArrowDown']) pull-=1;
+  if(mouseActive){ const dz=0.05; const my=Math.abs(mouseY)>dz?(mouseY-Math.sign(mouseY)*dz)/(1-dz):0; pull+=-my; }
+  const canRotate = player.speed>=CFG.rotateSpeed;
+  const targetPitch = (canRotate && pull>0) ? 0.28 : 0.0;   // nose-up attitude when rotating
+  player.pitch += (targetPitch-player.pitch)*Math.min(1,dt*2.5);
+  player.roll  += (0-player.roll)*Math.min(1,dt*4);
+  // liftoff: enough speed + nose up → become airborne
+  if(player.speed>=CFG.liftoffSpeed && player.pitch>0.12){
+    player.onGround=false; player.vy = 6;   // gentle initial climb
+    radio('WAGNER|Abgehoben! Fahrwerk fährt automatisch ein.');
+    player.gearRetractT=1.2;                 // auto-retract shortly after
+    if(mission.active) onTakeoff();
+  }
+  // keep the jet planted on the strip while rolling
+  player.obj.position.y = gy + 1.9;
+  player.vy=0;
+  // orient + move along heading
+  tmpE.set(player.pitch, player.heading, player.roll, 'YXZ'); player.obj.quaternion.setFromEuler(tmpE);
+  const fwd=tmpV.set(0,0,-1).applyQuaternion(player.obj.quaternion);
+  player.obj.position.addScaledVector(fwd, player.speed*dt);
+  player.vel.copy(fwd).multiplyScalar(player.speed);
+  // wheel dust when moving fast
+  if(player.speed>60 && Math.random()<0.5){ const p=player.obj.position; smokeP.spawn(p.x-fwd.x*6,gy+1,p.z-fwd.z*6,(Math.random()-0.5)*8,3,(Math.random()-0.5)*8,0.5,6,20,C_GREY,C_SMOKE,0.9,0); }
+  if(player.obj.userData.ab) player.obj.userData.ab.intensity = thrust?2.0:0.3;
+  updateGearVisual(dt);
+  // engine sound scales with taxi speed
+  Audio.setEngine(Math.min(1,player.speed/CFG.liftoffSpeed), thrust);
+}
+
 function updatePlayer(dt){
   if(!player.alive) return;
+  if(player.onGround){ updatePlayerGround(dt); return; }
+  // auto gear timers
+  if(player.gearRetractT>0){ player.gearRetractT-=dt; if(player.gearRetractT<=0) player.gearDown=false; }
   // ---------------------------------------------------------------------------
   // STABILIZED ARCADE FLIGHT MODEL
   //   heading (yaw) + pitch are tracked as absolute angles and the orientation
@@ -1968,9 +2412,14 @@ function updatePlayer(dt){
   targetSpeed=THREE.MathUtils.clamp(targetSpeed, CFG.minSpeed, CFG.boostSpeed);
   player.speed += (targetSpeed-player.speed)*Math.min(1,dt*(player.boost?1.2:0.8));
 
-  // move
+  // move (remember previous altitude to derive vertical speed for landings)
+  const prevY=player.obj.position.y;
   player.obj.position.addScaledVector(fwd, player.speed*dt);
   player.vel.copy(fwd).multiplyScalar(player.speed);  // keep true velocity (used by enemy lead-aim)
+  player.vy = (player.obj.position.y - prevY)/Math.max(dt,1e-3);
+
+  // manual gear toggle in the air (auto on approach too); tutorial teaches this
+  updateGearVisual(dt);
 
   // afterburner visual
   if(player.obj.userData.ab) player.obj.userData.ab.intensity = player.boost?2.5:(player.speed>CFG.cruiseSpeed?1.0:0.4);
@@ -1994,19 +2443,59 @@ function updatePlayer(dt){
 
   // --- Ground / altitude ---
   const gh=terrainHeight(player.obj.position.x, player.obj.position.z);
-  const clear=player.obj.position.y - Math.max(gh, CFG.waterLevel);
+  const groundY=Math.max(gh, CFG.waterLevel);
+  const clear=player.obj.position.y - groundY;
   dom.warn.style.opacity = (clear<180 && player.obj.position.y<gh+260) ? 1:0;
-  if(clear<12){
-    // crash-ish: bounce + heavy damage (forgiving, not instant death unless hp gone)
-    if(player.crashCd<=0){
+
+  // Are we over the active runway (for a graded landing rather than a crash)?
+  let overRunway=false;
+  if(player.runway){
+    const rdx=player.obj.position.x-player.runway.x, rdz=player.obj.position.z-player.runway.z;
+    const ch=Math.cos(-player.runway.heading), sh=Math.sin(-player.runway.heading);
+    const localX=rdx*ch - rdz*sh, localZ=rdx*sh + rdz*ch;   // into runway frame
+    overRunway = Math.abs(localX) < player.runway.width*0.6 && Math.abs(localZ) < player.runway.length*0.5;
+  }
+  // Auto-flare: in the last few metres over the runway with gear down, gently arrest
+  // the sink so a reasonable approach rewards a soft touchdown (forgiving arcade feel).
+  if(player.gearDown && overRunway && clear<22 && clear>3 && player.vy<0){
+    const ease=Math.min(1, dt*2.2);
+    player.pitch += (0.06-player.pitch)*ease;          // raise the nose slightly
+    if(player.vy<-10) player.obj.position.y -= player.vy*dt*0.5; // cushion excess sink
+  }
+
+  if(clear<3.4){
+    if(player.gearDown && (overRunway || player.runway) && player.pitch>-0.15){
+      // ---- LANDING TOUCHDOWN: grade by sink rate + alignment ----
+      const sink=Math.max(0,-player.vy);
+      const runHead=tmpV2.set(0,0,-1).applyAxisAngle(UP, player.runway?player.runway.heading:player.heading);
+      const align=fwd.dot(runHead);
+      if(sink>CFG.touchHard || align<0.55){
+        // too hard / too crooked → crash
+        player.hp=0; player.alive=false;
+        explode(player.obj.position.x, groundY+6, player.obj.position.z, 2.0); Audio.explosion(true);
+        mission.failReason='Harte Bruchlandung — Maschine zerstört.';
+        gameOver(false); return;
+      }
+      // touchdown: plant on the strip, roll out
+      player.onGround=true; player.vy=0; player.pitch=0.05; player.pitchRate=0;
+      player.obj.position.y=groundY+1.9;
+      const hard = sink>CFG.touchGood || align<CFG.touchAlignGood;
+      if(hard){ player.hp=Math.max(1,player.hp-18); shake=Math.max(shake,0.8); Audio.hitTaken();
+        banner('HARTE LANDUNG','Struktur beschädigt — aber unten'); }
+      else { shake=Math.max(shake,0.25); banner('AUFGESETZT','Saubere Landung, Geier'); Audio.reload(); }
+      // touchdown smoke puffs
+      for(let i=0;i<8;i++) smokeP.spawn(player.obj.position.x,groundY+1,player.obj.position.z,(Math.random()-0.5)*20,4,(Math.random()-0.5)*20,0.7,8,26,C_GREY,C_SMOKE,0.9,0);
+      player.landed=true;
+      if(mission.active) onLanded(hard);
+    } else if(player.crashCd<=0){
+      // hard terrain impact (no gear / not a runway / nose down) — forgiving bounce
       player.hp-=34; player.crashCd=1.0; shake=Math.max(shake,1.2);
-      explode(player.obj.position.x, gh+8, player.obj.position.z, 1.0);
+      explode(player.obj.position.x, groundY+8, player.obj.position.z, 1.0);
       Audio.explosion(false); Audio.hitTaken();
-      // push up and level: force nose upward so the bounce recovers automatically
-      player.obj.position.y = Math.max(gh, CFG.waterLevel)+16;
+      player.obj.position.y = groundY+16;
       player.pitch=Math.max(player.pitch, 0.3);
       player.pitchRate=Math.max(player.pitchRate, 0.4);
-      if(player.hp<=0){ player.alive=false; gameOver(); }
+      if(player.hp<=0){ player.alive=false; gameOver(false); }
     }
   }
   if(player.crashCd>0) player.crashCd-=dt;
@@ -2290,6 +2779,16 @@ function updateEnemies(dt){
         }
       } else if(e.fireCd<=0){ e.fireCd=1.3+Math.random()*1.5; e.burstLeft=st.burst; e.burstCd=0; }
     }
+    // ---- pressure on the ally (escort missions): enemies near Lärche chip her
+    // structure over time. The player must intercept them to keep her alive.
+    if(ally){
+      const ad=e.obj.position.distanceTo(ally.obj.position);
+      if(ad<700){ e.allyStrafeCd=(e.allyStrafeCd||0)-dt;
+        if(e.allyStrafeCd<=0){ e.allyStrafeCd=1.0; damageAlly(4+Math.random()*3);
+          const mp=e.obj.position.clone().addScaledVector(cur,10);
+          const d=ally.obj.position.clone().sub(mp).normalize();
+          fireBullet(mp, d, false); } }
+    }
   }
 }
 
@@ -2399,6 +2898,7 @@ function loop(now){
     updateEnemies(dt);
     updateGroundTargets(dt);
     updateBoss(dt);
+    updateAlly(dt);
     updateBullets(dt);
     updateMissiles(dt);
     updateBombs(dt);

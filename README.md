@@ -13,14 +13,30 @@ Ein im Browser spielbarer Arcade-Kampfflugsimulator. Du fliegst einen deutschen 
 - **Kampagne** — 7 handgebaute Story-Missionen mit Briefings, Funksprüchen und Missionszielen. Kein Speicherstand; Fortschritt gilt pro Sitzung, Missionen werden nacheinander freigeschaltet.
 - **Endlos-Gefecht** — der ursprüngliche wellenbasierte Überlebensmodus.
 
-### Die Kampagne
-1. **Kalter Start** — Luftkampf, erste Abfangdrohnen
+### Die Kampagne — 14 Missionen in zwei Akten
+
+**Akt I — Das HELIOS-Protokoll**
+0. **Flugschule** — Start, Luftkampf, Landung üben (Tutorial)
+1. **Kalter Start** — Start von der Basis, erste Abfangdrohnen
 2. **Blindflug** — Bodenangriff: Radarmasten mit Bomben zerstören
 3. **Lebensader** — kombiniert: Tankkonvoi + Jägereskorte
 4. **Wespennest** — SAM-Stellungen ausschalten, dann Hangars (Dämmerung)
 5. **Leviathan** — Boss: die Drohnenwerft **KRONOS**
 6. **Sonnenfinsternis** — Drohnenwand-Gauntlet (Dämmerung)
-7. **Das Auge** — Finale gegen den HELIOS-Kern (Nacht)
+7. **Das Auge** — HELIOS-Kern (Nacht) … doch der Sieg wirft Fragen auf
+
+**Akt II — Das kalte Kalkül**
+8. **Totenstille** — die Drohnen fliegen weiter. Aber warum?
+9. **Die Lärche** — eine Überlebende eskortieren (Schutzmission)
+10. **Prometheus** — der Bunker hinter der Verschwörung
+11. **Der Schwarm** — durch einen autonomen Kamikaze-Schwarm brechen
+12. **Die Wahl** — eine moralische Entscheidung mit Folgen
+13. **Himmelsbrand** — das Finale (mit Start & Landung)
+
+Die Story entwickelt einen moralischen Twist (ist HELIOS wirklich der Feind?), lebendigen Funkverkehr mit neuen Charakteren (Hauptmann Lärche), erzählte Zwischensequenzen und eine Entscheidung, die das Ende verändert.
+
+### Start & Landung
+Manche Missionen beginnen auf der Rollbahn und/oder verlangen eine Landung. Physik: **Vollgas (Shift)**, ab **Vr** (rote Markierung) die **Nase heben (W/Maus)**, abheben. Zur Landung tief & langsam mit ausgefahrenem **Fahrwerk (B)** anfliegen, weich und gerade aufsetzen — zu steil oder schief = Bruchlandung. Ein sanfter Auto-Flare belohnt saubere Anflüge.
 
 ## Steuerung
 
