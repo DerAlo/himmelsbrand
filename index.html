@@ -315,6 +315,8 @@ const CFG = {
   enemyBulletSpeed: 900, enemyBulletDmg: 3.2, enemyBulletLife: 1.6,
   aimAssist: 0.42,         // fraction of correction applied to MG bullets (toward lead point)
   gunRange: 1600,          // effective MG range for the lead pipper / "GUNS" cue
+  enemyMissileSpeed:600, enemyMissileTurn:1.25, enemyMissileLife:6.5, enemyMissileDmg:15,
+  enemyMissileHitR:16, enemyMissileArm:0.35, ENEMY_MSL_CAP:3,
   playerHP: 100,
   // --- Ground handling (takeoff/landing) ---
   groundMinSpeed: 0,       // can sit still on the runway
@@ -423,7 +425,7 @@ const CAMPAIGN = [
       { id:'gauntlet', kind:'destroyAir', count:9, primary:true, label:'Die Drohnenwand durchbrechen' },
       { id:'survive', kind:'minHP', hp:1, primary:false, label:'Am Leben bleiben' },
     ],
-    spawns:{ air:[['f16',4],['f18',3],['f22',2]], waveDelay:true },
+    spawns:{ air:[['f16',4],['f18',3],['f22',2,'sniper']], ace:'f22', waveDelay:true },
     intro:['WAGNER|Sie kommen aus allen Richtungen. Halt die Nerven.','WAGNER|Das ist ihr letztes Aufgebot in der Luft. Zeig ihr, was ein Mensch aushält.'],
     win:['WAGNER|Der Himmel ist leer. Vor dir liegt nur noch — das Auge.'],
   },
@@ -448,7 +450,7 @@ const CAMPAIGN = [
       { id:'probe', kind:'destroyAir', count:6, primary:true, label:'Die neue Drohnenformation ausschalten' },
       { id:'struct', kind:'minHP', hp:25, primary:false, label:'Struktur über 25% halten' },
     ],
-    spawns:{ air:[['f18',3],['f22',3]] },
+    spawns:{ air:[['f18',3,'aggressor'],['f22',3]], ace:'f22' },
     intro:['WAGNER|Kein Funk, keine Prahlerei diesmal. Sie greifen einfach an.','?|…—kzzt— …ist da wer? Hört mich irgendjemand auf diesem Kanal?'],
     win:['?|Endlich! Deutsche Kennung — du fliegst manuell, oder? Gott sei Dank. Hier spricht Hauptmann Lärche. Ich dachte, ich bin die Letzte.','WAGNER|Lärche? Das ist unmöglich. Ihre Staffel gilt seit dem ersten Tag als verloren.'],
     cutsceneAfter:'lerche',
@@ -473,7 +475,7 @@ const CAMPAIGN = [
       { id:'ant', kind:'destroyGround', tag:'radar', count:3, primary:true, label:'3 Kommando-Antennen zerstören' },
       { id:'air', kind:'destroyAir', count:3, primary:false, label:'Wachdrohnen abfangen' },
     ],
-    spawns:{ ground:[['sam',3],['radar',3]], air:[['f22',3]] },
+    spawns:{ ground:[['sam',3],['radar',3]], air:[['f22',3,'sniper']] },
     intro:['WAGNER|Menschengemacht. Die ganze Zeit. Mir wird schlecht.','LÄRCHE|Erst die SAMs, dann die Antennen. Ich geb dir Feuerschutz von oben.'],
     win:['LÄRCHE|Antennen sind Schrott. Und … oh Gott. Der Schwarm da drin ist nicht ferngesteuert. Er ist autonom. Vollkommen autonom.'],
   },
@@ -484,7 +486,7 @@ const CAMPAIGN = [
       { id:'swarm', kind:'destroyAir', count:12, primary:true, label:'Durch den Schwarm brechen (12)' },
       { id:'survive', kind:'minHP', hp:1, primary:false, label:'Am Leben bleiben' },
     ],
-    spawns:{ air:[['f16',6],['f18',4],['f22',2]], waveDelay:true },
+    spawns:{ air:[['f16',6],['f18',4],['f22',2]], ace:'f22', waveDelay:true },
     intro:['LÄRCHE|Sie kommen in Wellen. Immer weiter. Halt durch!','WAGNER|Ich zähl deine Treffer mit, Geier. Zwölf, dann ist die Bresche offen.'],
     win:['LÄRCHE|Die Bresche ist offen! Vor uns liegt der Kern von PROMETHEUS. Und … da ist noch etwas. Eine Stimme. HELIOS’ Stimme.'],
     cutsceneAfter:'choice',
@@ -1379,8 +1381,10 @@ function releaseBullet(b){ b.mesh.visible=false; bulletPool.push(b.mesh); }
 
 // Missiles
 const missiles=[];
+const enemyMissiles=[];
 const missileGeo=new THREE.CylinderGeometry(0.35,0.35,4,8); missileGeo.rotateX(Math.PI/2);
 const missileMat=new THREE.MeshStandardMaterial({color:0xdddddd, metalness:0.4, roughness:0.5, emissive:0x220000});
+const enemyMissileMat=new THREE.MeshStandardMaterial({color:0x662222, metalness:0.4, roughness:0.5, emissive:0xff2200, emissiveIntensity:0.8});
 function fireMissile(){
   if(player.missiles<=0 || player.reloadT>0) return;
   // Only guided if there is a genuine lock. No lock = DUMB-FIRE: flies straight,
@@ -1576,14 +1580,39 @@ const ENEMY_STATS={
   f18:{ hp:54, cruise:290, max:410, baseTurn:1.20, radius:24, score:180, fireRange:1450, fireCd:0.10, burst:7, missileChance:0.10 },
   f22:{ hp:104, cruise:330, max:470, baseTurn:1.65, radius:28, score:400, fireRange:1650, fireCd:0.09, burst:9,  missileChance:0.22 },
 };
-function spawnEnemy(type, pos){
+// Personalities layered on the engage/break/extend/flee FSM. Multipliers vs base.
+// FAIRNESS: baseTurn*turnMul must stay <= ~1.85 for any base so the player's
+// slow-speed brake-and-turn always pulls inside them. Ace's teeth are HP + evasion.
+const PERSONALITIES={
+  grunt    :{ turnMul:1.00, spdMul:1.00, hpMul:1.00, aggro:0.60, closeR:450, standoff:0,    breakBias:1.00, missiles:0, evade:0.0 },
+  aggressor:{ turnMul:1.00, spdMul:1.05, hpMul:1.15, aggro:0.90, closeR:320, standoff:0,    breakBias:0.55, missiles:0, evade:0.0 },
+  sniper   :{ turnMul:0.90, spdMul:0.95, hpMul:0.85, aggro:0.30, closeR:450, standoff:1400, breakBias:1.40, missiles:2, evade:0.0 },
+  ace      :{ turnMul:1.12, spdMul:1.10, hpMul:1.50, aggro:0.80, closeR:380, standoff:0,    breakBias:1.00, missiles:1, evade:0.75 },
+};
+const ACE_NAMES=['NEMESIS-1','LEITWOLF','REVENANT-9','KRÖNUNG','SCHWARZE WITWE','FAFNIR-7'];
+function pickPersonality(type){
+  // early missions stay grunt-only so their tuned balance is unchanged
+  if(mission.active && mission.index<=1) return 'grunt';
+  const r=Math.random();
+  if(type==='f16') return r<0.80?'grunt':'aggressor';
+  if(type==='f18') return r<0.55?'grunt':(r<0.85?'aggressor':'sniper');
+  return r<0.35?'grunt':(r<0.70?'aggressor':'sniper');   // f22
+}
+function spawnEnemy(type, pos, persona){
   const st=ENEMY_STATS[type];
+  const pName = persona || pickPersonality(type);
+  const pk = PERSONALITIES[pName] || PERSONALITIES.grunt;
   const obj=buildEnemy(type); obj.position.copy(pos); scene.add(obj);
-  const e={ obj, type, hp:st.hp, maxhp:st.hp, st, vel:new THREE.Vector3(0,0,-1),
-    speed:st.cruise, roll:0,
+  const hp=Math.round(st.hp*pk.hpMul);
+  const e={ obj, type, hp, maxhp:hp, st, vel:new THREE.Vector3(0,0,-1),
+    persona:pName, pk, cruise:st.cruise*pk.spdMul, max:st.max*pk.spdMul,
+    speed:st.cruise*pk.spdMul, roll:0,
     state:'engage', stateT:1+Math.random()*1.5,   // AI state machine + timer
     fireCd:Math.random()*1, burstLeft:0, burstCd:0,
+    missilesLeft:pk.missiles, mslCd:3+Math.random()*3,
+    wing:null, pinRole:null, pinSide:1, pinT:0, evadeT:0,
     jinkDir:(Math.random()<0.5?-1:1), jinkPhase:Math.random()*Math.PI*2,
+    isAce:false, aceName:null,
     smokeCd:0, damaged:false };
   enemies.push(e);
   return e;
@@ -1728,6 +1757,12 @@ function drawHUD(){
     hctx.stroke();
   } else hitMarkKill=false;
 
+  // RWR launch-warning blink (enemy missile inbound)
+  if(rwrT>0 && Math.sin(menuTime*30)>0){
+    hctx.fillStyle='rgba(255,60,60,0.95)'; hctx.font='bold 15px monospace'; hctx.textAlign='center';
+    hctx.fillText('⚠ RAKETE', cx, cy+52); hctx.textAlign='left';
+  }
+
   // target boxes for each enemy
   const proj=new THREE.Vector3();
   for(const e of enemies){
@@ -1738,12 +1773,13 @@ function drawHUD(){
     if(onScreen){
       const size=Math.max(18, 2600/dist*20);
       const isLock=(e===currentLock);
-      hctx.strokeStyle=isLock?'rgba(255,60,60,0.95)':'rgba(255,190,60,0.85)';
+      hctx.strokeStyle = e.isAce?'rgba(255,80,255,0.95)':(isLock?'rgba(255,60,60,0.95)':'rgba(255,190,60,0.85)');
       hctx.lineWidth=isLock?2.5:1.5;
       hctx.strokeRect(sx-size/2, sy-size/2, size, size);
       // corner ticks
       hctx.fillStyle=hctx.strokeStyle;
       hctx.font='11px monospace'; hctx.fillText(Math.round(dist)+'m', sx-size/2, sy-size/2-4);
+      if(e.isAce){ hctx.fillStyle='rgba(255,80,255,0.95)'; hctx.font='bold 11px monospace'; hctx.fillText('★ '+e.aceName, sx-size/2, sy+size/2+26); }
       if(isLock){
         hctx.fillText('LOCK', sx-size/2, sy+size/2+14);
         // rotating lock brackets
@@ -1985,12 +2021,20 @@ function startWave(n){
   banner('WELLE '+n, list.length+' FEINDLICHE DROHNEN');
   dom.enemies.textContent=enemies.length;
 }
-function spawnEnemyNear(type, minD, maxD){
+function spawnEnemyNear(type, minD, maxD, persona){
   const ang=Math.random()*Math.PI*2, dist=(minD||2600)+Math.random()*((maxD||4400)-(minD||2600));
   const p=player.obj.position.clone();
   p.x+=Math.cos(ang)*dist; p.z+=Math.sin(ang)*dist;
   p.y=Math.max(400, player.obj.position.y + (Math.random()-0.35)*600);
-  return spawnEnemy(type, p);
+  return spawnEnemy(type, p, persona);
+}
+function spawnAce(type, pos){
+  const e=spawnEnemy(type, pos, 'ace');
+  e.isAce=true; e.aceName=ACE_NAMES[(Math.random()*ACE_NAMES.length)|0];
+  e.missilesLeft=Math.max(1,e.missilesLeft);
+  banner('⚠ ACE-DROHNE: '+e.aceName,'Elite-Muster erkannt');
+  radio('HELIOS|'+e.aceName+' übernimmt.'); Audio.warnBeep();
+  return e;
 }
 function nextWaveCheck(){
   if(gameMode!=='endless') return;
@@ -2029,7 +2073,9 @@ function resetWorld(){
   for(const e of enemies) scene.remove(e.obj); enemies.length=0;
   for(const b of bullets) releaseBullet(b); bullets.length=0;
   for(const m of missiles){ Audio.stopMissileSound(m.snd); scene.remove(m.mesh); } missiles.length=0;
+  for(const m of enemyMissiles) scene.remove(m.mesh); enemyMissiles.length=0;
   for(const b of bombs) scene.remove(b.mesh); bombs.length=0;
+  pincerCd=6; acePincerAnnounced=false; rwrT=0;
   clearGroundTargets(); clearBoss(); clearRunway(); clearAlly();
   score=0; wave=0; waveActive=false; betweenTimer=2.0; shake=0; combo=0; comboT=0;
   if(dom.score) dom.score.textContent='0';
@@ -2313,9 +2359,12 @@ function setupMission(index){
     tmpE.set(player.pitch,player.heading,player.roll,'YXZ'); player.obj.quaternion.setFromEuler(tmpE);
     // enemies wait until the player is airborne (see updateMission spawnDelay)
     mission.pendingAir = def.spawns.air ? def.spawns.air.slice() : null;
+    mission.pendingAce = def.spawns.ace || null;
   } else {
     // airborne start (default): keep resetPlayer's mid-air position
-    if(def.spawns.air && !def.spawns.waveDelay){ for(const [t,n] of def.spawns.air){ for(let i=0;i<n;i++) spawnEnemyNear(t, 1800, 3600); } }
+    if(def.spawns.air && !def.spawns.waveDelay){ for(const [t,n,persona] of def.spawns.air){ for(let i=0;i<n;i++) spawnEnemyNear(t, 1800, 3600, persona); } }
+    if(def.spawns.ace){ const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion);
+      spawnAce(def.spawns.ace, player.obj.position.clone().addScaledVector(fwd, 2600).add(new THREE.Vector3((Math.random()-0.5)*600,100,0))); }
   }
   // If the mission wants a landing, ensure a runway exists to land on (airborne start too)
   if(hasLandObj && !player.runway){
@@ -2332,7 +2381,7 @@ function setupMission(index){
   if(def.spawns.boss){ spawnBoss(def.spawns.boss); }
   // gauntlet: staggered waves handled in updateMission
   mission.gauntlet = !!def.spawns.waveDelay;
-  if(mission.gauntlet){ mission.gauntletQueue=def.spawns.air.flatMap(([t,n])=>Array(n).fill(t)); mission.reinforceT=1.5; }
+  if(mission.gauntlet){ mission.gauntletQueue=def.spawns.air.flatMap(([t,n,persona])=>Array(n).fill({t,persona})); mission.reinforceT=1.5; }
   dom.enemies.textContent=enemies.length;
   banner(def.name.toUpperCase(), 'MISSION '+(index+1));
   queueRadio(def.intro, 3.6);
@@ -2415,7 +2464,9 @@ function updateMission(dt){
   if(mission.pendingAir && !player.onGround){
     mission.spawnDelayT-=dt;
     if(mission.spawnDelayT<=0){
-      for(const [t,n] of mission.pendingAir){ for(let i=0;i<n;i++) spawnEnemyNear(t, 1800, 3600); }
+      for(const [t,n,persona] of mission.pendingAir){ for(let i=0;i<n;i++) spawnEnemyNear(t, 1800, 3600, persona); }
+      if(mission.pendingAce){ const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion);
+        spawnAce(mission.pendingAce, player.obj.position.clone().addScaledVector(fwd,2600).add(new THREE.Vector3((Math.random()-0.5)*600,100,0))); mission.pendingAce=null; }
       mission.pendingAir=null; dom.enemies.textContent=enemies.length;
     }
   } else if(mission.pendingAir && player.onGround){ mission.spawnDelayT=1.2; }
@@ -2452,8 +2503,8 @@ function updateMission(dt){
   if(mission.gauntlet && mission.gauntletQueue && mission.gauntletQueue.length){
     mission.reinforceT-=dt;
     if(mission.reinforceT<=0 && enemies.length<5){
-      const t=mission.gauntletQueue.shift();
-      spawnEnemyNear(t, 2000, 3600);
+      const {t,persona}=mission.gauntletQueue.shift();
+      spawnEnemyNear(t, 2000, 3600, persona);
       mission.reinforceT=1.6;
       dom.enemies.textContent=enemies.length;
     }
@@ -3041,6 +3092,7 @@ function updateMissiles(dt){
 const COMBO_CALL=['','','DOPPELKILL!','TRIPLE KILL!','QUAD KILL!','RAMPAGE!','UNAUFHALTSAM!','LEGENDÄR!'];
 function killEnemy(e){
   const idx=enemies.indexOf(e); if(idx<0) return;
+  if(e.wing){ e.wing.wing=null; e.wing.pinRole=null; }   // un-pair a pincer partner
   const _kpan=screenPanX(e.obj.position);
   enemies.splice(idx,1); scene.remove(e.obj);
   explode(e.obj.position.x,e.obj.position.y,e.obj.position.z, e.type==='f22'?1.8:1.2);
@@ -3050,22 +3102,87 @@ function killEnemy(e){
   // kill-streak combo: each kill within the window bumps the multiplier
   combo++; comboT=4.0;
   const mult=Math.min(combo,5);
-  const gain=Math.round(e.st.score*mult);
-  score+=gain; dom.score.textContent=score;
+  if(e.isAce){
+    const gain=1500; score+=gain; dom.score.textContent=score;
+    killMsg('★ ACE ZERSTÖRT: '+e.aceName+'  +'+gain);
+    banner('ACE ABGESCHOSSEN', e.aceName);
+    player.hp=Math.min(CFG.playerHP, player.hp+15);
+  } else {
+    const gain=Math.round(e.st.score*mult);
+    score+=gain; dom.score.textContent=score;
+    const names={f16:'JÄGER-DROHNE',f18:'KAMPFDROHNE',f22:'ELITE-DROHNE'};
+    killMsg('▼ '+names[e.type]+'  +'+gain+(mult>1?('  ×'+mult):''));
+    if(combo>=2 && COMBO_CALL[combo]) banner(COMBO_CALL[Math.min(combo,7)], 'Kill-Serie ×'+mult);
+    if(combo>=2) Audio.reload();  // rising chime as a reward cue
+  }
   dom.enemies.textContent=enemies.length;
-  const names={f16:'JÄGER-DROHNE',f18:'KAMPFDROHNE',f22:'ELITE-DROHNE'};
-  killMsg('▼ '+names[e.type]+'  +'+gain+(mult>1?('  ×'+mult):''));
-  if(combo>=2 && COMBO_CALL[combo]) banner(COMBO_CALL[Math.min(combo,7)], 'Kill-Serie ×'+mult);
-  if(combo>=2) Audio.reload();  // rising chime as a reward cue
   const d=player.obj.position.distanceTo(e.obj.position);
   if(d<400) shake=Math.max(shake, 0.6*(1-d/400));
   if(mission.active) onAirDestroyed();
 }
 
 const _edir=new THREE.Vector3(), _eright=new THREE.Vector3(), _etmp=new THREE.Vector3();
+let pincerCd=6, acePincerAnnounced=false, rwrT=0;
+
+// Occasionally pair two engaging grunts/aggressors into an anchor+flanker pincer.
+function maybeCoordinate(dt){
+  pincerCd-=dt; if(pincerCd>0) return;
+  pincerCd=6+Math.random()*4;
+  if(enemies.some(e=>e.wing)) return;  // one pincer at a time
+  const cand=enemies.filter(e=>(e.persona==='grunt'||e.persona==='aggressor') && e.state==='engage' && !e.wing);
+  if(cand.length<2) return;
+  if(Math.random()>=0.5) return;
+  // anchor = closest to player; flanker = a partner within 1200m of it and 800-2500m of player
+  cand.sort((a,b)=>a.obj.position.distanceTo(player.obj.position)-b.obj.position.distanceTo(player.obj.position));
+  const anchor=cand[0];
+  let flanker=null;
+  for(let i=1;i<cand.length;i++){ const c=cand[i];
+    const dp=c.obj.position.distanceTo(player.obj.position);
+    if(c.obj.position.distanceTo(anchor.obj.position)<1200 && dp>800 && dp<2500){ flanker=c; break; } }
+  if(!flanker) return;
+  anchor.wing=flanker; flanker.wing=anchor;
+  anchor.pinRole='anchor'; flanker.pinRole='flanker';
+  anchor.pinT=8; flanker.pinT=8;
+  flanker.pinSide = Math.random()<0.5?-1:1;
+  if(!acePincerAnnounced){ acePincerAnnounced=true; radio('HELIOS|Zangenangriff — sie teilen sich auf.'); }
+}
+
+function fireEnemyMissile(e){
+  if(enemyMissiles.length>=CFG.ENEMY_MSL_CAP) return;
+  const cur=tmpV2.copy(e.vel).normalize();
+  const start=e.obj.position.clone().addScaledVector(cur,10);
+  const mesh=new THREE.Mesh(missileGeo, enemyMissileMat); mesh.position.copy(start); scene.add(mesh);
+  enemyMissiles.push({ mesh, vel:cur.clone().multiplyScalar(CFG.enemyMissileSpeed), life:CFG.enemyMissileLife, arm:CFG.enemyMissileArm });
+  rwrT=1.2; Audio.warnBeep();
+}
+function updateEnemyMissiles(dt){
+  for(let i=enemyMissiles.length-1;i>=0;i--){
+    const mi=enemyMissiles[i]; mi.life-=dt; mi.arm-=dt;
+    // home on the player (turn rate deliberately low → out-turnable by braking)
+    const to=tmpV.copy(player.obj.position).sub(mi.mesh.position);
+    const dist=to.length(); to.normalize();
+    const cur=tmpV2.copy(mi.vel).normalize();
+    cur.lerp(to, Math.min(1, CFG.enemyMissileTurn*dt)).normalize();
+    mi.vel.copy(cur).multiplyScalar(CFG.enemyMissileSpeed);
+    mi.mesh.position.addScaledVector(mi.vel, dt);
+    mi.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), cur);
+    smokeP.spawn(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0,0,0,0.7,8,40,C_WHITE,C_GREY,0.95,-2);
+    fireP.spawn(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0,0,0,0.12,10,2,C_RED,C_ORANGE,0.9,0);
+    let done=false;
+    if(mi.arm<=0 && player.alive && dist<CFG.enemyMissileHitR+ (player.onGround?0:0)){
+      player.hp-=CFG.enemyMissileDmg; shake=Math.max(shake,0.7); damageFlash=Math.max(damageFlash,0.6); Audio.hitTaken();
+      explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0.8); Audio.explosion(false, screenPanX(mi.mesh.position));
+      if(player.hp<=0){ player.alive=false; gameOver(false); }
+      done=true;
+    }
+    if(done || mi.life<=0){ if(mi.life<=0 && !done) explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0.4); scene.remove(mi.mesh); enemyMissiles.splice(i,1); }
+  }
+}
+
 function updateEnemies(dt){
+  maybeCoordinate(dt);
   for(const e of enemies){
-    const st=e.st;
+    const st=e.st, pk=e.pk;
     const cur=tmpV2.copy(e.vel).normalize();                 // current heading
     const toPlayer=tmpV.copy(player.obj.position).sub(e.obj.position);
     const dist=toPlayer.length(); toPlayer.normalize();
@@ -3073,13 +3190,16 @@ function updateEnemies(dt){
     // is the player on THIS enemy's tail? (player behind & pointing at it)
     const playerFwd=_etmp.set(0,0,-1).applyQuaternion(player.obj.quaternion);
     const playerOnTail = (toPlayer.dot(cur) < -0.2) && (playerFwd.dot(toPlayer) < -0.55) && dist < 900;
+    if(e.pinT>0) e.pinT-=dt;
+    if(e.wing && (enemies.indexOf(e.wing)<0 || e.pinT<=0)){ e.wing=null; e.pinRole=null; }
 
     // ---- STATE MACHINE ----------------------------------------------------
     // engage : pursue & shoot   | break : hard defensive jink when threatened
     // extend : blast away to rebuild energy, then re-merge | flee : low HP escape
     e.stateT-=dt;
     if(e.hp < st.hp*0.25){ e.state='flee'; }
-    else if(playerOnTail && e.state!=='extend' && e.state!=='break'){ e.state='break'; e.stateT=1.4+Math.random(); e.jinkDir=(Math.random()<0.5?-1:1); }
+    else if(playerOnTail && e.state!=='extend' && e.state!=='break' && (pk.breakBias>=1 || Math.random()<pk.breakBias)){
+      e.state='break'; e.stateT=1.4+Math.random(); e.jinkDir=(Math.random()<0.5?-1:1); }
     else if(e.stateT<=0){
       if(e.state==='break'){ e.state='extend'; e.stateT=1.6+Math.random()*1.2; }
       else if(e.state==='extend'){ e.state='engage'; e.stateT=2.5+Math.random()*2; }
@@ -3089,34 +3209,47 @@ function updateEnemies(dt){
 
     // ---- desired heading + target speed per state -------------------------
     let desired=_edir.copy(toPlayer);
-    let targetSpeed=st.cruise;
+    let targetSpeed=e.cruise;
     if(e.state==='engage'){
       // lead pursuit: aim where the player WILL be, so it presses for a guns solution
-      const t=dist/st.max*0.5;
+      const t=dist/e.max*0.5;
       _etmp.copy(player.obj.position).addScaledVector(player.vel, t).sub(e.obj.position).normalize();
-      desired.lerp(_etmp,0.6).normalize();
-      targetSpeed = (dist>1600)? st.max : st.cruise;         // close the gap, then manage energy
-      // if it's getting slow/close, don't just circle — commit to a fast pass (overshoot)
-      if(dist<450){ targetSpeed=st.max; }
+      desired.lerp(_etmp, pk.aggro).normalize();
+      targetSpeed = (dist>1600)? e.max : e.cruise;           // close the gap, then manage energy
+      if(dist<pk.closeR){ targetSpeed=e.max; }               // commit to a fast pass (overshoot)
+      // SNIPER: hold standoff range and lob missiles instead of merging
+      if(pk.standoff>0 && dist<pk.standoff){
+        desired.copy(e.obj.position).sub(player.obj.position).normalize();  // ease back out
+        desired.lerp(toPlayer,0.35).normalize();
+        targetSpeed=e.cruise;
+      }
+      // FLANKER: aim at a cutoff point offset from the player's line (pincer)
+      if(e.pinRole==='flanker' && dist<LEASH_SOFT){
+        _eright.crossVectors(tmpV2.copy(player.vel).normalize(), UP).normalize();
+        _etmp.copy(player.obj.position).addScaledVector(player.vel, dist/e.max*0.5).addScaledVector(_eright, e.pinSide*450);
+        desired.copy(_etmp).sub(e.obj.position).normalize();
+      }
     } else if(e.state==='break'){
       // hard turn across the player's line + barrel-ish jink to spoil his aim
+      const cross = pk.evade>0 ? 2.2 : 1.5;                  // ace jinks harder
       e.jinkPhase+=dt*6;
       _eright.crossVectors(toPlayer, UP).normalize();
-      desired.copy(toPlayer).addScaledVector(_eright, e.jinkDir*1.5);
+      desired.copy(toPlayer).addScaledVector(_eright, e.jinkDir*cross);
       desired.y += Math.sin(e.jinkPhase)*0.5;
       desired.normalize();
-      targetSpeed = st.cruise*0.8;   // bleed speed to tighten the break turn
+      targetSpeed = e.cruise*(pk.evade>0?0.62:0.8);          // bleed speed to tighten the break
+      // ace scissors reversal + occasional defensive missile
+      if(pk.evade>0){ e.evadeT-=dt; if(e.evadeT<=0){ e.evadeT=0.7; e.jinkDir=-e.jinkDir;
+        if(e.missilesLeft>0 && Math.random()<0.3 && enemyMissiles.length<CFG.ENEMY_MSL_CAP){ fireEnemyMissile(e); e.missilesLeft--; } } }
     } else if(e.state==='extend'){
-      // peel off to rebuild energy, then re-merge — but only until a modest range,
-      // after which turn back (so it re-engages instead of running to the horizon)
-      if(dist>1500){ desired.copy(toPlayer); }   // already far enough — turn back in
+      if(dist>1500){ desired.copy(toPlayer); }
       else { desired.copy(e.obj.position).sub(player.obj.position).normalize(); desired.y+=0.05; }
       desired.normalize();
-      targetSpeed = st.cruise*1.1;
+      targetSpeed = e.cruise*1.1;
     } else { // flee (low HP) — run, but the leash still reins it back
       desired.copy(e.obj.position).sub(player.obj.position).normalize();
       desired.y += 0.12; desired.normalize();
-      targetSpeed = st.cruise*1.15;
+      targetSpeed = e.cruise*1.15;
     }
 
     // ---- LEASH: enemies may extend/flee, but never run out of reach --------
@@ -3128,7 +3261,7 @@ function updateEnemies(dt){
       const back=_etmp.copy(player.obj.position).sub(e.obj.position).normalize();
       const pull=THREE.MathUtils.clamp((dist-LEASH_SOFT)/(LEASH_HARD-LEASH_SOFT),0,1);
       desired.lerp(back, pull).normalize();
-      if(dist>LEASH_HARD){ desired.copy(back); targetSpeed=Math.min(targetSpeed, st.cruise); if(e.state!=='engage'){ e.state='engage'; e.stateT=2+Math.random()*2; } }
+      if(dist>LEASH_HARD){ desired.copy(back); targetSpeed=Math.min(targetSpeed, e.cruise); if(e.state!=='engage'){ e.state='engage'; e.stateT=2+Math.random()*2; } }
     }
 
     // avoid ground / ceiling (overrides)
@@ -3136,9 +3269,9 @@ function updateEnemies(dt){
     if(e.obj.position.y < gh+240){ desired.y=Math.abs(desired.y)+0.7; desired.normalize(); }
     if(e.obj.position.y > 3900){ desired.y=-0.35; desired.normalize(); }
 
-    // ---- energy-limited turn: slower enemy turns tighter (same rule as player)
+    // ---- energy-limited turn: slower enemy turns tighter; personality scales agility
     e.speed += (targetSpeed-e.speed)*Math.min(1,dt*0.7);
-    const turn = st.baseTurn*turnMultFor(e.speed);
+    const turn = st.baseTurn*pk.turnMul*turnMultFor(e.speed);
     cur.lerp(desired, Math.min(1, turn*dt)).normalize();
     e.vel.copy(cur).multiplyScalar(e.speed);
     e.obj.position.addScaledVector(e.vel, dt);
@@ -3154,13 +3287,13 @@ function updateEnemies(dt){
 
     // ---- engine trail (smoke when damaged) --------------------------------
     e.smokeCd-=dt;
-    if(e.hp<st.hp*0.5 && e.smokeCd<=0){ e.smokeCd=0.04;
+    if(e.hp<e.maxhp*0.5 && e.smokeCd<=0){ e.smokeCd=0.04;
       const tail=e.obj.position.clone().addScaledVector(cur,-8);
       smokeP.spawn(tail.x,tail.y,tail.z,(Math.random()-0.5)*8,(Math.random()-0.5)*8,(Math.random()-0.5)*8,1.4,14,70,C_DARK,C_SMOKE,0.95,-3);
     }
 
     // ---- firing at player (only when engaging & nose-on) ------------------
-    e.fireCd-=dt;
+    e.fireCd-=dt; if(e.mslCd>0) e.mslCd-=dt;
     if(e.state==='engage' && dist<st.fireRange && facing>0.95 && player.alive){
       if(e.burstLeft>0){ e.burstCd-=dt;
         if(e.burstCd<=0){ e.burstCd=st.fireCd; e.burstLeft--;
@@ -3171,6 +3304,11 @@ function updateEnemies(dt){
           fireBullet(muzzlePos, d.normalize(), false);
         }
       } else if(e.fireCd<=0){ e.fireCd=1.3+Math.random()*1.5; e.burstLeft=st.burst; e.burstCd=0; }
+    }
+    // ---- missiles (sniper/ace): standoff lob, dodgeable, capped in flight ----
+    if(e.missilesLeft>0 && e.mslCd<=0 && e.state==='engage' && dist>800 && dist<2200 && facing>0.6
+        && enemyMissiles.length<CFG.ENEMY_MSL_CAP && player.alive){
+      fireEnemyMissile(e); e.missilesLeft--; e.mslCd=5+Math.random()*3;
     }
     // ---- pressure on the ally (escort missions): enemies near Lärche chip her
     // structure over time. The player must intercept them to keep her alive.
@@ -3306,7 +3444,9 @@ function loop(now){
     updateAlly(dt);
     updateBullets(dt);
     updateMissiles(dt);
+    updateEnemyMissiles(dt);
     updateBombs(dt);
+    if(rwrT>0) rwrT-=rawDt;
     if(gameMode==='campaign') updateMission(dt);
     nextWaveCheck();
     if(gameMode==='endless' && betweenTimer>0){ betweenTimer-=dt; if(betweenTimer<=0 && !waveActive) startWave(wave+1); }
@@ -3325,7 +3465,7 @@ function loop(now){
     updateClouds(player.obj.position.x, player.obj.position.z, dt);
   } else if(state==='gameover'){
     // let particles settle, keep the world drifting
-    updateEnemies(dt); updateBullets(dt); updateMissiles(dt); updateBombs(dt); updateBoss(dt);
+    updateEnemies(dt); updateBullets(dt); updateMissiles(dt); updateEnemyMissiles(dt); updateBombs(dt); updateBoss(dt);
   }
 
   // particles + debris always update (ride scaled dt so they freeze/slow with the world)
