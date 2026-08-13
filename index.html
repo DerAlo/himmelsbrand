@@ -286,7 +286,7 @@ const CFG = {
   waterLevel: 0,
   minSpeed: 150, cruiseSpeed: 250, maxSpeed: 380, boostSpeed: 520,
   bulletSpeed: 1500, bulletLife: 1.2, bulletDmg: 11, fireInterval: 0.05,
-  missileSpeed: 620, missileLife: 6.0, missileTurn: 2.6, missileDmg: 90, missileDmgBoss: 150, missileMax: 6,
+  missileSpeed: 900, missileLaunchSpeed: 260, missileAccel: 1400, missileLife: 6.0, missileTurn: 2.6, missileDmg: 90, missileDmgBoss: 150, missileMax: 6,
   enemyBulletSpeed: 900, enemyBulletDmg: 3.2, enemyBulletLife: 1.6,
   aimAssist: 0.42,         // fraction of correction applied to MG bullets (toward lead point)
   gunRange: 1600,          // effective MG range for the lead pipper / "GUNS" cue
@@ -371,8 +371,8 @@ const CAMPAIGN = [
     id:'m6', name:'Sonnenfinsternis', type:'air', tod:'dusk',
     story:`<span class="who">WAGNER:</span> HELIOS weiß jetzt, dass sie verlieren kann. Sie wirft alles Fliegende, das ihr bleibt, gegen dich — bevor du an den Kern kommst. Kein Bodenziel, keine Deckung. Nur du, die Dämmerung und eine Wand aus Drohnen. Komm da durch, Geier. Danach gibt es nur noch eine Tür zu öffnen.`,
     objectives:[
-      { id:'gauntlet', kind:'destroyAir', count:9, primary:true, label:'Die Drohnenwand durchbrechen (9)' },
-      { id:'survive', kind:'minHP', hp:1, primary:true, label:'Überleben' },
+      { id:'gauntlet', kind:'destroyAir', count:9, primary:true, label:'Die Drohnenwand durchbrechen' },
+      { id:'survive', kind:'minHP', hp:1, primary:false, label:'Am Leben bleiben' },
     ],
     spawns:{ air:[['f16',4],['f18',3],['f22',2]], waveDelay:true },
     intro:['WAGNER|Sie kommen aus allen Richtungen. Halt die Nerven.','WAGNER|Das ist ihr letztes Aufgebot in der Luft. Zeig ihr, was ein Mensch aushält.'],
@@ -949,7 +949,9 @@ function fireMissile(){
   const startPos=player.obj.position.clone().add(side.multiplyScalar(6)).add(fwd.clone().multiplyScalar(3));
   const mesh=new THREE.Mesh(missileGeo, missileMat); mesh.position.copy(startPos); scene.add(mesh);
   const light=new THREE.PointLight(0xff8844,1.2,60); mesh.add(light);
-  missiles.push({ mesh, vel:fwd.clone().multiplyScalar(player.speed*0.6+120), target, guided:!!target, life:CFG.missileLife, trailCd:0 });
+  // Launch at a modest speed along the nose, then accelerate to missileSpeed in
+  // updateMissiles so it always pulls AWAY from the aircraft (you can't overtake it).
+  missiles.push({ mesh, vel:fwd.clone().multiplyScalar(Math.max(player.speed, CFG.missileLaunchSpeed)), speed:Math.max(player.speed, CFG.missileLaunchSpeed), target, guided:!!target, life:CFG.missileLife, trailCd:0 });
   Audio.missileLaunch();
   updateMissileHUD();
   if(player.missiles===0){ player.reloadT=6; } // auto reload after depletion
@@ -1748,10 +1750,18 @@ function queueRadioNow(lines){ if(!lines) return; let t=0.2; for(const l of line
 function updateMission(dt){
   if(!mission.active) return;
   updateRadio(dt);
-  // min-HP objectives can fail live
+  // min-HP objectives are CONSTRAINTS ("keep HP above X"), not goals: they count as
+  // satisfied (done) as long as they haven't failed. This is what lets a mission
+  // whose only remaining primary is "Überleben" actually complete once the real
+  // goals (e.g. the 9 kills) are met.
   for(const o of mission.objectives){
-    if(o.kind==='minHP' && !o.failed && player.hp < o.hp && o.hp>1){ o.failed=true; if(o.primary){ mission.failReason='Struktur zu stark beschädigt.'; } renderObjectives(); }
+    if(o.kind==='minHP'){
+      if(!o.failed && o.hp>1 && player.hp < o.hp){ o.failed=true; if(o.primary){ mission.failReason='Struktur zu stark beschädigt.'; } renderObjectives(); }
+      const nowDone = !o.failed;
+      if(nowDone !== o.done){ o.done=nowDone; renderObjectives(); }
+    }
   }
+  checkMissionComplete();   // re-evaluate every frame so passive constraints resolve
   // gauntlet reinforcement (mission 6): drip enemies in
   if(mission.gauntlet && mission.gauntletQueue && mission.gauntletQueue.length){
     mission.reinforceT-=dt;
@@ -2104,6 +2114,9 @@ function updateMissiles(dt){
   for(let i=missiles.length-1;i>=0;i--){
     const mi=missiles[i];
     mi.life-=dt;
+    // Rocket motor: accelerate to top speed so the missile ALWAYS outruns the jet
+    // (applies to guided and dumb-fired alike — no more overtaking your own missile).
+    mi.speed = Math.min(CFG.missileSpeed, (mi.speed||CFG.missileLaunchSpeed) + CFG.missileAccel*dt);
     // Guided: home ONLY on the original lock target while it still exists & is ahead.
     // If that target dies/goes cold, the missile goes ballistic — it does NOT hunt
     // for a new one. Dumb-fired missiles never home at all.
@@ -2113,9 +2126,10 @@ function updateMissiles(dt){
         to.normalize();
         const cur=tmpV2.copy(mi.vel).normalize();
         const newDir=cur.lerp(to, Math.min(1, CFG.missileTurn*dt)).normalize();
-        mi.vel.copy(newDir).multiplyScalar(CFG.missileSpeed);
-      }
-    }
+        mi.vel.copy(newDir);
+      } else mi.vel.normalize();
+    } else mi.vel.normalize();
+    mi.vel.multiplyScalar(mi.speed);
     mi.mesh.position.addScaledVector(mi.vel, dt);
     mi.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), tmpV.copy(mi.vel).normalize());
     // trail
