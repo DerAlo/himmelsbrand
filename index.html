@@ -2514,9 +2514,11 @@ function updatePlayer(dt){
   if(clear<3.4){
     if(player.gearDown && (overRunway || player.runway) && player.pitch>-0.15){
       // ---- LANDING TOUCHDOWN: grade by sink rate + alignment ----
+      // A runway is landable from BOTH ends, so use |dot| — flying back down the
+      // strip the "wrong" way is a perfectly valid approach, not a crash.
       const sink=Math.max(0,-player.vy);
       const runHead=tmpV2.set(0,0,-1).applyAxisAngle(UP, player.runway?player.runway.heading:player.heading);
-      const align=fwd.dot(runHead);
+      const align=Math.abs(fwd.dot(runHead));
       if(sink>CFG.touchHard || align<0.55){
         // too hard / too crooked → crash
         player.hp=0; player.alive=false;
