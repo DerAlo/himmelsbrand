@@ -3123,6 +3123,8 @@ function killEnemy(e){
 
 const _edir=new THREE.Vector3(), _eright=new THREE.Vector3(), _etmp=new THREE.Vector3();
 let pincerCd=6, acePincerAnnounced=false, rwrT=0;
+// enemy leash ranges (module scope so the flanker code above the leash block can read them)
+const LEASH_SOFT=2200, LEASH_HARD=3600;
 
 // Occasionally pair two engaging grunts/aggressors into an anchor+flanker pincer.
 function maybeCoordinate(dt){
@@ -3256,7 +3258,6 @@ function updateEnemies(dt){
     // Beyond a soft range we bend their heading back toward the player (more the
     // farther they are); beyond a hard range we force a full bee-line return and
     // cap speed so they cannot outrun the player and stall a mission.
-    const LEASH_SOFT=2200, LEASH_HARD=3600;
     if(dist>LEASH_SOFT){
       const back=_etmp.copy(player.obj.position).sub(e.obj.position).normalize();
       const pull=THREE.MathUtils.clamp((dist-LEASH_SOFT)/(LEASH_HARD-LEASH_SOFT),0,1);
