@@ -2116,6 +2116,16 @@ function checkMissionComplete(){
   }
 }
 function queueRadioNow(lines){ if(!lines) return; let t=0.2; for(const l of lines){ mission.radioQueue.push({t, line:l}); t+=3.2; } }
+// A failed PRIMARY objective (e.g. the escort dies) fails the whole mission.
+function checkMissionFailed(){
+  if(!mission.active || mission.done) return;
+  if(mission.objectives.some(o=>o.primary && o.failed)){
+    mission.done=true; mission.active=false;
+    clearVictoryTimer();
+    player.alive=false;
+    gameOver(false);
+  }
+}
 
 function updateMission(dt){
   if(!mission.active) return;
@@ -2155,6 +2165,7 @@ function updateMission(dt){
       radio('WAGNER|Auftrag erfüllt — bring sie nach Hause. Kurs zur Basis, Fahrwerk mit B, weich aufsetzen.');
     }
   }
+  checkMissionFailed();     // a failed primary (escort dead, struct too low) ends the mission
   checkMissionComplete();   // re-evaluate every frame so passive constraints resolve
   // gauntlet reinforcement (mission 6): drip enemies in
   if(mission.gauntlet && mission.gauntletQueue && mission.gauntletQueue.length){
@@ -2174,6 +2185,7 @@ function updateMission(dt){
    --------------------------------------------------------------------------- */
 let ally=null;
 function clearAlly(){ if(ally){ scene.remove(ally.obj); ally=null; } }
+const ALLY_HP=420;
 function spawnAlly(){
   const obj=buildEurofighter();
   // repaint allied: subtle blue tint via emissive, and no German tail needed
@@ -2181,30 +2193,61 @@ function spawnAlly(){
   const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion);
   obj.position.copy(player.obj.position).addScaledVector(fwd, 180).add(new THREE.Vector3(80,20,0));
   scene.add(obj);
-  ally={ obj, hp:100, maxhp:100, heading:player.heading, phase:Math.random()*6, smokeCd:0 };
+  ally={ obj, hp:ALLY_HP, maxhp:ALLY_HP, heading:player.heading, phase:Math.random()*6, smokeCd:0, fireCd:1, heading2:player.heading, dir:new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion) };
   return ally;
 }
 function damageAlly(d){ if(!ally) return; ally.hp-=d;
   if(ally.hp<=0){ ally.hp=0; explode(ally.obj.position.x,ally.obj.position.y,ally.obj.position.z,1.6); Audio.explosion(true);
     scene.remove(ally.obj); ally=null;
-    if(mission.active){ const o=mission.objectives.find(x=>x.kind==='protect'); if(o){ o.failed=true; mission.failReason='Hauptmann Lärche wurde abgeschossen.'; renderObjectives(); } }
+    if(mission.active){ const o=mission.objectives.find(x=>x.kind==='protect'); if(o){ o.failed=true; mission.failReason='Hauptmann Lärche wurde abgeschossen.'; renderObjectives(); }
+      // A failed PRIMARY objective ends the mission (otherwise the escort ran endlessly).
+      checkMissionFailed();
+    }
   }
 }
 function updateAlly(dt){
   if(!ally) return;
-  ally.phase+=dt*0.5;
+  ally.phase+=dt*0.6;
   // fly a gentle weave ahead of the player, staying airborne
   const fwd=tmpV.set(0,0,-1).applyQuaternion(player.obj.quaternion);
   const want=player.obj.position.clone().addScaledVector(fwd, 260);
   want.x += Math.sin(ally.phase)*140; want.z += Math.cos(ally.phase*0.7)*140;
   want.y = Math.max(want.y, terrainHeight(ally.obj.position.x,ally.obj.position.z)+300);
   const to=want.sub(ally.obj.position);
-  const step=Math.min(to.length(), 230*dt);
-  if(to.length()>1){ to.normalize(); ally.obj.position.addScaledVector(to, step);
-    _lookM.lookAt(_zero, to.clone().negate(), UP); ally.obj.quaternion.setFromRotationMatrix(_lookM); }
-  // damage smoke when hurt
-  if(ally.hp<50){ ally.smokeCd-=dt; if(ally.smokeCd<=0){ ally.smokeCd=0.06;
-    smokeP.spawn(ally.obj.position.x,ally.obj.position.y,ally.obj.position.z,0,2,0,1.2,8,40,ally.hp<25?C_DARK:C_GREY,C_SMOKE,0.95,-3);} }
+  const dist=to.length();
+  if(dist>1){ to.normalize();
+    ally.obj.position.addScaledVector(to, Math.min(dist, 230*dt));
+    // keep a smoothed heading so she doesn't jitter; orient NOSE (-Z) ALONG travel.
+    ally.dir.lerp(to, Math.min(1,dt*3)).normalize();
+    // Same convention as enemies: lookAt(_zero, dir, UP) makes the nose (-Z) point
+    // ALONG dir. (Do NOT negate — that flew her tail-first.)
+    _lookM.lookAt(_zero, ally.dir, UP);
+    ally.obj.quaternion.setFromRotationMatrix(_lookM);
+  }
+  // ---- Lärche shoots at the nearest enemy in front of her ----
+  ally.fireCd-=dt;
+  if(ally.fireCd<=0 && enemies.length){
+    let best=null,bestD=1e9; const af=ally.dir;
+    for(const e of enemies){ const ev=e.obj.position.clone().sub(ally.obj.position); const d=ev.length();
+      if(d<1500 && ev.normalize().dot(af)>0.6 && d<bestD){ bestD=d; best=e; } }
+    if(best){ ally.fireCd=0.12;
+      const mp=ally.obj.position.clone().addScaledVector(af,10);
+      const lead=best.obj.position.clone().addScaledVector(best.vel, bestD/CFG.bulletSpeed*0.6);
+      const d=lead.sub(mp).normalize(); d.x+=(Math.random()-0.5)*0.02; d.y+=(Math.random()-0.5)*0.02;
+      fireAllyBullet(mp, d.normalize(), best);
+      muzzle(mp.x,mp.y,mp.z, af.x,af.y,af.z);
+    } else ally.fireCd=0.4;
+  }
+  // damage smoke when hurt (scaled to her bigger HP pool)
+  if(ally.hp<ally.maxhp*0.5){ ally.smokeCd-=dt; if(ally.smokeCd<=0){ ally.smokeCd=0.06;
+    smokeP.spawn(ally.obj.position.x,ally.obj.position.y,ally.obj.position.z,0,2,0,1.2,8,40,ally.hp<ally.maxhp*0.25?C_DARK:C_GREY,C_SMOKE,0.95,-3);} }
+}
+// Lärche's rounds: reuse the player-bullet visual, damage enemies (and boss parts).
+function fireAllyBullet(pos, dir, target){
+  const m=getBulletMesh(bulletMatP);
+  m.position.copy(pos);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), dir);
+  bullets.push({ mesh:m, vel:dir.clone().multiplyScalar(CFG.bulletSpeed), life:CFG.bulletLife, fromPlayer:true, dmg:CFG.bulletDmg*0.7 });
 }
 
 /* ---------------------------------------------------------------------------
