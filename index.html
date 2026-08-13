@@ -682,8 +682,13 @@ const Audio = (function(){
   const SCALE=[0,2,3,5,7,8,10];   // D natural minor
   const BASE=73.42;               // D2
   const SIX=0.125;                // sixteenth @120BPM
-  const ARP=[0,4,2,4,0,4,3,4];    // eighth-note motif (degrees)
-  const BASSPAT=[0,0,4,0, 0,0,4,2]; // per-beat over 2 bars (degrees; 4=A,2=F)
+  // Harmonic movement: a 4-section chord progression (Dm–B♭–F–C, i–VI–III–VII),
+  // each section 1 bar. The bass roots it; the arp is transposed onto the chord;
+  // and two alternating arp figures keep it from sounding like one looping riff.
+  const PROG=[0,5,2,6];           // scale-degree roots per section (D, B♭, F, C)
+  const ARP_A=[0,2,4,2, 0,4,2,4]; // two 8th-note figures (relative to the chord root)
+  const ARP_B=[4,2,0,2, 4,0,2,0];
+  let musicSection=0, musicBar=0;
   function mnote(deg,oct){ const d=((deg%7)+7)%7; const semi=SCALE[d]+12*(oct+Math.floor(deg/7)); return BASE*Math.pow(2,semi/12); }
   const smoothstep=(a,b,x)=>{ const t=Math.max(0,Math.min(1,(x-a)/(b-a))); return t*t*(3-2*t); };
   function panNode(pan){ if(!enabled||pan==null||!ctx.createStereoPanner) return master; const p=ctx.createStereoPanner(); p.pan.value=Math.max(-1,Math.min(1,pan)); p.connect(master); return p; }
@@ -761,17 +766,26 @@ const Audio = (function(){
 
     enabled=true;
   }
-  // 16-step lookahead sequencer: always schedules; silent layers are just muted gains.
+  // 16-step lookahead sequencer over a rotating chord progression; layer gains
+  // still gate what's audible, but the harmony/figure now change every bar so the
+  // score keeps developing instead of looping one motif.
   function scheduler(){
     if(!ctx || ctx.state!=='running'){ if(ctx) nextNoteTime=ctx.currentTime; return; }
     while(nextNoteTime < ctx.currentTime+0.12){
       const s=step16;
-      if(s%4===0){ const deg=BASSPAT[((s/4)|0)%8]; blip(mnote(deg,0),0.45,'triangle',0.8,null,bassGain); }
-      if(s%2===0){ blip(mnote(ARP[(s/2)%8],1),0.12,'square',0.5,null,arpGain); }
+      const root=PROG[musicSection%PROG.length];            // chord root for this bar
+      const arpFig=(musicBar%2===0)?ARP_A:ARP_B;             // alternate the arp figure
+      if(s%4===0){ // bass on each beat: root, then a fifth on beats 2&4 for motion
+        const beat=(s/4)|0; const deg=root + ((beat===1||beat===3)?4:0);
+        blip(mnote(deg,0),0.45,'triangle',0.8,null,bassGain); }
+      if(s%2===0){ blip(mnote(root+arpFig[(s/2)%8],1),0.12,'square',0.5,null,arpGain); }
       if(s===0||s===8) blip(130,0.12,'sine',0.9,45,percGain);           // kick
       if(s===4||s===12) noiseBurst(0.12,0.4,1800,'bandpass',percGain);   // snare
       if(s%2===0) noiseBurst(0.03,0.15,7000,'highpass',percGain);        // hat
+      // a sparse high shimmer on the "and" of 4 adds variety in busier sections
+      if(s===14 && musicBar%2===1) blip(mnote(root+2,2),0.18,'triangle',0.28,null,arpGain);
       nextNoteTime+=SIX; step16=(step16+1)%16;
+      if(step16===0){ musicBar++; musicSection=(musicSection+1)%PROG.length; }  // advance a bar
     }
   }
   function resume(){ if(ctx && ctx.state==='suspended') ctx.resume(); }
@@ -1334,7 +1348,7 @@ const player = {
   heading: 0,        // yaw angle, radians (0 = -Z)
   pitch: 0,          // nose up(+)/down(-), radians, clamped
   roll: 0,           // visual bank only, radians
-  yawRate: 0, pitchRate: 0,  // smoothed input rates for inertia
+  yawRate: 0, pitchRate: 0, yawSign: 1,  // smoothed input rates for inertia; yawSign = screen-yaw orientation (hysteresis)
   bombs: 0, weapon:'missile', bombCd:0,   // secondary weapon: 'missile' | 'bomb'
   fireCd: 0, missileCd: 0, reloadT: 0,
   alive: true, boost:false, crashCd:0,
@@ -1350,7 +1364,7 @@ scene.add(player.obj);
 
 function resetPlayer(){
   player.obj.position.set(0, 900, 0);
-  player.heading=0; player.pitch=0; player.roll=0; player.yawRate=0; player.pitchRate=0;
+  player.heading=0; player.pitch=0; player.roll=0; player.yawRate=0; player.pitchRate=0; player.yawSign=1;
   player.obj.quaternion.identity();
   player.vel.set(0,0,-1);
   player.speed=CFG.cruiseSpeed; player.hp=CFG.playerHP; player.missiles=CFG.missileMax;
@@ -2816,8 +2830,12 @@ function updatePlayer(dt){
   // loop, cos(pitch)<0) the chase-cam is upside-down, so the same world-yaw would
   // appear MIRRORED on screen. Flip the sign there so "left" is always screen-left.
   // For all normal flight (|pitch|<90°) this factor is +1 → identical behaviour.
-  const yawScreenSign = Math.cos(player.pitch) < 0 ? -1 : 1;
-  player.heading += player.yawRate*dt*yawScreenSign;
+  // Keep "A = screen-left" when inverted, but with HYSTERESIS so the sign doesn't
+  // flip-flop exactly at the vertical crossing (that reversal mid-loop was felt as a
+  // sideways "reset"). Only switch once clearly past vertical (cos beyond ±0.15).
+  const cpit=Math.cos(player.pitch);
+  if(cpit < -0.15) player.yawSign=-1; else if(cpit > 0.15) player.yawSign=1;
+  player.heading += player.yawRate*dt*(player.yawSign||1);
   player.pitch   += player.pitchRate*dt;
   // wrap both into (-π, π] to avoid precision drift over long flights / many loops
   if(player.pitch  > Math.PI) player.pitch  -=Math.PI*2;
@@ -3361,7 +3379,7 @@ function updateGroundTargets(dt){
    --------------------------------------------------------------------------- */
 const camTarget=new THREE.Vector3(), camLook=new THREE.Vector3(), camPos=new THREE.Vector3();
 let curFov=62;
-const camUp=new THREE.Vector3(0,1,0), camBack=new THREE.Vector3();
+const camUp=new THREE.Vector3(0,1,0), camBack=new THREE.Vector3(), _upTarget=new THREE.Vector3(0,1,0);
 function updateCamera(dt){
   if(state==='menu'){
     menuTime+=dt;
@@ -3393,12 +3411,20 @@ function updateCamera(dt){
   }
   camera.position.copy(camPos);
   camLook.copy(player.obj.position).addScaledVector(fwdLook, 60).addScaledVector(planeUp, 4);
-  // camera up = plane up with a subtle bank lean around the view axis
-  const rx=fwdLook.z, rz=-fwdLook.x, rl=Math.hypot(rx,rz)||1;   // horizontal right vector
-  const lean=-player.roll*0.5;
-  camUp.copy(planeUp);
-  camUp.x += (rx/rl)*Math.sin(lean); camUp.z += (rz/rl)*Math.sin(lean);
-  camUp.normalize();
+  // camera up = plane up with a subtle bank lean around the view axis.
+  // The lean uses the horizontal RIGHT vector, whose direction is undefined when
+  // the nose points straight up/down (rl = |cos pitch| → 0) and FLIPS 180° as it
+  // crosses vertical — which snapped the camera-up ~27° per frame and read as a
+  // judder mid-loop. Fade the lean out near vertical so it can never flip.
+  const rl=Math.hypot(fwdLook.z, fwdLook.x);           // = |cos pitch|
+  const leanFade=Math.min(1, rl/0.4);                  // 0 at vertical, full by ~66° pitch
+  _upTarget.copy(planeUp);
+  if(rl>1e-3){ const s=Math.sin(-player.roll*0.5)*leanFade;
+    _upTarget.x += (fwdLook.z/rl)*s; _upTarget.z += (-fwdLook.x/rl)*s; }
+  _upTarget.normalize();
+  // Smooth the up-vector toward its target so any residual basis change near the
+  // vertical eases in rather than snapping (extra insurance against judder).
+  camUp.lerp(_upTarget, Math.min(1, dt*12)); camUp.normalize();
   camera.up.copy(camUp);
   camera.lookAt(camLook);
   // FOV with speed
