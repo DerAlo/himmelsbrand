@@ -213,6 +213,15 @@
     </div>
   </div>
 
+  <!-- Brotzeit (B-Team pre-mission buff pick) -->
+  <div id="brotzeit" class="screen hidden">
+    <button class="btn ghost small backbtn" data-back="briefing">‹ ZURÜCK</button>
+    <div class="subbrand">VOR DEM EINSATZ</div>
+    <h1 class="title" style="font-size:40px; letter-spacing:5px">BROTZEIT? 🍺</h1>
+    <div class="tag" style="opacity:.8; margin-bottom:10px; max-width:560px">Such dir was aus, bevor's losgeht — jede Brotzeit hat ihre Wirkung (und ihren Preis).</div>
+    <div id="brotzeit-opts" class="menu-btns"></div>
+  </div>
+
   <!-- How-To -->
   <div id="howto" class="screen hidden">
     <button class="btn ghost small backbtn" data-back="menu">‹ ZURÜCK</button>
@@ -618,6 +627,13 @@ const BTEAM_PILOTS = {
   sepp:    { name:'SEPP',    full:'Fw. Sepp „Brummbär" Huber',      color:0x8a5a24, mech:'grantl' },
   wiggerl: { name:'WIGGERL', full:'Gefr. Wiggerl „Radi" Brandtner', color:0x2f7a3a, mech:'dusel' },
 };
+// Brotzeit: a pre-mission risk/reward pick (B-Team only). bz sets resting combat modifiers.
+const BROTZEIT = {
+  helles:    { label:'🍺 Helles',     note:'„Schwips" — engere Kurven, aber zittrigeres Zielen', bz:{dmg:1,   fire:1,    turn:1.18, wobble:0.02,  hp:0}  },
+  weisswurst:{ label:'🌭 Weißwurst',  note:'Satt & zufrieden — +25 Struktur',                    bz:{dmg:1,   fire:1,    turn:1,    wobble:0,     hp:25} },
+  radler:    { label:'🍋 Radler',     note:'Ausgewogen — etwas mehr Feuerkraft',                 bz:{dmg:1.12,fire:1.05, turn:1,    wobble:0,     hp:0}  },
+  espresso:  { label:'☕ Espresso',    note:'Schnelleres Nachladen — aber nervöser Finger',       bz:{dmg:1,   fire:1.28, turn:1,    wobble:0.012, hp:0}  },
+};
 const BTEAM_CAMPAIGN = [
   {
     id:'b0', name:'Wer sonst?', type:'tutorial', tod:'day', start:'runway', hero:'sepp', wingman:false,
@@ -663,9 +679,10 @@ const BTEAM_CAMPAIGN = [
     objectives:[
       { id:'convoy', kind:'destroyGround', tag:'truck', count:3, primary:true, label:'Die Bewacher-Konvois zerlegen' },
       { id:'air', kind:'destroyAir', count:4, primary:true, label:'Luftraum über der „Fracht" sichern' },
+      { id:'crate', kind:'reach', primary:true, label:'🍺 Die verschollene Bierkiste sichern (drüberfliegen)' },
     ],
     spawns:{ ally:true, ground:[['truck',3]], air:[['f16',3],['f18',1]] },
-    agms:4, bombs:6, weapon:'bomb',
+    crate:true, agms:4, bombs:6, weapon:'bomb',
     intro:['WIGGERL|I riech des Bier scho von hier obn. Des is a Zeichen.','SEPP|Des is Kerosin, du Depp. Konzentrier di.'],
     win:['WIGGERL|Bereich gsichert! Und d\'Kiste is heil! I HABS GWUSST!','SEPP|…de hoi ma später. Aber wehe, es fehlt was.'],
   },
@@ -753,6 +770,7 @@ function unlockedCount(){ return campaignId==='bteam' ? bteamUnlocked : campaign
 function bumpUnlocked(n){ if(campaignId==='bteam') bteamUnlocked=Math.max(bteamUnlocked,n); else campaignUnlocked=Math.max(campaignUnlocked,n); }
 let gameMode = 'menu';      // 'campaign' | 'endless'
 let storyChoice = null;     // 'trust' | 'human' — set at the choice point, colours the ending
+let brotzeit = 'radler';    // B-Team: chosen pre-mission Brotzeit (buff/debuff)
 let endlessMod = null;      // null | 'ace' — endless-mode difficulty modifier
 
 /* ---------------------------------------------------------------------------
@@ -1759,6 +1777,10 @@ const player = {
   fireCd: 0, missileCd: 0, reloadT: 0,
   alive: true, boost:false, crashCd:0,
   hero:null,               // B-Team: 'sepp' | 'wiggerl' (drives Grantl/Dusel); null in HELIOS/endless
+  // combat modifiers (Brotzeit sets the resting values; Grantl-Modus multiplies on top)
+  bz:{dmg:1,fire:1,turn:1,wobble:0,hp:0},
+  dmgMul:1, fireRateMul:1, turnMul:1, aimWobble:0,
+  grantl:0, grantlActive:false, grantlT:0, duselFlash:0, _lastHp:100,
   // ground handling
   onGround:false,          // rolling on the runway (not yet flying)
   gearDown:true,           // landing gear extended
@@ -1778,6 +1800,8 @@ function resetPlayer(){
   player.bombs=0; player.agms=0; player.weapon='missile'; player.bombCd=0; player.agmCd=0;
   player.alive=true; player.fireCd=0; player.missileCd=0; player.reloadT=0; player.crashCd=0;
   player.onGround=false; player.gearDown=true; player.gearRetractT=0; player.vy=0; player.landed=false; player.runway=null; player.hero=null;
+  player.bz={dmg:1,fire:1,turn:1,wobble:0,hp:0}; player.dmgMul=1; player.fireRateMul=1; player.turnMul=1; player.aimWobble=0;
+  player.grantl=0; player.grantlActive=false; player.grantlT=0; player.duselFlash=0; player._lastHp=player.hp;
   if(player.obj.userData.gear){ player.obj.userData.gear.scale.y=1; player.obj.userData.gear.visible=true; }
 }
 
@@ -1790,11 +1814,11 @@ const bulletMatE=new THREE.MeshBasicMaterial({color:0xff5533});
 const bulletGeo=new THREE.BoxGeometry(0.5,0.5,7);
 const bullets=[]; const bulletPool=[];
 function getBulletMesh(mat){ let m=bulletPool.pop(); if(!m){ m=new THREE.Mesh(bulletGeo, mat); scene.add(m);} else { m.material=mat; m.visible=true;} return m; }
-function fireBullet(pos, dir, fromPlayer){
+function fireBullet(pos, dir, fromPlayer, dmg){
   const m=getBulletMesh(fromPlayer?bulletMatP:bulletMatE);
   m.position.copy(pos);
   const b={ mesh:m, vel:dir.clone().multiplyScalar(fromPlayer?CFG.bulletSpeed:CFG.enemyBulletSpeed),
-    life: fromPlayer?CFG.bulletLife:CFG.enemyBulletLife, fromPlayer, dmg: fromPlayer?CFG.bulletDmg:CFG.enemyBulletDmg };
+    life: fromPlayer?CFG.bulletLife:CFG.enemyBulletLife, fromPlayer, dmg: (dmg!=null?dmg:(fromPlayer?CFG.bulletDmg:CFG.enemyBulletDmg)) };
   m.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), dir);
   bullets.push(b);
 }
@@ -1987,6 +2011,12 @@ function buildGroundModel(tag){
     const pipe=new THREE.Mesh(new THREE.CylinderGeometry(0.8,0.8,13,8), GROUND_MAT_METAL); pipe.rotation.z=Math.PI/2; pipe.position.set(0,3,0); g.add(pipe);
     return {g, radius:15, height:16, hp:150, depot:true};
   }
+  if(tag==='bierkiste'){ // the legendary lost beer crate — a "reach/secure" objective, not a kill target
+    const crate=new THREE.Mesh(new THREE.BoxGeometry(9,5,7), new THREE.MeshStandardMaterial({color:0x6b4a1e, metalness:0.2, roughness:0.85}));
+    crate.position.y=2.6; g.add(crate);
+    for(const bx of [-3,-1,1,3]) for(const bz of [-2,0,2]){ const bo=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,2,6), new THREE.MeshStandardMaterial({color:0x1c6b2a, emissive:0x0a2a10, metalness:0.3, roughness:0.4})); bo.position.set(bx,5.3,bz); g.add(bo); }
+    return {g, radius:9, height:8, hp:99999};
+  }
   // default block
   const b=new THREE.Mesh(new THREE.BoxGeometry(8,8,8), GROUND_MAT_DARK); b.position.y=4; g.add(b);
   return {g, radius:10, height:9, hp:120};
@@ -2002,7 +2032,7 @@ function spawnGroundTarget(tag, x, z, extra){
   return gt;
 }
 function damageGround(gt, dmg){
-  if(gt.dead) return;
+  if(gt.dead || gt.invuln) return;
   gt.hp-=dmg;
   fireP.spawn(gt.obj.position.x, gt.obj.position.y+gt.height*0.5, gt.obj.position.z, (Math.random()-0.5)*40,20,(Math.random()-0.5)*40,0.25,12,3,C_WHITE,C_ORANGE,0.9,0);
   if(gt.hp<=0) destroyGround(gt);
@@ -2153,7 +2183,7 @@ function nearestGroundInFront(minDot, maxDist){
   const fwd=_v.set(0,0,-1).applyQuaternion(player.obj.quaternion);
   let best=null, bestScore=-1;
   for(const gt of groundTargets){
-    if(gt.dead) continue;
+    if(gt.dead || gt.invuln) continue;
     _v2.copy(gt.obj.position); _v2.y+=gt.height*0.5; _v2.sub(player.obj.position);
     const dist=_v2.length(); if(dist>maxDist) continue;
     _v2.normalize(); const d=_v2.dot(fwd);
@@ -2344,7 +2374,7 @@ function drawHUD(){
       // health pip
       const hpw=Math.max(0,gt.hp/gt.maxhp);
       hctx.fillStyle='rgba(255,90,60,0.8)'; hctx.fillRect(gx-12,gy+12,24*hpw,3);
-      const labels={radar:'RADAR',truck:'TANKER',sam:'SAM',hangar:'HANGAR',turret:'TURM',pylon:'PYLON',bunker:'BUNKER',depot:'DEPOT'};
+      const labels={radar:'RADAR',truck:'TANKER',sam:'SAM',hangar:'HANGAR',turret:'TURM',pylon:'PYLON',bunker:'BUNKER',depot:'DEPOT',bierkiste:'🍺 BIERKISTE'};
       if(labels[gt.tag]){ hctx.fillStyle=hctx.strokeStyle; hctx.font='10px monospace'; hctx.textAlign='center'; hctx.fillText(labels[gt.tag], gx, gy-13); hctx.textAlign='left'; }
       if(isAgmLock){  // green AGM lock brackets + label
         const b=16; hctx.strokeStyle='rgba(90,255,120,0.95)';
@@ -2410,6 +2440,27 @@ function drawHUD(){
     hctx.fillStyle='rgba(255,60,60,'+(0.55+0.35*Math.sin(menuTime*12))+')';
     hctx.font='bold 22px system-ui, sans-serif'; hctx.textAlign='center';
     hctx.fillText('⚠ SAM — RAKETENWARNUNG', cx, h-150); hctx.textAlign='left';
+  }
+
+  // ---- B-Team pilot mechanic HUD ----
+  if(state==='playing' && player.hero){
+    if(player.hero==='sepp'){
+      if(player.grantlActive){                       // berserk vignette + banner
+        const p=0.22+0.18*Math.sin(menuTime*18);
+        hctx.strokeStyle='rgba(255,45,20,'+p+')'; hctx.lineWidth=26; hctx.strokeRect(13,13,w-26,h-26); hctx.lineWidth=1;
+        hctx.fillStyle='rgba(255,90,50,0.95)'; hctx.font='bold 15px system-ui,sans-serif'; hctx.textAlign='center';
+        hctx.fillText('🔥 GRANTL-MODUS!', cx, 42); hctx.textAlign='left';
+      }
+      const bw=170, bx=cx-bw/2, by=h-64;             // rage bar
+      hctx.fillStyle='rgba(4,12,20,0.55)'; hctx.fillRect(bx-2,by-2,bw+4,12);
+      hctx.fillStyle=player.grantlActive?'#ff5a2a':'#c23a1a'; hctx.fillRect(bx,by,bw*Math.max(0,Math.min(1,player.grantl)),8);
+      hctx.fillStyle='rgba(255,185,155,0.9)'; hctx.font='9px monospace'; hctx.textAlign='center'; hctx.fillText('GRANTL', cx, by-4); hctx.textAlign='left';
+    } else if(player.hero==='wiggerl'){
+      const fl=Math.max(0,Math.min(1,player.duselFlash/0.6));
+      hctx.globalAlpha=0.45+0.55*fl;
+      hctx.fillStyle=fl>0.05?'#7dff9a':'rgba(150,210,165,0.85)'; hctx.font='bold 16px system-ui,sans-serif'; hctx.textAlign='center';
+      hctx.fillText('🍀 DUSEL', cx, h-56); hctx.textAlign='left'; hctx.globalAlpha=1;
+    }
   }
 
   // ---- TAKEOFF / LANDING panel ----
@@ -2538,7 +2589,7 @@ function nextWaveCheck(){
 }
 
 /* ===== Screen navigation ===== */
-const SCREENS=['menu','missionselect','briefing','howto','start','gameover','pause','cutscene'];
+const SCREENS=['menu','missionselect','briefing','brotzeit','howto','start','gameover','pause','cutscene'];
 function showScreen(id){
   for(const s of SCREENS){ const el=document.getElementById(s); if(el) el.classList.add('hidden'); }
   if(id){ const el=document.getElementById(id); if(el) el.classList.remove('hidden'); }
@@ -2746,8 +2797,18 @@ function openBriefing(i){
   document.getElementById('brief-story').innerHTML=m.story;
   const objs=document.getElementById('brief-objs');
   objs.innerHTML=m.objectives.map(o=>`<div class="o ${o.primary?'prime':'sec'}"><span class="ic">${o.primary?'◆':'◇'}</span>${o.label}${o.primary?'':' <span style="opacity:.6">(optional)</span>'}</div>`).join('');
-  document.getElementById('brief-launch').onclick=()=>launchMission(i);
+  document.getElementById('brief-launch').onclick = (campaignId==='bteam') ? (()=>openBrotzeit(i)) : (()=>launchMission(i));
   showScreen('briefing');
+}
+function openBrotzeit(i){
+  const wrap=document.getElementById('brotzeit-opts'); wrap.innerHTML='';
+  for(const key in BROTZEIT){ const b=BROTZEIT[key];
+    const btn=document.createElement('button'); btn.className='btn ghost'; btn.style.textAlign='left';
+    btn.innerHTML=`<b>${b.label}</b> <span style="font-size:12px;opacity:.7;font-weight:400">— ${b.note}</span>`;
+    btn.onclick=()=>{ brotzeit=key; launchMission(i); };
+    wrap.appendChild(btn);
+  }
+  showScreen('brotzeit');
 }
 
 function refreshMenu(){
@@ -2849,6 +2910,13 @@ function setupMission(index){
   player.weapon = def.weapon || (player.bombs>0 ? 'bomb' : (player.agms>0 ? 'agm' : 'missile'));
   updateMissileHUD();
   player.hero = (campaignId==='bteam') ? (def.hero||'sepp') : null;   // drives B-Team pilot mechanics
+  // Brotzeit resting modifiers (B-Team only); Grantl multiplies on top in updateHero
+  if(campaignId==='bteam'){
+    const src=(BROTZEIT[brotzeit]||{}).bz;
+    player.bz = Object.assign({dmg:1,fire:1,turn:1,wobble:0,hp:0}, src||{});
+    player.hp = CFG.playerHP + (player.bz.hp||0); player._lastHp=player.hp;
+  } else { player.bz={dmg:1,fire:1,turn:1,wobble:0,hp:0}; }
+  player.grantl=0; player.grantlActive=false; player.grantlT=0; player.duselFlash=0;
 
   clearRunway();
   const hasLandObj = def.objectives.some(o=>o.kind==='land');
@@ -2880,6 +2948,13 @@ function setupMission(index){
 
   // spawn ground targets in a cluster ahead of the player
   if(def.spawns.ground){ layoutGroundTargets(def.spawns.ground); }
+  // the legendary lost beer crate — a "reach/secure" objective (running gag)
+  if(def.crate){
+    const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion);
+    const cx=player.obj.position.x+fwd.x*3000, cz=player.obj.position.z+fwd.z*3000;
+    spawnGroundTarget('bierkiste', cx, cz, {invuln:true});
+    const ro=mission.objectives.find(o=>o.kind==='reach'); if(ro){ ro.target={x:cx,z:cz}; ro.radius=ro.radius||260; }
+  }
   // ally to escort
   // ally / wingman: in the B-Team campaign the wingman is the OTHER pilot (unless wingman:false)
   if(campaignId==='bteam' && def.wingman!==false && def.hero){
@@ -2995,6 +3070,11 @@ function updateMission(dt){
       const nowDone = !o.failed;
       if(nowDone !== o.done){ o.done=nowDone; renderObjectives(); }
     }
+    if(o.kind==='reach' && !o.done && o.target){
+      // fly close over the waypoint (any altitude) to "secure" it
+      const d=Math.hypot(player.obj.position.x-o.target.x, player.obj.position.z-o.target.z);
+      if(d < (o.radius||260)){ o.done=true; radio('WIGGERL|D\'KISTE! I hab d\'Kiste! JUHUUU!'); renderObjectives(); checkMissionComplete(); }
+    }
   }
   // "Return to base" cue: when every non-landing objective is done and a landing is
   // still required, prompt the player once and mark the runway as the active goal.
@@ -3018,7 +3098,7 @@ function updateMission(dt){
       dom.enemies.textContent=enemies.length;
     }
   }
-  dom.enemies.textContent = enemies.length + groundTargets.filter(g=>!g.dead).length;
+  dom.enemies.textContent = enemies.length + groundTargets.filter(g=>!g.dead && !g.invuln).length;
 }
 
 /* ---------------------------------------------------------------------------
@@ -3284,8 +3364,29 @@ function updatePlayerGround(dt){
   Audio.setEngine(Math.min(1,player.speed/CFG.liftoffSpeed), thrust);
 }
 
+// B-Team pilot mechanics: Grantl-Modus (Sepp) = rage->berserk; Dusel (Wiggerl) is
+// handled where luck applies (gun crits, enemy-missile misses). Also folds in the
+// Brotzeit resting modifiers. No-op for HELIOS/endless (player.hero===null, bz all 1).
+function updateHero(dt){
+  const bz=player.bz||{dmg:1,fire:1,turn:1,wobble:0};
+  let dmg=bz.dmg, fire=bz.fire;
+  if(player.hero==='sepp'){
+    const taken=Math.max(0, (player._lastHp||player.hp) - player.hp);
+    if(player.grantlActive){
+      player.grantlT-=dt; dmg*=1.9; fire*=1.7;                       // BERSERK
+      if(player.grantlT<=0){ player.grantlActive=false; player.grantl=0; radio('SEPP|…so. A Ruah jetz.'); }
+    } else {
+      player.grantl = Math.max(0, Math.min(1, player.grantl + taken*0.03 + (enemies.length?dt*0.06:0) - dt*0.025));
+      if(player.grantl>=1){ player.grantlActive=true; player.grantlT=5.5; radio('SEPP|JETZ REICHT\'S MIR! SAKRADI!'); shake=Math.max(shake,0.45); }
+    }
+  }
+  player.dmgMul=dmg; player.fireRateMul=fire; player.turnMul=bz.turn||1; player.aimWobble=bz.wobble||0;
+  if(player.duselFlash>0) player.duselFlash-=dt;
+  player._lastHp=player.hp;
+}
 function updatePlayer(dt){
   if(!player.alive) return;
+  updateHero(dt);
   if(player.onGround){ updatePlayerGround(dt); return; }
   // auto gear timers
   if(player.gearRetractT>0){ player.gearRetractT-=dt; if(player.gearRetractT<=0) player.gearDown=false; }
@@ -3319,7 +3420,7 @@ function updatePlayer(dt){
 
   // Energy fighting: turn rate scales with airspeed — but the player uses a stronger,
   // flatter curve than enemies, so you out-turn them at cruise (no need to crawl).
-  const TURN_RATE=1.5*playerTurnMultFor(player.speed);   // rad/s at full deflection
+  const TURN_RATE=1.5*playerTurnMultFor(player.speed)*(player.turnMul||1);   // rad/s at full deflection (turnMul = Helles)
   const PITCH_RATE=1.9*pitchMultFor(player.speed);
   player.yawRate   += (turnIn*TURN_RATE  - player.yawRate)  *Math.min(1,dt*6);
   player.pitchRate += (pitchIn*PITCH_RATE - player.pitchRate)*Math.min(1,dt*6);
@@ -3461,7 +3562,9 @@ function updatePlayer(dt){
   if(player.reloadT>0){ player.reloadT-=dt; if(player.reloadT<=0){ player.missiles=CFG.missileMax; updateMissileHUD(); Audio.reload(); } }
   const firing = firingMouse || keys['Space'];
   if(firing && player.fireCd<=0){
-    player.fireCd=CFG.fireInterval;
+    player.fireCd=CFG.fireInterval / (player.fireRateMul||1);           // Grantl / Espresso = faster
+    let shotDmg = CFG.bulletDmg * (player.dmgMul||1);
+    if(player.hero==='wiggerl' && Math.random()<0.16){ shotDmg*=3; player.duselFlash=0.5; }  // Dusel: lucky crit
     const dir=tmpV.set(0,0,-1).applyQuaternion(player.obj.quaternion);
     // spawn from wing gun points
     for(const s of [-1,1]){
@@ -3469,14 +3572,14 @@ function updatePlayer(dt){
       const d=dir.clone();
       // Aim assist toward the LEAD point (where the target will be). Stronger when
       // you're already roughly pointed at it, so it rewards aiming without full auto-lock.
-      let spread=0.006;
+      let spread=0.006 + (player.aimWobble||0);          // Helles "Schwips" widens spread
       if(gunSolution && gunSolution.inRange){
         const to=tmpV2.copy(gunSolution.point).sub(gp).normalize();
         const align=dir.dot(to);                       // how close the nose already is
-        if(align>0.9){ const k = CFG.aimAssist * (align>0.985?1.6:1); d.lerp(to, Math.min(0.9,k)).normalize(); spread=0.0025; }
+        if(align>0.9){ const k = CFG.aimAssist * (align>0.985?1.6:1); d.lerp(to, Math.min(0.9,k)).normalize(); spread=0.0025+(player.aimWobble||0); }
       }
       d.x+=(Math.random()-0.5)*spread; d.y+=(Math.random()-0.5)*spread;
-      fireBullet(gp, d.normalize(), true);
+      fireBullet(gp, d.normalize(), true, shotDmg);
       muzzle(gp.x,gp.y,gp.z, dir.x,dir.y,dir.z);
     }
     Audio.gun();
@@ -3610,7 +3713,7 @@ function updateMissiles(dt){
       if(mi.mesh.position.distanceTo(_wp) < (boss.kind==='auge'?30:22)){ damageBoss(mi.agm?CFG.agmDmg:CFG.missileDmgBoss); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false,mpan); markHit(false,true); exploded=true; } }
     // AGM also strikes ground targets and detonates on terrain impact.
     if(!exploded && mi.agm){
-      for(const gt of groundTargets){ if(gt.dead) continue;
+      for(const gt of groundTargets){ if(gt.dead || gt.invuln) continue;
         _agmC.copy(gt.obj.position); _agmC.y+=gt.height*0.5;
         if(mi.mesh.position.distanceTo(_agmC) < gt.radius+CFG.agmHitR){
           damageGround(gt, CFG.agmDmg); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.5); Audio.explosion(true,mpan); markHit(false,true); exploded=true; break; } }
@@ -3710,10 +3813,17 @@ function updateEnemyMissiles(dt){
     fireP.spawn(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0,0,0,0.12,10,2,C_RED,C_ORANGE,0.9,0);
     let done=false;
     if(mi.arm<=0 && player.alive && dist<CFG.enemyMissileHitR+ (player.onGround?0:0)){
-      player.hp-=CFG.enemyMissileDmg; shake=Math.max(shake,0.7); damageFlash=Math.max(damageFlash,0.6); Audio.hitTaken();
-      explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0.8); Audio.explosion(false, screenPanX(mi.mesh.position));
-      if(player.hp<=0){ player.alive=false; gameOver(false); }
-      done=true;
+      // Dusel (Wiggerl): dumb luck — a chunk of incoming missiles simply "just miss".
+      if(player.hero==='wiggerl' && Math.random()<0.4){
+        explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0.5); Audio.explosion(false, screenPanX(mi.mesh.position));
+        player.duselFlash=0.6; if(Math.random()<0.5) radio('WIGGERL|Ha! Danebn! Glück ghabt.');
+        done=true;
+      } else {
+        player.hp-=CFG.enemyMissileDmg; shake=Math.max(shake,0.7); damageFlash=Math.max(damageFlash,0.6); Audio.hitTaken();
+        explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0.8); Audio.explosion(false, screenPanX(mi.mesh.position));
+        if(player.hp<=0){ player.alive=false; gameOver(false); }
+        done=true;
+      }
     }
     if(done || mi.life<=0){ if(mi.life<=0 && !done) explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0.4); scene.remove(mi.mesh); enemyMissiles.splice(i,1); }
   }
