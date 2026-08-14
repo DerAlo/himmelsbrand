@@ -727,7 +727,7 @@ const BTEAM_CAMPAIGN = [
 // B-Team interstitials (kept separate; showCutscene consults both objects).
 const BTEAM_CUTSCENES = {
   bt_draft:{ chapter:'DAS B-TEAM', title:'Die letzte Wahl',
-    body:`Im Hangar hängt noch das Staffelfoto der „Adler" — durchgestrichen, schwarzer Trauerflor.<br><br><span class="who">WAGNER:</span> „Ich hatte die Besten. Jetzt hab ich … euch. Einen Feldwebel, der mehr flucht als redet, und einen Gefreiten, der mit seinem Flugzeug spricht."<br><br><span class="who">SEPP:</span> „Und? De Besten san tot. De zwoa Deppen leben no. Vielleicht is Blödsinn genau des, was koa Computer kommen siegt."<br><br>Wagner sieht die beiden lange an. Zum ersten Mal seit Tagen hat er einen leisen, absurden Funken Hoffnung.` },
+    body:`Im Hangar hängt noch das Staffelfoto der „Adler" — durchgestrichen, schwarzer Trauerflor.<br><br><span class="who">WAGNER:</span> „Ich hatte die Besten. Jetzt hab ich … euch. Einen Feldwebel, der mehr flucht als redet, und einen Gefreiten, der mit seinem Flugzeug spricht."<br><br><span class="who">SEPP:</span> „Und? De Besten san tot. De zwoa Deppen leben no. Vielleicht is Blödsinn genau des, was koa Computer kommen sieht."<br><br>Wagner sieht die beiden lange an. Zum ersten Mal seit Tagen hat er einen leisen, absurden Funken Hoffnung.` },
   bt_groove:{ chapter:'DAS B-TEAM', title:'Langsam läuft\'s',
     body:`Irgendwo zwischen Granteln und Dusel haben die zwei einen Rhythmus gefunden.<br><br><span class="who">WIGGERL:</span> „Sepp, mir san eigentlich a ganz guads Team, oda?"<br><span class="who">SEPP:</span> „Sag des nie wieder laut. Nachher glaubst as no."<br><br>Auf den Feindschirmen häufen sich derweil rote Fehlermeldungen: <i>Zielverhalten nicht klassifizierbar.</i>` },
   bt_final:{ chapter:'DAS B-TEAM', title:'Vor dem letzten Zapfhahn',
@@ -1054,20 +1054,22 @@ const Audio = (function(){
       const g=ctx.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.5,t+0.02); g.gain.setTargetAtTime(0.0001,t+dur*0.6,dur*0.4);
       o.connect(g); g.connect(leadGain); o.start(t); o.stop(t+dur+0.25); }
   }
-  function mPad(t,root,dur){ // sustained triad that FOLLOWS the chord (the big fix vs the old fixed drone)
+  function mPad(t,root,dur,nf){ // sustained triad that FOLLOWS the chord (nf = note fn: minor by default, major for Blasmusik)
+    nf=nf||mnote;
     for(const deg of [root,root+2,root+4]){ for(const det of [-8,8]){
-      const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(mnote(deg,1),t); o.detune.setValueAtTime(det,t);
+      const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(nf(deg,1),t); o.detune.setValueAtTime(det,t);
       const f=ctx.createBiquadFilter(); f.type='lowpass'; f.frequency.setValueAtTime(520,t); f.frequency.linearRampToValueAtTime(950,t+dur*0.5); f.frequency.linearRampToValueAtTime(520,t+dur);
       const g=ctx.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.13,t+0.4); g.gain.setTargetAtTime(0.0001,t+dur*0.7,dur*0.3);
       o.connect(f); f.connect(g); g.connect(padGain); o.start(t); o.stop(t+dur+0.3);
     }}
-    const lo=ctx.createOscillator(); lo.type='triangle'; lo.frequency.setValueAtTime(mnote(root,0),t);
+    const lo=ctx.createOscillator(); lo.type='triangle'; lo.frequency.setValueAtTime(nf(root,0),t);
     const lg=ctx.createGain(); lg.gain.setValueAtTime(0.0001,t); lg.gain.linearRampToValueAtTime(0.12,t+0.4); lg.gain.setTargetAtTime(0.0001,t+dur*0.7,dur*0.3);
     lo.connect(lg); lg.connect(padGain); lo.start(t); lo.stop(t+dur+0.3);
   }
-  function mBrass(t,root,dur){ // punchy detuned saw stab following the chord (boss)
+  function mBrass(t,root,dur,nf){ // punchy detuned saw stab following the chord (nf = note fn)
+    nf=nf||mnote;
     for(const deg of [root,root+2,root+4]){ for(const det of [-10,10]){
-      const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(mnote(deg,0),t); o.detune.setValueAtTime(det,t);
+      const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(nf(deg,0),t); o.detune.setValueAtTime(det,t);
       const f=ctx.createBiquadFilter(); f.type='lowpass'; f.Q.value=2; f.frequency.setValueAtTime(2400,t); f.frequency.exponentialRampToValueAtTime(500,t+dur*0.7);
       const g=ctx.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.3,t+0.01); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
       o.connect(f); f.connect(g); g.connect(brassGain); o.start(t); o.stop(t+dur+0.05);
@@ -1109,8 +1111,8 @@ const Audio = (function(){
         // ---- Blasmusik oom-pah in C major ----
         const rt=BT_PROG[bar%8];
         if(s===0||s===8){ mBass(t, mnoteMaj(rt,0), SIX*2.4); }                 // "OOM" tuba on beats 1 & 3
-        if(s===4||s===12){ mBrass(t, rt, SIX*1.6); }                          // "PAH" off-beat brass chord (2 & 4)
-        if(s===0) mPad(nextNoteTime, rt, SIX*16);                             // soft sustained pad under it
+        if(s===4||s===12){ mBrass(t, rt, SIX*1.6, mnoteMaj); }                // "PAH" off-beat brass chord (2 & 4) — major
+        if(s===0) mPad(nextNoteTime, rt, SIX*16, mnoteMaj);                   // soft sustained pad under it — major
         if(s===0||s===8) mKick(t);                                            // bass drum on the down-beats
         if(s===4||s===12) mSnare(t, 0.4);                                     // snare on the off-beats (march)
         if(s%4===2) mHat(t,false);                                            // light ticks
@@ -1766,6 +1768,7 @@ const player = {
   vel: new THREE.Vector3(0,0,-1),
   speed: CFG.cruiseSpeed,
   hp: CFG.playerHP,
+  maxHp: CFG.playerHP,     // raised by Brotzeit (Weißwurst); all STRUKTUR% + heals use this
   missiles: CFG.missileMax,
   // Stabilized arcade flight model: absolute heading + pitch, cosmetic roll.
   // This can never invert — up is always up, left is always left.
@@ -1796,7 +1799,7 @@ function resetPlayer(){
   player.heading=0; player.pitch=0; player.roll=0; player.yawRate=0; player.pitchRate=0; player.yawSign=1;
   player.obj.quaternion.identity();
   player.vel.set(0,0,-1);
-  player.speed=CFG.cruiseSpeed; player.hp=CFG.playerHP; player.missiles=CFG.missileMax;
+  player.speed=CFG.cruiseSpeed; player.hp=CFG.playerHP; player.maxHp=CFG.playerHP; player.missiles=CFG.missileMax;
   player.bombs=0; player.agms=0; player.weapon='missile'; player.bombCd=0; player.agmCd=0;
   player.alive=true; player.fireCd=0; player.missileCd=0; player.reloadT=0; player.crashCd=0;
   player.onGround=false; player.gearDown=true; player.gearRetractT=0; player.vy=0; player.landed=false; player.runway=null; player.hero=null;
@@ -2368,12 +2371,12 @@ function drawHUD(){
     const gx=(gp.x*0.5+0.5)*w, gy=(-gp.y*0.5+0.5)*h;
     if(on){
       const isAgmLock = (player.weapon==='agm' && player.agms>0 && gt===groundLock);
-      hctx.strokeStyle = isAgmLock?'rgba(90,255,120,0.95)':(gt.sam?'rgba(255,80,80,0.9)':'rgba(255,170,60,0.85)');
+      hctx.strokeStyle = gt.invuln?'rgba(255,215,90,0.95)':(isAgmLock?'rgba(90,255,120,0.95)':(gt.sam?'rgba(255,80,80,0.9)':'rgba(255,170,60,0.85)'));
       hctx.lineWidth=isAgmLock?2.5:2;
       hctx.beginPath(); hctx.moveTo(gx,gy-9); hctx.lineTo(gx+9,gy); hctx.lineTo(gx,gy+9); hctx.lineTo(gx-9,gy); hctx.closePath(); hctx.stroke();
-      // health pip
-      const hpw=Math.max(0,gt.hp/gt.maxhp);
-      hctx.fillStyle='rgba(255,90,60,0.8)'; hctx.fillRect(gx-12,gy+12,24*hpw,3);
+      // health pip — only for destroyable targets (the crate is a fly-over objective, not a kill)
+      if(!gt.invuln){ const hpw=Math.max(0,gt.hp/gt.maxhp);
+        hctx.fillStyle='rgba(255,90,60,0.8)'; hctx.fillRect(gx-12,gy+12,24*hpw,3); }
       const labels={radar:'RADAR',truck:'TANKER',sam:'SAM',hangar:'HANGAR',turret:'TURM',pylon:'PYLON',bunker:'BUNKER',depot:'DEPOT',bierkiste:'🍺 BIERKISTE'};
       if(labels[gt.tag]){ hctx.fillStyle=hctx.strokeStyle; hctx.font='10px monospace'; hctx.textAlign='center'; hctx.fillText(labels[gt.tag], gx, gy-13); hctx.textAlign='left'; }
       if(isAgmLock){  // green AGM lock brackets + label
@@ -2581,7 +2584,7 @@ function nextWaveCheck(){
   if(gameMode!=='endless') return;
   if(waveActive && enemies.length===0){
     waveActive=false; betweenTimer=4.0;
-    player.hp=Math.min(CFG.playerHP, player.hp+30);
+    player.hp=Math.min(player.maxHp, player.hp+30);
     player.missiles=CFG.missileMax; player.reloadT=0; updateMissileHUD();
     Audio.reload();
     banner('WELLE '+wave+' GESCHAFFT', 'Aufmunitioniert · +30 Struktur');
@@ -2628,6 +2631,7 @@ function resetWorld(){
 /* ===== ENDLESS ===== */
 function startEndless(mod){
   Audio.init(); Audio.resume(); Audio.setStyle('score');
+  campaignId='helios';   // endless is not a B-Team run — avoid comedy-label leak
   endlessMod = mod || null;           // set fresh every run (never carried over)
   gameMode='endless'; mission.active=false;
   showScreen(null);
@@ -2692,19 +2696,22 @@ function gameOver(victory){
         starRow +
         `<div style="font-size:16px;color:#ffce8a;letter-spacing:3px;margin-bottom:8px">${MEDAL[res.stars]}${(rec.improvedScore||rec.improvedStars)?' &nbsp;<span class="newrec">◆ NEUER REKORD</span>':''}</div>`+
         `<div style="font-size:19px;color:#cfe6ff;max-width:640px;line-height:1.6;margin-bottom:10px">${winLine}</div>`+
-        `<div>Punkte <b>${score}</b> &nbsp;·&nbsp; Zeit <b>${fmtTime(res.elapsed)}</b> &nbsp;·&nbsp; Struktur <b>${Math.round(res.hp)}%</b></div>`+
+        `<div>Punkte <b>${score}</b> &nbsp;·&nbsp; Zeit <b>${fmtTime(res.elapsed)}</b> &nbsp;·&nbsp; Struktur <b>${Math.round(res.hp/(player.maxHp||CFG.playerHP)*100)}%</b></div>`+
         unlockNote +
         (hasNext?'':`<div style="margin-top:14px;color:#ffce8a">${campaignId==='bteam'?'B-Team-Kampagne abgeschlossen — o\'zapft is, Bua! 🍺':'Kampagne abgeschlossen — der Himmel gehört wieder den Menschen.'}</div>`);
       const nextIdx=mission.index+1;
       const cut=def.cutsceneAfter;   // interstitial to play before the next mission
+      // In the B-Team campaign every launch goes through the Brotzeit pick.
+      const goNext=()=> campaignId==='bteam' ? openBrotzeit(nextIdx) : launchMission(nextIdx);
+      const goAgain=()=> campaignId==='bteam' ? openBrotzeit(mission.index) : launchMission(mission.index);
       if(hasNext){ nextBtn.classList.remove('hidden');
         nextBtn.textContent = cut? 'WEITER ▶' : '▶ NÄCHSTE MISSION';
-        nextBtn.onclick=()=>{ if(cut) showCutscene(cut, ()=>launchMission(nextIdx)); else launchMission(nextIdx); }; }
-      restartBtn.textContent='↻ WIEDERHOLEN'; restartBtn.onclick=()=>launchMission(mission.index);
+        nextBtn.onclick=()=>{ if(cut) showCutscene(cut, goNext); else goNext(); }; }
+      restartBtn.textContent='↻ WIEDERHOLEN'; restartBtn.onclick=goAgain;
     } else {
       goTitle.textContent='ABGESCHOSSEN'; goTitle.style.color='#ff5a5a';
       document.getElementById('go-stats').innerHTML=`Mission <b>${mission.index+1}</b> gescheitert<br><span style="font-size:16px;color:#9fb8d0">${mission.failReason||'Deine Maschine wurde zerstört.'}</span>`;
-      restartBtn.textContent='↻ WIEDERHOLEN'; restartBtn.onclick=()=>launchMission(mission.index);
+      restartBtn.textContent='↻ WIEDERHOLEN'; restartBtn.onclick=()=> campaignId==='bteam' ? openBrotzeit(mission.index) : launchMission(mission.index);
     }
   } else {
     goTitle.textContent='ABGESCHOSSEN'; goTitle.style.color='#ff5a5a';
@@ -2757,8 +2764,9 @@ function pauseGame(){
   state='paused';
   if(mission.active) mission.pauseStart=performance.now();
   firingMouse=false; for(const k in keys) keys[k]=false; Voice.stop();
-  const info = gameMode==='campaign' ? `${mission.def.name.toUpperCase()} · STRUKTUR ${Math.max(0,Math.round(player.hp))}%`
-                                     : `WELLE ${wave} · ${score} PUNKTE · STRUKTUR ${Math.max(0,Math.round(player.hp))}%`;
+  const struc = Math.max(0, Math.round(player.hp/(player.maxHp||CFG.playerHP)*100));
+  const info = gameMode==='campaign' ? `${mission.def.name.toUpperCase()} · STRUKTUR ${struc}%`
+                                     : `WELLE ${wave} · ${score} PUNKTE · STRUKTUR ${struc}%`;
   document.getElementById('pause-stats').textContent = info;
   pauseScreen.classList.remove('hidden');
 }
@@ -2914,8 +2922,8 @@ function setupMission(index){
   if(campaignId==='bteam'){
     const src=(BROTZEIT[brotzeit]||{}).bz;
     player.bz = Object.assign({dmg:1,fire:1,turn:1,wobble:0,hp:0}, src||{});
-    player.hp = CFG.playerHP + (player.bz.hp||0); player._lastHp=player.hp;
-  } else { player.bz={dmg:1,fire:1,turn:1,wobble:0,hp:0}; }
+    player.maxHp = CFG.playerHP + (player.bz.hp||0); player.hp = player.maxHp; player._lastHp=player.hp;
+  } else { player.bz={dmg:1,fire:1,turn:1,wobble:0,hp:0}; player.maxHp=CFG.playerHP; }
   player.grantl=0; player.grantlActive=false; player.grantlT=0; player.duselFlash=0;
 
   clearRunway();
@@ -2959,7 +2967,7 @@ function setupMission(index){
   // ally / wingman: in the B-Team campaign the wingman is the OTHER pilot (unless wingman:false)
   if(campaignId==='bteam' && def.wingman!==false && def.hero){
     const other = def.hero==='sepp' ? BTEAM_PILOTS.wiggerl : BTEAM_PILOTS.sepp;
-    spawnAlly({ name:other.name, color:other.color, hp:ALLY_HP });
+    spawnAlly({ name:other.name, full:other.name, color:other.color, hp:ALLY_HP });
   } else if(def.spawns.ally){ spawnAlly(); }
   // boss
   if(def.spawns.boss){ spawnBoss(def.spawns.boss); }
@@ -3109,7 +3117,8 @@ function clearAlly(){ if(ally){ scene.remove(ally.obj); ally=null; } }
 const ALLY_HP=420;
 function spawnAlly(opts){
   opts = opts || {};
-  const name = opts.name || 'LÄRCHE';
+  const name = opts.name || 'LÄRCHE';               // compact HUD bracket label
+  const full = opts.full || 'Hauptmann Lärche';     // display name (radio / fail message)
   const tint = (opts.color!=null) ? opts.color : 0x122a4a;
   const hp = opts.hp || ALLY_HP;
   const obj=buildEurofighter();
@@ -3118,11 +3127,11 @@ function spawnAlly(opts){
   const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion);
   obj.position.copy(player.obj.position).addScaledVector(fwd, 180).add(new THREE.Vector3(80,20,0));
   scene.add(obj);
-  ally={ obj, name, hp, maxhp:hp, heading:player.heading, phase:Math.random()*6, smokeCd:0, fireCd:1, heading2:player.heading, dir:new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion) };
+  ally={ obj, name, full, hp, maxhp:hp, heading:player.heading, phase:Math.random()*6, smokeCd:0, fireCd:1, heading2:player.heading, dir:new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion) };
   return ally;
 }
 function damageAlly(d){ if(!ally) return; ally.hp-=d;
-  if(ally.hp<=0){ const nm=ally.name||'Lärche'; ally.hp=0; explode(ally.obj.position.x,ally.obj.position.y,ally.obj.position.z,1.6); Audio.explosion(true);
+  if(ally.hp<=0){ const nm=ally.full||ally.name||'Lärche'; ally.hp=0; explode(ally.obj.position.x,ally.obj.position.y,ally.obj.position.z,1.6); Audio.explosion(true);
     scene.remove(ally.obj); ally=null;
     if(mission.active){ const o=mission.objectives.find(x=>x.kind==='protect'); if(o){ o.failed=true; mission.failReason=nm+' wurde abgeschossen.'; renderObjectives(); }
       // A failed PRIMARY objective ends the mission (otherwise the escort ran endlessly).
@@ -3376,7 +3385,8 @@ function updateHero(dt){
       player.grantlT-=dt; dmg*=1.9; fire*=1.7;                       // BERSERK
       if(player.grantlT<=0){ player.grantlActive=false; player.grantl=0; radio('SEPP|…so. A Ruah jetz.'); }
     } else {
-      player.grantl = Math.max(0, Math.min(1, player.grantl + taken*0.03 + (enemies.length?dt*0.06:0) - dt*0.025));
+      // rage is EARNED — mostly from damage taken; only a slow simmer in prolonged combat
+      player.grantl = Math.max(0, Math.min(1, player.grantl + taken*0.02 + (enemies.length?dt*0.02:0) - dt*0.015));
       if(player.grantl>=1){ player.grantlActive=true; player.grantlT=5.5; radio('SEPP|JETZ REICHT\'S MIR! SAKRADI!'); shake=Math.max(shake,0.45); }
     }
   }
@@ -3745,11 +3755,11 @@ function killEnemy(e){
     const gain=1500; score+=gain; dom.score.textContent=score;
     killMsg('★ ACE ZERSTÖRT: '+e.aceName+'  +'+gain);
     banner('ACE ABGESCHOSSEN', e.aceName);
-    player.hp=Math.min(CFG.playerHP, player.hp+15);
+    player.hp=Math.min(player.maxHp, player.hp+15);
   } else {
     const gain=Math.round(e.st.score*mult);
     score+=gain; dom.score.textContent=score;
-    const names = campaignId==='bteam'
+    const names = (gameMode==='campaign' && campaignId==='bteam')
       ? {f16:'zamgräumt',f18:'zsammghaut',f22:'obeglotzt'}
       : {f16:'JÄGER-DROHNE',f18:'KAMPFDROHNE',f22:'ELITE-DROHNE'};
     killMsg('▼ '+names[e.type]+'  +'+gain+(mult>1?('  ×'+mult):''));
@@ -4012,7 +4022,6 @@ let curFov=62;
 const camUp=new THREE.Vector3(0,1,0), camBack=new THREE.Vector3(), _upTarget=new THREE.Vector3(0,1,0);
 function updateCamera(dt){
   if(state==='menu'){
-    menuTime+=dt;
     const r=90;
     camera.up.set(0,1,0);
     camera.position.set(Math.cos(menuTime*0.3)*r, 930+Math.sin(menuTime*0.4)*8, 60+Math.sin(menuTime*0.3)*r*0.3);
@@ -4087,6 +4096,7 @@ function loop(now){
   if(slowmo>0) ts=SLOWMO_MIN+(1-SLOWMO_MIN)*(1-slowmo/SLOWMO_DUR);
   if(hitStop>0) ts=0;                 // hit-stop overrides slow-mo
   let dt=rawDt*ts;                    // world/physics timestep
+  menuTime+=rawDt;                    // always-advancing UI clock (HUD pulses/blinks)
 
   // follow-world elements
   sky.position.copy(camera.position);
@@ -4112,8 +4122,8 @@ function loop(now){
     // HUD numbers
     dom.speed.textContent=Math.round(player.speed*3.6);
     dom.alt.textContent=Math.round(player.obj.position.y);
-    dom.hp.style.width=Math.max(0,player.hp)+'%';
-    dom.hp.classList.toggle('low', player.hp<35);
+    dom.hp.style.width=Math.max(0, player.hp/(player.maxHp||CFG.playerHP)*100)+'%';
+    dom.hp.classList.toggle('low', player.hp < (player.maxHp||CFG.playerHP)*0.35);
     dom.thr.style.width=((player.speed-CFG.minSpeed)/(CFG.boostSpeed-CFG.minSpeed)*100)+'%';
     dom.score.style.transform = killPopT>0 ? 'scale('+(1+0.4*(killPopT/KILLPOP_DUR))+')' : 'none';
     // terrain streaming

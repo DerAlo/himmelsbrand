@@ -11,6 +11,7 @@ Ein im Browser spielbarer Arcade-Kampfflugsimulator. Du fliegst einen deutschen 
 ## Modi
 
 - **Kampagne** — 20 handgebaute Story-Missionen mit Briefings, Funksprüchen und Missionszielen. Kein Speicherstand; Fortschritt gilt pro Sitzung, Missionen werden nacheinander freigeschaltet (aber alle sind spielbar).
+- **🍺 Das B-Team** — eine eigenständige, selbstironische **Komödien-Kampagne** (7 Missionen) mit eigenem Ton, eigenem Fortschritt und eigener Blasmusik. Siehe unten.
 - **Endlos-Gefecht** — der ursprüngliche wellenbasierte Überlebensmodus.
 
 ### Die Kampagne — 20 Missionen in zwei Akten
@@ -41,6 +42,14 @@ Ein im Browser spielbarer Arcade-Kampfflugsimulator. Du fliegst einen deutschen 
 
 Die Story entwickelt einen moralischen Twist (ist HELIOS wirklich der Feind?), lebendigen Funkverkehr mit wiederkehrenden Charakteren, erzählte Zwischensequenzen und eine Entscheidung, die das Ende verändert. Im Zentrum von Akt II: **Hauptmann Lärche** — aus einer Stimme aus dem Nichts wird ein Wingman, aus Vertrauen etwas Persönliches. Eine leise, tragfähige Nebenhandlung, die im Finale auf dem Spiel steht.
 
+### 🍺 Das B-Team — die Komödien-Kampagne
+
+Eine komplett eigene, durchgeknallte Nebenkampagne (eigener Menüpunkt). Die legendäre Elite-Staffel „die Adler" wurde ausgelöscht — jetzt muss die nie fürs Fliegen vorgesehene Reserve ran: zwei bayerische Chaoten, deren Pläne so unberechenbar sind, dass keine KI sie kommen sieht. Genau das macht sie zur Geheimwaffe. 7 Missionen vom chaotischen Erststart bis zur Weltrettung.
+
+- **Zwei Charaktere:** Feldwebel **Sepp „Brummbär"** (grantelt, trinkt, aber hat den einen guten Einfall) und Gefreiter **Wiggerl „Radi"** (verpeilt, aber rettet durch Dusel den Tag). Pro Mission spielst du einen — der andere fliegt als Wingman.
+- **Spezial-Mechaniken:** **Grantl-Modus** (Sepp: Wut-Leiste → kurzer Berserker-Rausch mit mehr Feuerkraft), **Dusel** (Wiggerl: Gegnerraketen gehen oft „ausversehen" daneben, Zufalls-Crits), **Brotzeit** (Buff/Debuff-Auswahl vor jeder Mission: Helles/Weißwurst/Radler/Espresso).
+- **Blasmusik-Soundtrack** (Oom-pah statt Synthwave) und ein Running-Gag um eine **verschollene Bierkiste**.
+
 ### Start & Landung
 Manche Missionen beginnen auf der Rollbahn und/oder verlangen eine Landung. Physik: **Vollgas (Shift)**, ab **Vr** (rote Markierung) die **Nase heben (W/Maus)**, abheben. Zur Landung tief & langsam mit ausgefahrenem **Fahrwerk (B)** anfliegen, weich und gerade aufsetzen — zu steil oder schief = Bruchlandung. Ein sanfter Auto-Flare belohnt saubere Anflüge.
 
@@ -55,6 +64,7 @@ Manche Missionen beginnen auf der Rollbahn und/oder verlangen eine Landung. Phys
 | G | Bombe abwerfen (Bodenziel) |
 | X | Waffe wechseln (Rakete / LB-Rakete / Bombe) |
 | B | Fahrwerk ein/aus |
+| V | Funkstimmen an/aus (Sprachausgabe, standardmäßig aus) |
 | Shift | Nachbrenner · Strg | Drosseln |
 | P / Esc | Pause |
 
