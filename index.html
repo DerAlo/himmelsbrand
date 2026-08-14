@@ -228,7 +228,7 @@
       <div class="row"><span class="k">G</span> Bombe abwerfen (Bodenziel)</div>
       <div class="row"><span class="k">X</span> Waffe wechseln (Rakete/LB-Rakete/Bombe)</div>
       <div class="row"><span class="k">B</span> Fahrwerk ein/aus (für die Landung)</div>
-      <div class="row"><span class="k">V</span> Funkstimmen an/aus (Sprachausgabe)</div>
+      <div class="row"><span class="k">V</span> Funkstimmen an/aus (Sprachausgabe · standardmäßig AUS)</div>
       <div class="row"><span class="k">Shift</span> Nachbrenner / Vollgas am Boden</div>
       <div class="row"><span class="k">Strg</span> Drosseln / Bremsen am Boden</div>
     </div>
@@ -1243,21 +1243,37 @@ const Audio = (function(){
    --------------------------------------------------------------------------- */
 const Voice = (function(){
   const synth = ('speechSynthesis' in window) ? window.speechSynthesis : null;
-  let ok = !!synth, on = true, deVoice=null, altVoice=null;
+  let ok = !!synth, on = false;   // default OFF — enable with V
+  const FEMALE=/anna|petra|helena|katja|hedda|marlene|amelie|klara|steffi|female|weiblich/i;
+  const MALE  =/markus|viktor|yannick|hans|conrad|stefan|klaus|ralf|reed|boris|male|männlich/i;
+  // per-speaker character: pitch/rate + preferred gender pool + a distinctness slot
+  const CH = {
+    SEPP:    {pitch:0.55,rate:0.95, pref:'m', slot:0},
+    WAGNER:  {pitch:0.85,rate:1.00, pref:'m', slot:2},
+    WIGGERL: {pitch:1.40,rate:1.08, pref:'m', slot:1},
+    'LÄRCHE':{pitch:1.12,rate:1.00, pref:'f', slot:0},
+    HELIOS:  {pitch:0.40,rate:0.78, pref:'m', slot:0},
+    STIMME:  {pitch:0.35,rate:0.75, pref:'m', slot:0},
+    '?':     {pitch:1.05,rate:1.00, pref:'f', slot:0},
+  };
+  let assigned={};   // speaker -> a concrete SpeechSynthesisVoice (distinct where possible)
   function pickVoices(){
     if(!ok) return;
     const vs = synth.getVoices()||[];
-    const de = vs.filter(v=>/^de\b|^de[-_]/i.test(v.lang));
-    deVoice = de[0] || vs.find(v=>/de/i.test(v.lang)) || vs[0] || null;
-    altVoice = de[1] || deVoice;   // a second voice (if any) for the machine/HELIOS
+    const de = vs.filter(v=>/^de/i.test(v.lang));
+    const pool = de.length?de:vs;
+    assigned={}; if(!pool.length) return;
+    const males   = pool.filter(v=>MALE.test(v.name));
+    const females = pool.filter(v=>FEMALE.test(v.name));
+    const others  = pool.filter(v=>!MALE.test(v.name)&&!FEMALE.test(v.name));
+    const malePool   = males.length?males:(others.length?others:pool);
+    const femalePool = females.length?females:(others.length?others:pool);
+    const nth=(list,i)=>list[i%list.length];
+    for(const spk in CH){ const c=CH[spk];
+      assigned[spk] = nth(c.pref==='f'?femalePool:malePool, c.slot) || pool[0];
+    }
   }
   if(ok){ pickVoices(); try{ synth.addEventListener('voiceschanged', pickVoices); }catch(e){} }
-  // speaker -> vocal character (pitch/rate; alt = use the second voice)
-  const CH = {
-    SEPP:{pitch:0.6,rate:0.98}, WIGGERL:{pitch:1.32,rate:1.05}, WAGNER:{pitch:0.85,rate:1.0},
-    'LÄRCHE':{pitch:1.15,rate:1.0}, HELIOS:{pitch:0.42,rate:0.82,alt:true}, STIMME:{pitch:0.4,rate:0.8,alt:true},
-    '?':{pitch:1.1,rate:1.0},
-  };
   function speak(speaker, text){
     if(!ok || !on || !text) return;
     try{
@@ -1265,7 +1281,7 @@ const Voice = (function(){
       const u=new SpeechSynthesisUtterance(String(text));
       const c=CH[speaker] || {pitch:1.0,rate:1.0};
       u.lang='de-DE'; u.pitch=c.pitch; u.rate=c.rate; u.volume=0.95;
-      const v=c.alt?altVoice:deVoice; if(v) u.voice=v;
+      const v=assigned[speaker]; if(v) u.voice=v;
       synth.speak(u);
     }catch(e){}
   }
@@ -1273,7 +1289,8 @@ const Voice = (function(){
   function toggle(){ on=!on; if(!on) stop(); return on; }
   function isOn(){ return on; }
   function available(){ return ok; }
-  return { speak, stop, toggle, isOn, available };
+  function _voices(){ const o={}; for(const k in assigned) o[k]=assigned[k]?assigned[k].name:null; return o; }
+  return { speak, stop, toggle, isOn, available, _voices };
 })();
 
 /* ---------------------------------------------------------------------------
