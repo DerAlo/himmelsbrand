@@ -1294,23 +1294,35 @@ const Voice = (function(){
     }
   }
   if(ok){ pickVoices(); try{ synth.addEventListener('voiceschanged', pickVoices); }catch(e){} }
+  // Speech QUEUE: each line is spoken to completion before the next starts (onend-driven).
+  // A small backlog cap keeps the voice from lagging far behind the action.
+  let queue=[], speaking=false;
+  function pump(){
+    if(!ok || speaking || !queue.length) return;
+    const it=queue.shift();
+    try{
+      const u=new SpeechSynthesisUtterance(it.text);
+      u.lang='de-DE'; u.pitch=it.pitch; u.rate=it.rate; u.volume=0.95;
+      if(it.voice) u.voice=it.voice;
+      u.onend=()=>{ speaking=false; pump(); };
+      u.onerror=()=>{ speaking=false; pump(); };
+      speaking=true;
+      synth.speak(u);
+    }catch(e){ speaking=false; }
+  }
   function speak(speaker, text){
     if(!ok || !on || !text) return;
-    try{
-      synth.cancel();   // subtitles are paced apart; keep only the latest line
-      const u=new SpeechSynthesisUtterance(String(text));
-      const c=CH[speaker] || {pitch:1.0,rate:1.0};
-      u.lang='de-DE'; u.pitch=c.pitch; u.rate=c.rate; u.volume=0.95;
-      const v=assigned[speaker]; if(v) u.voice=v;
-      synth.speak(u);
-    }catch(e){}
+    const c=CH[speaker] || {pitch:1.0,rate:1.0};
+    queue.push({ text:String(text), pitch:c.pitch, rate:c.rate, voice:assigned[speaker]||null });
+    if(queue.length>5) queue.splice(0, queue.length-5);   // drop oldest so voice never lags absurdly
+    pump();
   }
-  function stop(){ if(ok){ try{ synth.cancel(); }catch(e){} } }
+  function stop(){ queue.length=0; speaking=false; if(ok){ try{ synth.cancel(); }catch(e){} } }
   function toggle(){ on=!on; if(!on) stop(); return on; }
   function isOn(){ return on; }
   function available(){ return ok; }
   function _voices(){ const o={}; for(const k in assigned) o[k]=assigned[k]?assigned[k].name:null; return o; }
-  return { speak, stop, toggle, isOn, available, _voices };
+  return { speak, stop, toggle, isOn, available, _voices, _pending:()=>queue.length, _speaking:()=>speaking };
 })();
 
 /* ---------------------------------------------------------------------------
