@@ -169,7 +169,7 @@
   <div id="radio"><span class="rspk"></span> <span class="rtext"></span></div>
   <div id="weapon-tab" class="hud-el weapon-tab"></div>
   <div id="bosswrap" class="bosswrap"><div class="bname"></div><div class="bossbar"><div></div></div></div>
-  <div class="credit" id="credit">Maus/​WASD = Lenken · Leertaste = MG · F = Rakete · H = LB-Rakete · G = Bombe · X = Waffe wechseln · Shift = Nachbrenner · P = Pause</div>
+  <div class="credit" id="credit">Maus/​WASD = Lenken · Leertaste = MG · F = Rakete · H = LB-Rakete · G = Bombe · X = Waffe wechseln · Shift = Nachbrenner · V = Stimmen · P = Pause</div>
 
   <!-- Main Menu -->
   <div id="menu" class="screen">
@@ -228,6 +228,7 @@
       <div class="row"><span class="k">G</span> Bombe abwerfen (Bodenziel)</div>
       <div class="row"><span class="k">X</span> Waffe wechseln (Rakete/LB-Rakete/Bombe)</div>
       <div class="row"><span class="k">B</span> Fahrwerk ein/aus (für die Landung)</div>
+      <div class="row"><span class="k">V</span> Funkstimmen an/aus (Sprachausgabe)</div>
       <div class="row"><span class="k">Shift</span> Nachbrenner / Vollgas am Boden</div>
       <div class="row"><span class="k">Strg</span> Drosseln / Bremsen am Boden</div>
     </div>
@@ -894,6 +895,7 @@ const Audio = (function(){
   let musicBus=null, padGain=null, bassGain=null, arpGain=null, leadGain=null,
       percGain=null, brassGain=null, menaceGain=null, musicDelay=null;
   let musicMode='menu', musicIntensity=0, nextNoteTime=0, step16=0, musicBar=0, schedTimer=0;
+  let musicStyle='score';   // 'score' = synthwave/military; 'bteam' = Blasmusik oom-pah
   let bogeyGain=null, bogeyPan=null, bogeyOsc=null, bogeyNF=null;
   let missileVoiceCount=0;
   const SCALE=[0,2,3,5,7,8,10];   // D natural minor: D E F G A Bb C
@@ -920,6 +922,22 @@ const Audio = (function(){
     [7,null,6,4, 4,null,null,null] // over C -> resolve, leave air to loop back
   ];
   function mnote(deg,oct){ const d=((deg%7)+7)%7; const semi=SCALE[d]+12*(oct+Math.floor(deg/7)); return BASE*Math.pow(2,semi/12); }
+  // --- Blasmusik (B-Team): cheerful C-major oom-pah. Tuba on 1&3 ("oom"), brass
+  //     "pah" stabs on 2&4, a jolly clarinet-ish melody, a simple march kit. ---
+  const SCALE_MAJ=[0,2,4,5,7,9,11];   // major
+  const BASE_BT=65.41;                // C2
+  const BT_PROG=[0,4,0,4, 0,3,4,0];   // I V I V | I IV V I  (per bar)
+  const BT_MEL=[                      // 8ths/bar, degrees relative to C (0=C); null=rest
+    [4,null,2,4, 7,null,4,2],   // over I
+    [6,null,4,6, 4,null,null,null], // over V (B..)
+    [4,null,2,4, 7,null,9,7],   // over I
+    [6,null,4,2, 4,null,null,null], // over V
+    [4,null,4,6, 7,null,6,4],   // over I
+    [5,null,7,5, 3,null,null,null], // over IV
+    [6,null,4,6, 7,null,6,4],   // over V
+    [7,null,4,2, 0,null,null,null], // over I -> resolve
+  ];
+  function mnoteMaj(deg,oct){ const d=((deg%7)+7)%7; const semi=SCALE_MAJ[d]+12*(oct+Math.floor(deg/7)); return BASE_BT*Math.pow(2,semi/12); }
   const smoothstep=(a,b,x)=>{ const t=Math.max(0,Math.min(1,(x-a)/(b-a))); return t*t*(3-2*t); };
   function panNode(pan){ if(!enabled||pan==null||!ctx.createStereoPanner) return master; const p=ctx.createStereoPanner(); p.pan.value=Math.max(-1,Math.min(1,pan)); p.connect(master); return p; }
   function makeNoise(){
@@ -1066,25 +1084,39 @@ const Audio = (function(){
   function scheduler(){
     if(!ctx || ctx.state!=='running'){ if(ctx) nextNoteTime=ctx.currentTime; return; }
     while(nextNoteTime < ctx.currentTime+0.14){
-      const s=step16, bar=musicBar, root=PROG[bar%8];
+      const s=step16, bar=musicBar;
       const t=nextNoteTime + (s%2===1?SWING:0);       // subtle swing on off-16ths
       const I=musicIntensity, boss=(musicMode==='boss'), fillBar=(bar%8===7);
-      if(s===0) mPad(nextNoteTime, root, SIX*16);      // one sustained chord per bar
-      // DRUMS (last bar swaps its second half for a snare fill)
-      if(!(fillBar && s>=8)){
-        if(s%4===0 || s===14) mKick(t);                // four-on-floor + a syncopated push
-        if(s===4||s===12) mSnare(t,0.5);
-        if(s===7||s===15) mSnare(t,0.16);              // ghost notes
-        if(s%2===0) mHat(t, s===6||s===14);
+      if(musicStyle==='bteam'){
+        // ---- Blasmusik oom-pah in C major ----
+        const rt=BT_PROG[bar%8];
+        if(s===0||s===8){ mBass(t, mnoteMaj(rt,0), SIX*2.4); }                 // "OOM" tuba on beats 1 & 3
+        if(s===4||s===12){ mBrass(t, rt, SIX*1.6); }                          // "PAH" off-beat brass chord (2 & 4)
+        if(s===0) mPad(nextNoteTime, rt, SIX*16);                             // soft sustained pad under it
+        if(s===0||s===8) mKick(t);                                            // bass drum on the down-beats
+        if(s===4||s===12) mSnare(t, 0.4);                                     // snare on the off-beats (march)
+        if(s%4===2) mHat(t,false);                                            // light ticks
+        if(fillBar && s>=12 && s%2===0) mSnare(t, 0.3+(s-12)/14);             // little roll into the loop
+        if(s%2===0 && I>0.3){ const m=BT_MEL[bar%8][s/2]; if(m!=null) mLead(t, mnoteMaj(m,1), SIX*2.6); } // jolly melody
       } else {
-        if(s%2===0) mSnare(t, 0.28 + (s-8)/22);        // rising fill
-        if(s===8) mHat(t,true);
+        // ---- synthwave / military score ----
+        const root=PROG[bar%8];
+        if(s===0) mPad(nextNoteTime, root, SIX*16);      // one sustained chord per bar
+        if(!(fillBar && s>=8)){
+          if(s%4===0 || s===14) mKick(t);                // four-on-floor + a syncopated push
+          if(s===4||s===12) mSnare(t,0.5);
+          if(s===7||s===15) mSnare(t,0.16);              // ghost notes
+          if(s%2===0) mHat(t, s===6||s===14);
+        } else {
+          if(s%2===0) mSnare(t, 0.28 + (s-8)/22);        // rising fill
+          if(s===8) mHat(t,true);
+        }
+        if(s%2===0){ const off=BASSDEG[(s/2)%8]; mBass(t, mnote(root+off,0), SIX*1.7); }   // pumping octave bass
+        { const ct=CHORDTONE[ARPIDX[s]]; mSeq(t, mnote(root+ct,1), SIX*1.3, (s%2?0.18:-0.18)); } // 16th sequence
+        if(s%2===0 && I>0.45){ const m=MEL[bar%8][s/2]; if(m!=null) mLead(t, mnote(m,1), SIX*3.2); } // lead theme (combat)
+        if(boss && (s===0||s===8)) mBrass(t, root, SIX*3);                                  // boss stabs
+        if(fillBar && s===12 && I>0.5) mRiser(nextNoteTime, SIX*4);                          // riser into new phrase
       }
-      if(s%2===0){ const off=BASSDEG[(s/2)%8]; mBass(t, mnote(root+off,0), SIX*1.7); }   // pumping octave bass
-      { const ct=CHORDTONE[ARPIDX[s]]; mSeq(t, mnote(root+ct,1), SIX*1.3, (s%2?0.18:-0.18)); } // 16th sequence
-      if(s%2===0 && I>0.45){ const m=MEL[bar%8][s/2]; if(m!=null) mLead(t, mnote(m,1), SIX*3.2); } // lead theme (combat)
-      if(boss && (s===0||s===8)) mBrass(t, root, SIX*3);                                  // boss stabs
-      if(fillBar && s===12 && I>0.5) mRiser(nextNoteTime, SIX*4);                          // riser into new phrase
       nextNoteTime+=SIX; step16=(step16+1)%16;
       if(step16===0) musicBar=(musicBar+1)%8;
     }
@@ -1147,6 +1179,16 @@ const Audio = (function(){
     musicIntensity += (intensity-musicIntensity)*Math.min(1,rate);
     musicMode=mode; const I=musicIntensity, t=ctx.currentTime, boss=(mode==='boss');
     const set=(g,v,rising)=>g.gain.setTargetAtTime(v, t, rising?0.4:1.6);
+    if(musicStyle==='bteam'){
+      // Blasmusik: tuba(bass) + pah(brass) + march(perc) always carry it; melody rises a bit with action.
+      set(padGain,    0.10,                        0.10>padGain.gain.value);
+      set(bassGain,   0.22,                         0.22>bassGain.gain.value);   // OOM tuba
+      set(percGain,   0.30 + smoothstep(0.2,0.6,I)*0.14, true);                  // march kit
+      set(brassGain,  0.16,                         0.16>brassGain.gain.value);  // PAH stabs
+      set(leadGain,   0.10 + smoothstep(0.15,0.6,I)*0.10, true);                 // jolly melody
+      set(arpGain,    0, false); set(menaceGain, 0, false);
+      return;
+    }
     // pad: always present (calm cruise = pad only); everything else fades in with intensity
     const pv=(mode==='menu'?0.30:0.20);                     set(padGain,   pv,  pv>padGain.gain.value);
     const bv=smoothstep(0.03,0.22,I)*0.22;                  set(bassGain,  bv,  bv>bassGain.gain.value);
@@ -1182,14 +1224,56 @@ const Audio = (function(){
     if(!enabled||!snd||snd._stopped) return; snd._stopped=true; const t=ctx.currentTime;
     snd.gain.gain.setTargetAtTime(0, t, 0.02); try{ snd.osc.stop(t+0.06); }catch(e){} missileVoiceCount=Math.max(0,missileVoiceCount-1);
   }
-  function _debug(){ return { state:ctx&&ctx.state, mode:musicMode, I:+musicIntensity.toFixed(3), bar:musicBar, step:step16,
+  function setStyle(s){ musicStyle = (s==='bteam') ? 'bteam' : 'score'; }
+  function _debug(){ return { state:ctx&&ctx.state, mode:musicMode, style:musicStyle, I:+musicIntensity.toFixed(3), bar:musicBar, step:step16,
     pad:padGain?+padGain.gain.value.toFixed(3):0, bass:bassGain?+bassGain.gain.value.toFixed(3):0, arp:arpGain?+arpGain.gain.value.toFixed(3):0,
     lead:leadGain?+leadGain.gain.value.toFixed(3):0, perc:percGain?+percGain.gain.value.toFixed(3):0,
     brass:brassGain?+brassGain.gain.value.toFixed(3):0, menace:menaceGain?+menaceGain.gain.value.toFixed(3):0,
     bogey:bogeyGain?bogeyGain.gain.value:0, missileVoices:missileVoiceCount }; }
 
   return { init, resume, setEngine, gun, missileLaunch, explosion, hit, hitTaken, lockTone, reload, bombDrop, samLaunch, warnBeep,
-    updateMusic, updateBogey, startMissileSound, updateMissileSound, stopMissileSound, _debug };
+    updateMusic, updateBogey, setStyle, startMissileSound, updateMissileSound, stopMissileSound, _debug };
+})();
+
+/* ---------------------------------------------------------------------------
+   2b. VOICE — spoken radio lines via the Web Speech API (offline, no assets).
+   There is no Bavarian TTS voice, but a German voice reading our dialect-spelled
+   lines + per-character pitch/rate lands as a fun pseudo-Bairisch for the B-Team.
+   Toggle with V. Degrades silently where speechSynthesis is unavailable.
+   --------------------------------------------------------------------------- */
+const Voice = (function(){
+  const synth = ('speechSynthesis' in window) ? window.speechSynthesis : null;
+  let ok = !!synth, on = true, deVoice=null, altVoice=null;
+  function pickVoices(){
+    if(!ok) return;
+    const vs = synth.getVoices()||[];
+    const de = vs.filter(v=>/^de\b|^de[-_]/i.test(v.lang));
+    deVoice = de[0] || vs.find(v=>/de/i.test(v.lang)) || vs[0] || null;
+    altVoice = de[1] || deVoice;   // a second voice (if any) for the machine/HELIOS
+  }
+  if(ok){ pickVoices(); try{ synth.addEventListener('voiceschanged', pickVoices); }catch(e){} }
+  // speaker -> vocal character (pitch/rate; alt = use the second voice)
+  const CH = {
+    SEPP:{pitch:0.6,rate:0.98}, WIGGERL:{pitch:1.32,rate:1.05}, WAGNER:{pitch:0.85,rate:1.0},
+    'LÄRCHE':{pitch:1.15,rate:1.0}, HELIOS:{pitch:0.42,rate:0.82,alt:true}, STIMME:{pitch:0.4,rate:0.8,alt:true},
+    '?':{pitch:1.1,rate:1.0},
+  };
+  function speak(speaker, text){
+    if(!ok || !on || !text) return;
+    try{
+      synth.cancel();   // subtitles are paced apart; keep only the latest line
+      const u=new SpeechSynthesisUtterance(String(text));
+      const c=CH[speaker] || {pitch:1.0,rate:1.0};
+      u.lang='de-DE'; u.pitch=c.pitch; u.rate=c.rate; u.volume=0.95;
+      const v=c.alt?altVoice:deVoice; if(v) u.voice=v;
+      synth.speak(u);
+    }catch(e){}
+  }
+  function stop(){ if(ok){ try{ synth.cancel(); }catch(e){} } }
+  function toggle(){ on=!on; if(!on) stop(); return on; }
+  function isOn(){ return on; }
+  function available(){ return ok; }
+  return { speak, stop, toggle, isOn, available };
 })();
 
 /* ---------------------------------------------------------------------------
@@ -1994,6 +2078,7 @@ addEventListener('keydown', e=>{
   if(e.code==='KeyG'){ if(state==='playing' && player.bombs>0) dropBomb(); }
   if(e.code==='KeyH'){ if(state==='playing' && player.agms>0) fireAGM(); }
   if(e.code==='KeyX'){ if(state==='playing') toggleWeapon(); }
+  if(e.code==='KeyV'){ const s=Voice.toggle(); banner(s?'🔊 STIMMEN AN':'🔇 STIMMEN AUS', Voice.available()?'':'(keine Sprachausgabe verfügbar)'); }
   if(e.code==='KeyB'){ if(state==='playing' && !player.onGround){ player.gearDown=!player.gearDown; player.gearRetractT=0; radio('WAGNER|Fahrwerk '+(player.gearDown?'ausgefahren':'eingefahren')+'.'); } }
   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
 });
@@ -2446,6 +2531,7 @@ function showScreen(id){
 }
 function gotoMenu(){
   state='menu'; gameMode='menu'; mission.active=false;
+  Audio.setStyle('score'); Voice.stop();
   clearVictoryTimer();
   clearGroundTargets(); clearBoss(); clearRunway(); clearAlly();
   for(const e of enemies) scene.remove(e.obj); enemies.length=0;
@@ -2473,7 +2559,7 @@ function resetWorld(){
 
 /* ===== ENDLESS ===== */
 function startEndless(mod){
-  Audio.init(); Audio.resume();
+  Audio.init(); Audio.resume(); Audio.setStyle('score');
   endlessMod = mod || null;           // set fresh every run (never carried over)
   gameMode='endless'; mission.active=false;
   showScreen(null);
@@ -2492,6 +2578,7 @@ function startEndless(mod){
 function launchMission(index){
   Audio.init(); Audio.resume();
   gameMode='campaign';
+  Audio.setStyle(campaignId==='bteam' ? 'bteam' : 'score');
   showScreen(null);
   resetWorld();
   setupMission(index);
@@ -2513,7 +2600,7 @@ function gameOver(victory){
   if(wasCampaign){
     const def=mission.def;
     if(victory){
-      goTitle.textContent='MISSION ERFÜLLT'; goTitle.style.color='#7dffb0';
+      goTitle.textContent=campaignId==='bteam'?'SCHEE WAR\'S!':'MISSION ERFÜLLT'; goTitle.style.color='#7dffb0';
       // unlock next (per active campaign)
       if(mission.index+1 > unlockedCount()-1) bumpUnlocked(mission.index+2);
       // --- rating + persistence (wall-clock time, unaffected by slow-mo) ---
@@ -2601,7 +2688,7 @@ function pauseGame(){
   if(state!=='playing') return;
   state='paused';
   if(mission.active) mission.pauseStart=performance.now();
-  firingMouse=false; for(const k in keys) keys[k]=false;
+  firingMouse=false; for(const k in keys) keys[k]=false; Voice.stop();
   const info = gameMode==='campaign' ? `${mission.def.name.toUpperCase()} · STRUKTUR ${Math.max(0,Math.round(player.hp))}%`
                                      : `WELLE ${wave} · ${score} PUNKTE · STRUKTUR ${Math.max(0,Math.round(player.hp))}%`;
   document.getElementById('pause-stats').textContent = info;
@@ -2701,6 +2788,7 @@ function radio(line){
   dom.radio.querySelector('.rtext').textContent = txt;
   dom.radio.classList.add('show'); radioHideT=4.2;
   if(spk==='HELIOS') Audio.warnBeep(); else Audio.reload();
+  Voice.speak(spk, txt);   // spoken radio line (toggle with V)
 }
 function queueRadio(lines, gap){
   if(!lines) return;
@@ -2837,7 +2925,7 @@ function checkMissionComplete(){
   const primaries=mission.objectives.filter(o=>o.primary);
   if(primaries.every(o=>o.done)){
     mission.done=true; mission.active=false;
-    banner('MISSION ERFÜLLT', mission.def.name.toUpperCase());
+    banner(campaignId==='bteam'?'PACKMA\'S GHABT! 🍺':'MISSION ERFÜLLT', mission.def.name.toUpperCase());
     queueRadioNow(mission.def.win);
     player.alive=true;
     const wonIndex=mission.index;
@@ -3541,7 +3629,9 @@ function killEnemy(e){
   } else {
     const gain=Math.round(e.st.score*mult);
     score+=gain; dom.score.textContent=score;
-    const names={f16:'JÄGER-DROHNE',f18:'KAMPFDROHNE',f22:'ELITE-DROHNE'};
+    const names = campaignId==='bteam'
+      ? {f16:'zamgräumt',f18:'zsammghaut',f22:'obeglotzt'}
+      : {f16:'JÄGER-DROHNE',f18:'KAMPFDROHNE',f22:'ELITE-DROHNE'};
     killMsg('▼ '+names[e.type]+'  +'+gain+(mult>1?('  ×'+mult):''));
     if(combo>=2 && COMBO_CALL[combo]) banner(COMBO_CALL[Math.min(combo,7)], 'Kill-Serie ×'+mult);
     if(combo>=2) Audio.reload();  // rising chime as a reward cue
