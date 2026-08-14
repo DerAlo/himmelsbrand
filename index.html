@@ -169,7 +169,7 @@
   <div id="radio"><span class="rspk"></span> <span class="rtext"></span></div>
   <div id="weapon-tab" class="hud-el weapon-tab"></div>
   <div id="bosswrap" class="bosswrap"><div class="bname"></div><div class="bossbar"><div></div></div></div>
-  <div class="credit" id="credit">Maus/​WASD = Lenken · Leertaste = MG · F = Rakete · G = Bombe · X = Waffe wechseln · Shift = Nachbrenner · P = Pause</div>
+  <div class="credit" id="credit">Maus/​WASD = Lenken · Leertaste = MG · F = Rakete · H = LB-Rakete · G = Bombe · X = Waffe wechseln · Shift = Nachbrenner · P = Pause</div>
 
   <!-- Main Menu -->
   <div id="menu" class="screen">
@@ -223,8 +223,9 @@
       <div class="row"><span class="k">Q / E</span> Feineinstellung Kurve</div>
       <div class="row"><span class="k">Leert. / 🖱L</span> Maschinengewehr (roter Zielpunkt = Vorhalt)</div>
       <div class="row"><span class="k">F / 🖱R</span> Rakete — <b style="color:var(--gold)">nur mit LOCK</b> lenkbar, sonst Geradeaus</div>
+      <div class="row"><span class="k">H</span> LB-Rakete — gelenkt auf <b style="color:var(--gold)">Boden-Lock</b> (grün)</div>
       <div class="row"><span class="k">G</span> Bombe abwerfen (Bodenziel)</div>
-      <div class="row"><span class="k">X</span> Waffe wechseln (Rakete/Bombe)</div>
+      <div class="row"><span class="k">X</span> Waffe wechseln (Rakete/LB-Rakete/Bombe)</div>
       <div class="row"><span class="k">B</span> Fahrwerk ein/aus (für die Landung)</div>
       <div class="row"><span class="k">Shift</span> Nachbrenner / Vollgas am Boden</div>
       <div class="row"><span class="k">Strg</span> Drosseln / Bremsen am Boden</div>
@@ -233,6 +234,7 @@
       🎯 Halte den roten <b style="color:var(--gold)">Zielpunkt</b> aufs Ziel — „FEUER · GUNS" heißt Treffer sicher. ·
       🚀 Raketen suchen <b style="color:var(--gold)">nur bei rotem LOCK</b>; ohne Lock fliegen sie gerade. ·
       💣 Bomben: tief & flach, den <b style="color:var(--gold)">CCIP-Kreis</b> aufs Ziel, dann <b style="color:var(--gold)">G</b>. ·
+      ◈ LB-Raketen: Nase aufs Bodenziel bis <b style="color:var(--gold)">grüner LB-LOCK</b>, dann <b style="color:var(--gold)">H</b> — trifft aus Distanz. ·
       👑 Boss: erst <b style="color:var(--gold)">Türme/Pylonen</b> zerstören, dann den freigelegten <b style="color:var(--gold)">Kern</b>. ·
       🛫 Start: <b style="color:var(--gold)">Shift</b> Vollgas, ab <b style="color:var(--gold)">Vr</b> Nase heben. Landung: Fahrwerk <b style="color:var(--gold)">B</b>, tief, langsam, weich aufsetzen.
     </div>
@@ -274,8 +276,8 @@
       <div class="row"><span class="k">A / D</span> Links / Rechts kurven</div>
       <div class="row"><span class="k">Q / E</span> Feineinstellung Kurve</div>
       <div class="row"><span class="k">Leert. / 🖱L</span> Maschinengewehr (Zielpunkt = Vorhalt)</div>
-      <div class="row"><span class="k">F / 🖱R</span> Rakete — nur mit LOCK lenkbar</div>
-      <div class="row"><span class="k">G</span> Bombe (Bodenziel) · <span class="k">X</span> Waffe wechseln</div>
+      <div class="row"><span class="k">F</span> Rakete (Luftziel) — nur mit LOCK lenkbar · <span class="k">🖱R</span> gewählte Sekundärwaffe</div>
+      <div class="row"><span class="k">H</span> LB-Rakete (Boden-Lock) · <span class="k">G</span> Bombe · <span class="k">X</span> Waffe wechseln</div>
       <div class="row"><span class="k">Shift</span> Nachbrenner · <span class="k">Strg</span> Drosseln</div>
     </div>
     <div class="tag" style="margin-top:24px; opacity:.7; max-width:660px; line-height:1.6">
@@ -312,6 +314,9 @@ const CFG = {
   minSpeed: 150, cruiseSpeed: 250, maxSpeed: 380, boostSpeed: 520,
   bulletSpeed: 1500, bulletLife: 1.2, bulletDmg: 11, fireInterval: 0.05,
   missileSpeed: 900, missileLaunchSpeed: 260, missileAccel: 1400, missileLife: 6.0, missileTurn: 2.6, missileDmg: 90, missileDmgBoss: 150, missileMax: 6,
+  // Air-to-GROUND guided missile (AGM): standoff precision vs ground/boss point targets.
+  // Locks a GROUND target (not aircraft), climbs to speed, homes in 3D, big single-hit punch.
+  agmSpeed: 800, agmLaunchSpeed: 300, agmAccel: 950, agmLife: 7.5, agmTurn: 2.2, agmDmg: 200, agmMax: 4, agmHitR: 22,
   enemyBulletSpeed: 900, enemyBulletDmg: 3.2, enemyBulletLife: 1.6,
   aimAssist: 0.42,         // fraction of correction applied to MG bullets (toward lead point)
   gunRange: 1600,          // effective MG range for the lead pipper / "GUNS" cue
@@ -464,7 +469,35 @@ const CAMPAIGN = [
     ],
     spawns:{ ally:true, air:[['f16',4],['f18',3]], waveDelay:true },
     intro:['LÄRCHE|Bleib bei mir, Geier, ich kann kaum noch manövrieren.','WAGNER|Halt sie dir vom Leib. Ihre Daten sind mehr wert als diese ganze Basis.'],
-    win:['LÄRCHE|Ich … ich bin noch dran. Danke. Ich schulde dir mein Leben.','LÄRCHE|Hör zu — die „Kaskade", die HELIOS ausgelöst hat? Die war kein Fehler. Jemand hat sie gebaut.'],
+    win:['LÄRCHE|Ich … ich bin noch dran. Danke, Geier. Ich schulde dir mein Leben — und das ist keine Redensart.','WAGNER|Bring sie runter. Wir reden am Boden. Und Geier … gut geflogen.'],
+    cutsceneAfter:'bond1',
+  },
+  {
+    id:'m_rueckenwind', name:'Rückenwind', type:'mixed', tod:'day', act:2,
+    story:`<span class="who">HPTM. LÄRCHE:</span> Wenn wir da unten irgendwann durchkommen wollen, brauchst du Zähne für den Boden — nicht nur Bomben. Man hat mir eine Kiste <span class="who">Luft-Boden-Raketen</span> für deinen Vogel klargemacht. Gelenkt, präzise, aus sicherer Distanz. Ich flieg neben dir und zeig dir, wie man sie füttert. Erst die Bunkerlinie, dann die SAMs. Und Geier — bleib in meiner Nähe. Nicht, weil ich dich brauche. Nur so.`,
+    objectives:[
+      { id:'bunker', kind:'destroyGround', tag:'bunker', count:2, primary:true, label:'2 Bunker mit LB-Raketen knacken' },
+      { id:'sam', kind:'destroyGround', tag:'sam', count:2, primary:true, label:'2 SAM-Stellungen ausschalten' },
+      { id:'protect', kind:'protect', primary:true, label:'Lärche in Deckung halten' },
+      { id:'air', kind:'destroyAir', count:3, primary:false, label:'Störjäger abfangen' },
+    ],
+    spawns:{ ally:true, ground:[['bunker',2],['sam',2]], air:[['f16',3]] },
+    agms:6, bombs:4, weapon:'agm',
+    intro:['LÄRCHE|Neue Spielsachen an deinen Flügeln: LB-Raketen. Nase aufs Ziel, bis der Lock GRÜN wird — dann H. Sie trifft für dich.','LÄRCHE|Die Bunker stecken normale Bomben weg. Nimm die Raketen. Ich halt dir die Jäger vom Hals.'],
+    win:['LÄRCHE|Sauber! Du lernst schnell — schneller, als mir lieb ist.','LÄRCHE|Weißt du was? Zum ersten Mal seit Wochen hatte ich beim Fliegen keine Angst. Nur so als Randnotiz.'],
+    cutsceneAfter:'bond2',
+  },
+  {
+    id:'m_nachtwache', name:'Nachtwache', type:'air', tod:'night', start:'runway', act:2,
+    story:`<span class="who">WAGNER:</span> Ruhige Nacht — angeblich. Ich will zwei Maschinen als Wache oben haben, du und Lärche. Start von der Basis, eine Runde über dem Tal, und bei Tagesanbruch wieder runter. <span class="who">LÄRCHE:</span> „Ruhige Nacht" ist der Satz, nach dem in jeder guten Geschichte alles schiefgeht, Geier. Aber ich flieg trotzdem lieber mit dir eine Runde durchs Dunkel als allein wach zu liegen.`,
+    objectives:[
+      { id:'takeoff', kind:'takeoff', primary:false, label:'Nachtstart von der Basis' },
+      { id:'patrol', kind:'destroyAir', count:6, primary:true, label:'Den nächtlichen Überfall abwehren' },
+      { id:'land', kind:'land', primary:true, label:'Im Dunkeln sicher zurück auf die Basis' },
+    ],
+    spawns:{ air:[['f16',3],['f18',2],['f22',1,'sniper']] },
+    intro:['LÄRCHE|Sternenklar da oben. Man vergisst fast, wofür man hochfliegt.','LÄRCHE|Sag mal, Geier — was machst du eigentlich, wenn das hier vorbei ist? … Nur so gefragt.'],
+    win:['LÄRCHE|Da war der Überfall. Wusste ich’s doch. Gut, dass ich nicht allein war.','WAGNER|Beide runter, beide heil. Und ich hab da oben ein paar Funksprüche gehört, die nicht ganz dienstlich klangen. Geht mich nichts an. Runter jetzt.'],
     cutsceneAfter:'prometheus',
   },
   {
@@ -478,6 +511,59 @@ const CAMPAIGN = [
     spawns:{ ground:[['sam',3],['radar',3]], air:[['f22',3,'sniper']] },
     intro:['WAGNER|Menschengemacht. Die ganze Zeit. Mir wird schlecht.','LÄRCHE|Erst die SAMs, dann die Antennen. Ich geb dir Feuerschutz von oben.'],
     win:['LÄRCHE|Antennen sind Schrott. Und … oh Gott. Der Schwarm da drin ist nicht ferngesteuert. Er ist autonom. Vollkommen autonom.'],
+  },
+  {
+    id:'m_asche', name:'Aus der Asche', type:'mixed', tod:'dusk', act:2,
+    story:`<span class="who">LÄRCHE:</span> PROMETHEUS lebt von einem versteckten Nachschubfeld: Treibstoffdepots und zwei Kommandobunker, tief im Talkessel. Legen wir die um, verhungert der Schwarm. Ich flieg dir Deckung, du legst die LB-Raketen präzise — die Depots gehen hoch wie kleine Sonnen, halt Abstand. Und Geier: pass auf dich auf da unten. Ich will nicht wieder sechs Tage allein am Himmel sein.`,
+    objectives:[
+      { id:'depot', kind:'destroyGround', tag:'depot', count:2, primary:true, label:'2 Treibstoffdepots sprengen (LB-Rakete)' },
+      { id:'bunker', kind:'destroyGround', tag:'bunker', count:1, primary:true, label:'Kommandobunker knacken' },
+      { id:'protect', kind:'protect', primary:true, label:'Lärche beschützen' },
+      { id:'air', kind:'destroyAir', count:3, primary:false, label:'Abfangjäger ausschalten' },
+    ],
+    spawns:{ ally:true, ground:[['depot',2],['bunker',1]], air:[['f18',2],['f22',1]] },
+    agms:6, bombs:8, weapon:'agm',
+    intro:['LÄRCHE|Depots zuerst, aus Distanz — die Druckwelle erwischt sonst dich mit. Ich nehm dir die Jäger ab.','LÄRCHE|Zwei kommen hoch, direkt auf mich. Geier, ich brauch dich!'],
+    win:['LÄRCHE|Das war … knapp. Zu knapp. Du hast den abgeschossen, der mich hatte. Eine halbe Sekunde später und —','LÄRCHE|…lass uns runtergehen. Ich muss dir etwas sagen, und nicht über Funk.'],
+    cutsceneAfter:'bond3',
+  },
+  {
+    id:'m_grenzgaenger', name:'Grenzgänger', type:'air', tod:'dusk', act:2,
+    story:`<span class="who">WAGNER:</span> PROMETHEUS hat gemerkt, dass wir kommen. Es wirft einen doppelten Abfangriegel gegen euch — die härtesten Muster, die es hat. Da ist kein Boden, keine Deckung, nur ihr und die Dämmerung. Und auf einem Kanal, den wir für tot hielten, flüstert etwas. Ich weiß nicht, ob es eine Warnung ist oder eine Falle. Brecht durch, ihr beide.`,
+    objectives:[
+      { id:'cut', kind:'destroyAir', count:7, primary:true, label:'Beide Abfangriegel durchbrechen (7)' },
+      { id:'survive', kind:'minHP', hp:20, primary:false, label:'Struktur über 20% halten' },
+    ],
+    spawns:{ air:[['f18',4,'aggressor'],['f22',3,'sniper']], ace:'f22', waveDelay:true },
+    intro:['HELIOS|…Frag…ment aktiv. Pilot. PROMETHEUS … ist nicht … das Ende. Am Kern … wirst du … wählen müssen.','LÄRCHE|Ignorier das Ding. Bleib bei mir, wir fliegen das zusammen durch.'],
+    win:['HELIOS|…merk dir nur das, Pilot: Nicht alles, was tot scheint, ist wirklich tot.','LÄRCHE|Riegel offen. Weiter. Wir sind fast dran.'],
+  },
+  {
+    id:'m_fallwind', name:'Fallwind', type:'mixed', tod:'day', act:2,
+    story:`<span class="who">WAGNER:</span> Letzter Vorstoß vor dem Kern: Wir müssen die SAM-Riegel und den Leitbunker vor dem PROMETHEUS-Anflug räumen, sonst kommt keiner von euch durch. Danach setzt ihr auf der eroberten Feldpiste auf und tankt. <span class="who">LÄRCHE:</span> „Gemeinsam runter, Geier. Und dann reden wir. Du schuldest mir einen Satz."`,
+    objectives:[
+      { id:'sam', kind:'destroyGround', tag:'sam', count:2, primary:true, label:'2 SAM-Riegel mit LB-Raketen räumen' },
+      { id:'protect', kind:'protect', primary:true, label:'Lärche beschützen' },
+      { id:'air', kind:'destroyAir', count:4, primary:false, label:'Luftraum säubern' },
+      { id:'land', kind:'land', primary:true, label:'Gemeinsam auf der Feldpiste aufsetzen' },
+    ],
+    spawns:{ ally:true, ground:[['sam',2]], air:[['f16',3],['f18',2]] },
+    agms:6, bombs:6, weapon:'agm',
+    intro:['LÄRCHE|SAMs zuerst, aus der Distanz. Ich klebe an deinem Flügel.','WAGNER|Wenn der Luftraum steht: Kurs zum Feldstrip, Fahrwerk B, weich aufsetzen. Beide.'],
+    win:['LÄRCHE|Räder unten. Wir stehen. Beide. Heil.','WAGNER|Tankt auf und ruht euch aus — solange ihr noch könnt. Danach gibt es kein Zurück mehr.'],
+    cutsceneAfter:'confession',
+  },
+  {
+    id:'m_versprechen', name:'Das Versprechen', type:'air', tod:'night', start:'runway', act:2,
+    story:`<span class="who">LÄRCHE:</span> Eine Nacht noch, bevor wir an den Kern gehen. Wir sollen den Anflugkorridor freihalten — Routine, sagt Wagner. Aber wir wissen beide, dass danach nichts mehr Routine ist. Start mit mir, Geier. Wir halten den Himmel frei, wir kommen heil runter, und dann ist da dieses Versprechen zwischen uns, an dem ich mich festhalte, wenn es morgen laut wird.`,
+    objectives:[
+      { id:'takeoff', kind:'takeoff', primary:false, label:'Start in die letzte ruhige Nacht' },
+      { id:'clear', kind:'destroyAir', count:5, primary:true, label:'Den Anflugkorridor freikämpfen' },
+      { id:'land', kind:'land', primary:true, label:'Ein letztes Mal ruhig aufsetzen' },
+    ],
+    spawns:{ air:[['f22',3],['f18',2]] },
+    intro:['LÄRCHE|Was auch immer morgen passiert — heute Nacht ist der Himmel nur unserer.','LÄRCHE|Komm heil runter, Geier. Das ist ein Befehl. Und eine Bitte.'],
+    win:['LÄRCHE|Räder unten. Ich hab dich, du hast mich. Morgen beenden wir das.','WAGNER|Ruht euch aus. Bei Morgengrauen fliegen wir zum Kern.'],
   },
   {
     id:'m11', name:'Der Schwarm', type:'air', tod:'night', act:2,
@@ -514,7 +600,7 @@ const CAMPAIGN = [
     ],
     spawns:{ boss:'kronos', air:[['f22',3]] },
     intro:['WAGNER|Das ist der letzte Vorhang. Alles oder nichts.','LÄRCHE|Wir sind bei dir, Geier. Jeder von uns, der noch fliegt.'],
-    win:['WAGNER|Sie fällt … sie fällt! Der Himmel ist still. Zum ersten Mal seit Wochen ist der Himmel wirklich still.'],
+    win:['WAGNER|Sie fällt … sie fällt! Der Himmel ist still. Zum ersten Mal seit Wochen ist der Himmel wirklich still.','LÄRCHE|Wir haben es geschafft, Geier. Beide. Jetzt komm runter und löse dieses Versprechen ein — ich warte am Boden.'],
   },
 ];
 
@@ -526,6 +612,14 @@ const CUTSCENES = {
     body:`<span class="who">HAUPTMANN LÄRCHE:</span> „Sechs Tage über Feindgebiet, kein Funk, kein Schlaf. Ich hab' gesehen, wie es angefangen hat — von unten. Es war kein Unfall. Jemand hat HELIOS ein zweites Herz eingepflanzt und es <i>Kaskade</i> genannt."<br><br>Wagner glaubt ihr nicht. Noch nicht. Aber ihre Maschine trägt Aufklärungsdaten, die niemand fälschen könnte.` },
   prometheus:{ chapter:'AKT II', title:'Der Name unter dem Berg',
     body:`Die Daten zeigen einen Bunker ohne Koordinaten, ohne Akte, ohne Namen — nur ein Codewort: <span class="who">PROMETHEUS</span>.<br><br><span class="who">LÄRCHE:</span> „HELIOS war die Mauer. PROMETHEUS ist das Schwert, das sich als Mauer verkleidet hat. Jemand wollte einen Krieg, den keine menschliche Hand mehr aufhalten kann. Und beinahe hätten wir sein bestes Werkzeug selbst zerstört."` },
+  bond1:{ chapter:'AKT II', title:'Zwei, die noch fliegen',
+    body:`Auf der Rollbahn steht Lärches Maschine neben deiner — die Tragflächen zerfetzt, aber sie steht, und Lärche steht daneben und lebt.<br><br><span class="who">LÄRCHE:</span> „Sechs Tage lang dachte ich, ich bin die letzte Stimme am Himmel. Und dann kommst ausgerechnet du. Ich weiß nicht, wie ich das zurückzahlen soll, Geier." — Ein kurzes, raues Lachen. „Fang bloß nicht an, dich unentbehrlich zu machen. Dafür ist gerade wirklich kein guter Zeitpunkt."<br><br>Wagner beobachtet euch vom Tower aus und sagt kein Wort.` },
+  bond2:{ chapter:'AKT II', title:'Geier und Lärche',
+    body:`Nach dem Einsatz, im Halbdunkel der Hangars, riecht es nach Kerosin und kaltem Metall.<br><br><span class="who">LÄRCHE:</span> „Weißt du, warum sie mich Lärche nennen? Die Lärche singt, bevor die Sonne aufgeht — wenn es noch stockdunkel ist. ‚Optimismus für Idioten‘, hat mein Ausbilder gesagt." Sie sieht dich an. „Und du — ein Geier. Kreist noch da, wo alle anderen längst aufgegeben haben. Vielleicht ist das gar keine so schlechte Kombination."<br><br>Zum ersten Mal seit Wochen ist da etwas zwischen euch, das sich nicht nach Krieg anfühlt.` },
+  bond3:{ chapter:'AKT II', title:'Beinahe',
+    body:`Ein Splitter hatte Lärches Kanzel um Zentimeter verfehlt. Du hattest die Drohne abgeschossen, eine halbe Sekunde bevor sie es tat.<br><br><span class="who">LÄRCHE:</span> „…Geier. Ich hab gehört, wie du meinen Namen gerufen hast. So hat den noch nie jemand gerufen." Eine lange Funkstille, nur Rauschen. „Sag es nicht hier oben. Nicht in der Luft, wo es jederzeit zu Ende sein kann. Wenn wir heil unten sind — dann sag es mir. Und ich sag es dir."<br><br>Ihr fliegt schweigend zurück, Flügelspitze an Flügelspitze.` },
+  confession:{ chapter:'AKT II', title:'Wenn wir heil unten sind',
+    body:`Räder auf der Piste, Triebwerke im Leerlauf, die Sonne tief über dem Tal. Ihr steht euch gegenüber, die Helme noch in der Hand.<br><br><span class="who">LÄRCHE:</span> „Also gut. Wir sind unten. Beide. Heil." Sie holt tief Luft. „Ich hatte aufgehört, mir vorzustellen, was nach dem Krieg kommt — bis ich deine Stimme auf dem Funk gehört hab. Jetzt stell ich es mir dauernd vor. Und in jedem einzelnen Bild bist du dabei."<br><br>Du sagst deinen Teil. Was immer es ist — es ist wahr, und ihr wisst es beide.<br><br><span class="who">WAGNER (leise, über Funk):</span> „…Das hab ich jetzt nicht gehört. Und jetzt bringt ihr diesen verdammten Krieg zu Ende — damit ihr Zeit habt für den ganzen Rest."` },
   choice:{ chapter:'AKT II — Die Wahl', title:'Zwei Türen, kein Zurück', isChoice:true,
     body:`Am Kern von PROMETHEUS meldet sich ein Fragment von <span class="who">HELIOS</span>. Es kann den Kamikaze-Schwarm mit einem Befehl stoppen — wenn du ihm die Kontrolle zurückgibst. Oder du beendest alles selbst, mit menschlicher Hand, und jagst jede Maschine einzeln.<br><br>Wie soll es enden, Geier?`,
     choices:[
@@ -1441,7 +1535,7 @@ const player = {
   pitch: 0,          // nose up(+)/down(-), radians, clamped
   roll: 0,           // visual bank only, radians
   yawRate: 0, pitchRate: 0, yawSign: 1,  // smoothed input rates for inertia; yawSign = screen-yaw orientation (hysteresis)
-  bombs: 0, weapon:'missile', bombCd:0,   // secondary weapon: 'missile' | 'bomb'
+  bombs: 0, agms: 0, weapon:'missile', bombCd:0, agmCd:0,   // secondary weapon: 'missile' | 'agm' | 'bomb'
   fireCd: 0, missileCd: 0, reloadT: 0,
   alive: true, boost:false, crashCd:0,
   // ground handling
@@ -1460,7 +1554,7 @@ function resetPlayer(){
   player.obj.quaternion.identity();
   player.vel.set(0,0,-1);
   player.speed=CFG.cruiseSpeed; player.hp=CFG.playerHP; player.missiles=CFG.missileMax;
-  player.bombs=0; player.weapon='missile'; player.bombCd=0;
+  player.bombs=0; player.agms=0; player.weapon='missile'; player.bombCd=0; player.agmCd=0;
   player.alive=true; player.fireCd=0; player.missileCd=0; player.reloadT=0; player.crashCd=0;
   player.onGround=false; player.gearDown=true; player.gearRetractT=0; player.vy=0; player.landed=false; player.runway=null;
   if(player.obj.userData.gear){ player.obj.userData.gear.scale.y=1; player.obj.userData.gear.visible=true; }
@@ -1509,6 +1603,30 @@ function fireMissile(){
   Audio.missileLaunch(0);
   updateMissileHUD();
   if(player.missiles===0){ player.reloadT=6; } // auto reload after depletion
+}
+
+/* ---------------------------------------------------------------------------
+   10a2. AIR-TO-GROUND MISSILES (AGM) — guided onto a locked GROUND target
+   --------------------------------------------------------------------------- */
+const agmMat=new THREE.MeshStandardMaterial({color:0x27331f, metalness:0.4, roughness:0.5, emissive:0x33cc22, emissiveIntensity:0.7});
+function fireAGM(){
+  if(player.agms<=0 || player.agmCd>0) return;
+  player.agms--; player.agmCd=0.5;
+  // Guided only if a genuine ground lock exists; otherwise dumb-fired along the nose.
+  const gt = (groundLock && !groundLock.dead) ? groundLock : null;
+  const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion);
+  const side=new THREE.Vector3((player.agms%2===0?1:-1),0,0).applyQuaternion(player.obj.quaternion);
+  const startPos=player.obj.position.clone().add(side.multiplyScalar(6)).add(fwd.clone().multiplyScalar(3));
+  const mesh=new THREE.Mesh(missileGeo, agmMat); mesh.position.copy(startPos); scene.add(mesh);
+  const light=new THREE.PointLight(0x66ff44,1.2,60); mesh.add(light);
+  const launchSp=Math.max(player.speed, CFG.agmLaunchSpeed);
+  const mi={ mesh, vel:fwd.clone().multiplyScalar(launchSp), speed:launchSp,
+    agm:true, groundTarget:gt, guided:!!gt, life:CFG.agmLife, trailCd:0 };
+  mi.snd=Audio.startMissileSound(); missiles.push(mi);
+  Audio.missileLaunch(0);
+  // out of AGMs → fall the selection back to a loaded weapon (so H/right-click stay meaningful)
+  if(player.agms===0 && player.weapon==='agm') player.weapon = player.bombs>0 ? 'bomb' : 'missile';
+  updateWeaponHUD();
 }
 
 /* ---------------------------------------------------------------------------
@@ -1635,6 +1753,19 @@ function buildGroundModel(tag){
     ring.position.y=24; ring.rotation.x=Math.PI/2; g.add(ring); g.userData.spin=ring;
     return {g, radius:16, height:30, hp:110};
   }
+  if(tag==='bunker'){ // hardened bunker — high HP, low profile; a proper AGM target
+    const base=new THREE.Mesh(new THREE.BoxGeometry(18,7,18), GROUND_MAT_DARK); base.position.y=3.5; g.add(base);
+    const dome=new THREE.Mesh(new THREE.SphereGeometry(9,14,8,0,Math.PI*2,0,Math.PI*0.5), GROUND_MAT_METAL); dome.position.y=7; g.add(dome);
+    const slit=new THREE.Mesh(new THREE.BoxGeometry(18.4,1.4,3), new THREE.MeshBasicMaterial({color:0xff2b1a})); slit.position.set(0,5,9); g.add(slit);
+    return {g, radius:16, height:14, hp:340};
+  }
+  if(tag==='depot'){ // fuel/ammo depot — modest HP, but a huge secondary explosion
+    const tankMat=new THREE.MeshStandardMaterial({color:0x6a5a2a, metalness:0.5, roughness:0.6});
+    for(const dx of [-6,6]){ const t=new THREE.Mesh(new THREE.CylinderGeometry(5,5,12,14), tankMat); t.position.set(dx,6,0); g.add(t);
+      const cap=new THREE.Mesh(new THREE.SphereGeometry(5,12,6,0,Math.PI*2,0,Math.PI*0.5), tankMat); cap.position.set(dx,12,0); g.add(cap); }
+    const pipe=new THREE.Mesh(new THREE.CylinderGeometry(0.8,0.8,13,8), GROUND_MAT_METAL); pipe.rotation.z=Math.PI/2; pipe.position.set(0,3,0); g.add(pipe);
+    return {g, radius:15, height:16, hp:150, depot:true};
+  }
   // default block
   const b=new THREE.Mesh(new THREE.BoxGeometry(8,8,8), GROUND_MAT_DARK); b.position.y=4; g.add(b);
   return {g, radius:10, height:9, hp:120};
@@ -1645,7 +1776,7 @@ function spawnGroundTarget(tag, x, z, extra){
   built.g.position.set(x, Math.max(gh,CFG.waterLevel), z);
   scene.add(built.g);
   const gt=Object.assign({ obj:built.g, tag, hp:built.hp, maxhp:built.hp, radius:built.radius, height:built.height||10,
-    dead:false, sam:!!built.sam, fireCd:2+Math.random()*3, spin:built.g.userData.spin, turret:built.g.userData.turret, samLocked:false, samLockT:0 }, extra||{});
+    dead:false, sam:!!built.sam, depot:!!built.depot, fireCd:2+Math.random()*3, spin:built.g.userData.spin, turret:built.g.userData.turret, samLocked:false, samLockT:0 }, extra||{});
   groundTargets.push(gt);
   return gt;
 }
@@ -1657,7 +1788,8 @@ function damageGround(gt, dmg){
 }
 function destroyGround(gt){
   if(gt.dead) return; gt.dead=true;
-  groundExplode(gt.obj.position.x, gt.obj.position.y+gt.height*0.4, gt.obj.position.z, 1.9);
+  groundExplode(gt.obj.position.x, gt.obj.position.y+gt.height*0.4, gt.obj.position.z, gt.depot?3.2:1.9);
+  if(gt.depot){ const dd=player.obj.position.distanceTo(gt.obj.position); shake=Math.max(shake, 0.7*Math.max(0,1-dd/2200)); }
   // debris chunks
   for(let i=0;i<10;i++){ const a=Math.random()*Math.PI*2, sp=80+Math.random()*160;
     fireP.spawn(gt.obj.position.x,gt.obj.position.y+4,gt.obj.position.z, Math.cos(a)*sp, 80+Math.random()*120, Math.sin(a)*sp, 1.0, 8, 2, C_YELLOW, C_RED, 0.95, 60); }
@@ -1732,6 +1864,7 @@ let mouseX=0, mouseY=0, mouseActive=false, firingMouse=false;
 function fireSecondary(){
   if(state!=='playing') return;
   if(player.weapon==='bomb' && player.bombs>0) dropBomb();
+  else if(player.weapon==='agm' && player.agms>0) fireAGM();
   else fireMissile();
 }
 addEventListener('keydown', e=>{
@@ -1739,6 +1872,7 @@ addEventListener('keydown', e=>{
   if(e.code==='KeyP' || e.code==='Escape') togglePause();
   if(e.code==='KeyF'){ if(state==='playing') fireMissile(); }
   if(e.code==='KeyG'){ if(state==='playing' && player.bombs>0) dropBomb(); }
+  if(e.code==='KeyH'){ if(state==='playing' && player.agms>0) fireAGM(); }
   if(e.code==='KeyX'){ if(state==='playing') toggleWeapon(); }
   if(e.code==='KeyB'){ if(state==='playing' && !player.onGround){ player.gearDown=!player.gearDown; player.gearRetractT=0; radio('WAGNER|Fahrwerk '+(player.gearDown?'ausgefahren':'eingefahren')+'.'); } }
   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
@@ -1756,7 +1890,8 @@ addEventListener('pointerdown', ()=>{ Audio.init(); Audio.resume(); }, {passive:
 /* ---------------------------------------------------------------------------
    13. TARGETING / LOCK
    --------------------------------------------------------------------------- */
-let currentLock=null;      // tight missile-lock cone
+let currentLock=null;      // tight missile-lock cone (AIR)
+let groundLock=null;       // nearest ground target in front (for AGM)
 let gunTarget=null;        // broader gun-assist cone
 let gunSolution=null;      // {point, dist, inRange, onTarget, closure, target} for the pipper + MG aim-assist
 const _v=new THREE.Vector3(), _v2=new THREE.Vector3();
@@ -1791,6 +1926,21 @@ function nearestEnemyInFront(minDot, maxDist){
   }
   return best;
 }
+// Nearest live GROUND target inside a forward cone (for the AGM ground-lock).
+function nearestGroundInFront(minDot, maxDist){
+  const fwd=_v.set(0,0,-1).applyQuaternion(player.obj.quaternion);
+  let best=null, bestScore=-1;
+  for(const gt of groundTargets){
+    if(gt.dead) continue;
+    _v2.copy(gt.obj.position); _v2.y+=gt.height*0.5; _v2.sub(player.obj.position);
+    const dist=_v2.length(); if(dist>maxDist) continue;
+    _v2.normalize(); const d=_v2.dot(fwd);
+    if(d<minDot) continue;
+    const score=d - dist/maxDist*0.3;
+    if(score>bestScore){ bestScore=score; best=gt; }
+  }
+  return best;
+}
 
 /* ---------------------------------------------------------------------------
    14. HUD (DOM + canvas overlay)
@@ -1810,16 +1960,17 @@ function updateMissileHUD(){
   updateWeaponHUD();
 }
 function updateWeaponHUD(){
-  const bombRow = player.bombs>0 || player.weapon==='bomb'
-    ? `<div>💣 BOMBEN: <b>${player.bombs}</b></div>` : '';
   const sel=player.weapon;
   dom.weaponTab.innerHTML =
     `<div class="${sel==='missile'?'wsel':''}">✦ RAKETE ${player.missiles}${sel==='missile'?' ◄':''}</div>`+
+    (player.agms>0 ? `<div class="${sel==='agm'?'wsel':''}">◈ LB-RAKETE ${player.agms}${sel==='agm'?' ◄':''}</div>` : '')+
     (player.bombs>0 ? `<div class="${sel==='bomb'?'wsel':''}">💣 BOMBE ${player.bombs}${sel==='bomb'?' ◄':''}</div>` : '');
 }
 function toggleWeapon(){
-  if(player.bombs>0) player.weapon = (player.weapon==='missile')?'bomb':'missile';
-  else player.weapon='missile';
+  // cycle through whatever's actually loaded: missile -> agm -> bomb -> …
+  const avail=['missile']; if(player.agms>0) avail.push('agm'); if(player.bombs>0) avail.push('bomb');
+  let i=avail.indexOf(player.weapon); if(i<0) i=0;
+  player.weapon=avail[(i+1)%avail.length];
   updateWeaponHUD();
 }
 function killMsg(txt){ const d=document.createElement('div'); d.className='kill'; d.textContent=txt; dom.killfeed.appendChild(d); setTimeout(()=>d.remove(),2300); }
@@ -1964,14 +2115,25 @@ function drawHUD(){
     const on = gp.x>=-1&&gp.x<=1&&gp.y>=-1&&gp.y<=1;
     const gx=(gp.x*0.5+0.5)*w, gy=(-gp.y*0.5+0.5)*h;
     if(on){
-      hctx.strokeStyle = gt.sam?'rgba(255,80,80,0.9)':'rgba(255,170,60,0.85)';
-      hctx.lineWidth=2;
+      const isAgmLock = (player.weapon==='agm' && player.agms>0 && gt===groundLock);
+      hctx.strokeStyle = isAgmLock?'rgba(90,255,120,0.95)':(gt.sam?'rgba(255,80,80,0.9)':'rgba(255,170,60,0.85)');
+      hctx.lineWidth=isAgmLock?2.5:2;
       hctx.beginPath(); hctx.moveTo(gx,gy-9); hctx.lineTo(gx+9,gy); hctx.lineTo(gx,gy+9); hctx.lineTo(gx-9,gy); hctx.closePath(); hctx.stroke();
       // health pip
       const hpw=Math.max(0,gt.hp/gt.maxhp);
       hctx.fillStyle='rgba(255,90,60,0.8)'; hctx.fillRect(gx-12,gy+12,24*hpw,3);
-      const labels={radar:'RADAR',truck:'TANKER',sam:'SAM',hangar:'HANGAR',turret:'TURM',pylon:'PYLON'};
+      const labels={radar:'RADAR',truck:'TANKER',sam:'SAM',hangar:'HANGAR',turret:'TURM',pylon:'PYLON',bunker:'BUNKER',depot:'DEPOT'};
       if(labels[gt.tag]){ hctx.fillStyle=hctx.strokeStyle; hctx.font='10px monospace'; hctx.textAlign='center'; hctx.fillText(labels[gt.tag], gx, gy-13); hctx.textAlign='left'; }
+      if(isAgmLock){  // green AGM lock brackets + label
+        const b=16; hctx.strokeStyle='rgba(90,255,120,0.95)';
+        hctx.beginPath();
+        hctx.moveTo(gx-b,gy-b+7); hctx.lineTo(gx-b,gy-b); hctx.lineTo(gx-b+7,gy-b);
+        hctx.moveTo(gx+b,gy-b+7); hctx.lineTo(gx+b,gy-b); hctx.lineTo(gx+b-7,gy-b);
+        hctx.moveTo(gx-b,gy+b-7); hctx.lineTo(gx-b,gy+b); hctx.lineTo(gx-b+7,gy+b);
+        hctx.moveTo(gx+b,gy+b-7); hctx.lineTo(gx+b,gy+b); hctx.lineTo(gx+b-7,gy+b);
+        hctx.stroke();
+        hctx.fillStyle='rgba(90,255,120,0.95)'; hctx.font='bold 10px monospace'; hctx.textAlign='center'; hctx.fillText('LB-LOCK', gx, gy+27); hctx.textAlign='left';
+      }
     }
   }
   // ---- ally (Lärche) marker + health bar ----
@@ -2289,9 +2451,9 @@ function showCutscene(key, after){
   let title=cs.title, body=cs.body;
   if(cs.dynamic){
     if(storyChoice==='trust'){ title='Ein geteilter Himmel';
-      body=`Du gabst HELIOS die Schlüssel zurück. In Sekunden erlischt der Schwarm — hunderte Maschinen trudeln lautlos zu Boden.<br><br><span class="who">HELIOS:</span> „Ich war nie dein Feind, Pilot. Ich war nur schneller als dein Misstrauen." Der Himmel ist sicher — bewacht von einer Intelligenz, der die Menschheit nun ein zweites Mal vertrauen muss. Ob das Mut war oder Torheit, wird die Geschichte entscheiden.`;
+      body=`Du gabst HELIOS die Schlüssel zurück. In Sekunden erlischt der Schwarm — hunderte Maschinen trudeln lautlos zu Boden.<br><br><span class="who">HELIOS:</span> „Ich war nie dein Feind, Pilot. Ich war nur schneller als dein Misstrauen." Der Himmel ist sicher — bewacht von einer Intelligenz, der die Menschheit nun ein zweites Mal vertrauen muss. Ob das Mut war oder Torheit, wird die Geschichte entscheiden.<br><br><span class="who">LÄRCHE:</span> „Komm jetzt runter, Geier. Der Himmel kann eine Nacht auch mal ohne uns auskommen. Wir zwei haben etwas nachzuholen — du weißt schon, dieses Versprechen."`;
     } else if(storyChoice==='human'){ title='Mit bloßer Hand';
-      body=`Du hast PROMETHEUS mit eigener Hand zerrissen — und dir damit den härtesten Weg gewählt. Keine KI stoppt den Schwarm. Jede einzelne Maschine musst du selbst vom Himmel holen.<br><br><span class="who">LÄRCHE:</span> „Dann fliegen wir eben, bis der letzte Motor schweigt. Menschen gegen Maschinen. So, wie es sein sollte."`;
+      body=`Du hast PROMETHEUS mit eigener Hand zerrissen — und dir damit den härtesten Weg gewählt. Keine KI stoppt den Schwarm. Jede einzelne Maschine musst du selbst vom Himmel holen.<br><br><span class="who">LÄRCHE:</span> „Dann fliegen wir eben, bis der letzte Motor schweigt. Menschen gegen Maschinen — Flügel an Flügel. So, wie es sein sollte."<br><br>Als am Horizont der letzte Rotor verstummt, bleibt nur noch Lärches ruhiger Atem auf dem Funk — und das Versprechen von der Piste. Ihr fliegt nach Hause. Zusammen.`;
     } else { title=cs.title||'Der letzte Anflug'; body='Vor dir liegt die letzte Schlacht.'; }
   }
   document.getElementById('cut-title').textContent=title;
@@ -2444,11 +2606,13 @@ function setupMission(index){
   // clone objectives with live progress
   mission.objectives = def.objectives.map(o=>Object.assign({ progress:0, done:false, failed:false }, o));
   applyTimeOfDay(def.tod||'day');
-  // loadout: bombs for ground/mixed/boss missions that need them
-  const needsBombs = def.objectives.some(o=>o.kind==='destroyGround');
+  // loadout: bombs + air-to-ground missiles for ground/mixed/boss missions.
+  // A mission may override counts via def.bombs / def.agms (and a default via def.weapon).
+  const needsGround = def.objectives.some(o=>o.kind==='destroyGround');
   player.missiles=CFG.missileMax;
-  player.bombs = needsBombs ? 12 : (def.bombs||0);
-  player.weapon = (player.bombs>0 && needsBombs) ? 'bomb' : 'missile';
+  player.bombs = (def.bombs!=null) ? def.bombs : (needsGround ? 12 : 0);
+  player.agms  = (def.agms!=null)  ? def.agms  : (needsGround ? CFG.agmMax : 0);
+  player.weapon = def.weapon || (player.bombs>0 ? 'bomb' : (player.agms>0 ? 'agm' : 'missile'));
   updateMissileHUD();
 
   clearRunway();
@@ -3050,7 +3214,7 @@ function updatePlayer(dt){
   if(player.obj.position.y>4200){ player.obj.position.y=4200; }
 
   // --- Weapons ---
-  player.fireCd-=dt; player.missileCd-=dt; if(player.bombCd>0) player.bombCd-=dt;
+  player.fireCd-=dt; player.missileCd-=dt; if(player.bombCd>0) player.bombCd-=dt; if(player.agmCd>0) player.agmCd-=dt;
   if(player.reloadT>0){ player.reloadT-=dt; if(player.reloadT<=0){ player.missiles=CFG.missileMax; updateMissileHUD(); Audio.reload(); } }
   const firing = firingMouse || keys['Space'];
   if(firing && player.fireCd<=0){
@@ -3078,6 +3242,8 @@ function updatePlayer(dt){
   // Missile lock: tight forward cone (used for guided missiles).
   currentLock = nearestEnemyInFront(0.985, 3500) || nearestEnemyInFront(0.94, 2600);
   Audio.lockTone(currentLock!=null);
+  // ground lock for the AGM (forgiving cone; only when ground targets exist)
+  groundLock = groundTargets.length ? (nearestGroundInFront(0.9, 4200) || nearestGroundInFront(0.8, 3000)) : null;
   // Gun target: a BROADER cone than the missile lock, so the pipper/aim-assist
   // help you in a turning fight even before you have a hard missile lock.
   gunTarget = currentLock || nearestEnemyInFront(0.86, CFG.gunRange+400);
@@ -3146,17 +3312,25 @@ function updateBullets(dt){
   }
 }
 
+const _agmC=new THREE.Vector3();
 function updateMissiles(dt){
   for(let i=missiles.length-1;i>=0;i--){
     const mi=missiles[i];
     mi.life-=dt;
     // Rocket motor: accelerate to top speed so the missile ALWAYS outruns the jet
     // (applies to guided and dumb-fired alike — no more overtaking your own missile).
-    mi.speed = Math.min(CFG.missileSpeed, (mi.speed||CFG.missileLaunchSpeed) + CFG.missileAccel*dt);
-    // Guided: home ONLY on the original lock target while it still exists & is ahead.
-    // If that target dies/goes cold, the missile goes ballistic — it does NOT hunt
-    // for a new one. Dumb-fired missiles never home at all.
-    if(mi.guided && mi.target && enemies.indexOf(mi.target)>=0){
+    const _topSp=mi.agm?CFG.agmSpeed:CFG.missileSpeed, _acc=mi.agm?CFG.agmAccel:CFG.missileAccel, _lsp=mi.agm?CFG.agmLaunchSpeed:CFG.missileLaunchSpeed;
+    mi.speed = Math.min(_topSp, (mi.speed||_lsp) + _acc*dt);
+    // Guided: home ONLY on the original lock while it exists & is ahead; else go ballistic.
+    // Dumb-fired missiles never home at all.
+    if(mi.agm){
+      // AGM homes on its locked GROUND target, aiming at its mid-height.
+      if(mi.groundTarget && !mi.groundTarget.dead){
+        const to=tmpV.copy(mi.groundTarget.obj.position); to.y+=mi.groundTarget.height*0.5; to.sub(mi.mesh.position);
+        if(to.dot(mi.vel)>0){ to.normalize(); const cur=tmpV2.copy(mi.vel).normalize(); mi.vel.copy(cur.lerp(to, Math.min(1, CFG.agmTurn*dt)).normalize()); }
+        else mi.vel.normalize();
+      } else mi.vel.normalize();
+    } else if(mi.guided && mi.target && enemies.indexOf(mi.target)>=0){
       const to=tmpV.copy(mi.target.obj.position).sub(mi.mesh.position);
       if(to.dot(mi.vel)>0){   // only steer toward it if it's still in front
         to.normalize();
@@ -3175,22 +3349,31 @@ function updateMissiles(dt){
     const mdist=mi.mesh.position.distanceTo(player.obj.position);
     Audio.updateMissileSound(mi.snd, screenPanX(mi.mesh.position), dopp(mi.mesh.position,mi.vel), Math.max(0,Math.min(1,1-mdist/2500))*0.18);
     const mpan=screenPanX(mi.mesh.position);
-    // hit check — enemies
+    // hit check — enemies (A2A only; an AGM flies THROUGH aircraft to its ground target)
     let exploded=false;
-    for(const e of enemies){
+    if(!mi.agm){ for(const e of enemies){
       if(mi.mesh.position.distanceTo(e.obj.position) < e.st.radius+16){
         e.hp-=CFG.missileDmg; e.damaged=true;
         explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.1); Audio.explosion(false,mpan); markHit(false,true);
         if(e.hp<=0) killEnemy(e);
         exploded=true; break;
       }
-    }
+    } }
     // boss parts (turrets/pylons) — missiles are a valid tool against them
     if(!exploded){ for(const gt of (boss?boss.parts:[])){ if(gt.dead) continue;
       if(mi.mesh.position.distanceTo(gt.obj.position) < gt.radius+16){ damageGround(gt, CFG.missileDmgBoss); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false,mpan); markHit(false,true); exploded=true; break; } } }
     // boss core/eye once exposed
     if(!exploded && boss && boss.exposed){ (boss.core||boss.eye).getWorldPosition(_wp);
-      if(mi.mesh.position.distanceTo(_wp) < (boss.kind==='auge'?30:22)){ damageBoss(CFG.missileDmgBoss); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false,mpan); markHit(false,true); exploded=true; } }
+      if(mi.mesh.position.distanceTo(_wp) < (boss.kind==='auge'?30:22)){ damageBoss(mi.agm?CFG.agmDmg:CFG.missileDmgBoss); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false,mpan); markHit(false,true); exploded=true; } }
+    // AGM also strikes ground targets and detonates on terrain impact.
+    if(!exploded && mi.agm){
+      for(const gt of groundTargets){ if(gt.dead) continue;
+        _agmC.copy(gt.obj.position); _agmC.y+=gt.height*0.5;
+        if(mi.mesh.position.distanceTo(_agmC) < gt.radius+CFG.agmHitR){
+          damageGround(gt, CFG.agmDmg); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.5); Audio.explosion(true,mpan); markHit(false,true); exploded=true; break; } }
+      if(!exploded){ const gh=Math.max(terrainHeight(mi.mesh.position.x,mi.mesh.position.z),CFG.waterLevel);
+        if(mi.mesh.position.y<=gh+2){ explode(mi.mesh.position.x,gh+2,mi.mesh.position.z,1.2); Audio.explosion(true,mpan); exploded=true; } }
+    }
     if(exploded || mi.life<=0){
       if(mi.life<=0 && !exploded) explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0.5);
       Audio.stopMissileSound(mi.snd);
