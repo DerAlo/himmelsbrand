@@ -178,6 +178,7 @@
     <div class="tag">DAS HELIOS-PROTOKOLL</div>
     <div class="menu-btns">
       <button id="btn-campaign" class="btn">▶ KAMPAGNE</button>
+      <button id="btn-bteam" class="btn ghost small">🍺 DAS B-TEAM</button>
       <button id="btn-endless" class="btn ghost small">ENDLOS-GEFECHT</button>
       <button id="btn-ace" class="btn ghost small hidden">ENDLOS · ASS-MODUS</button>
       <button id="btn-howto" class="btn ghost small">STEUERUNG</button>
@@ -193,7 +194,7 @@
   <!-- Mission Select -->
   <div id="missionselect" class="screen hidden">
     <button class="btn ghost small backbtn" data-back="menu">‹ ZURÜCK</button>
-    <div class="subbrand">KAMPAGNE</div>
+    <div class="subbrand" id="ms-subbrand">KAMPAGNE</div>
     <h1 class="title" style="font-size:44px; letter-spacing:6px">MISSIONSAUSWAHL</h1>
     <div id="missionlist"></div>
   </div>
@@ -604,6 +605,117 @@ const CAMPAIGN = [
   },
 ];
 
+/* ---------------------------------------------------------------------------
+   0b2. DAS B-TEAM — eigenständige Komödien-Kampagne (eigener Menüpunkt)
+   Zwei bayerische Chaoten übernehmen, nachdem die Elite-Staffel „die Adler"
+   ausgelöscht wurde. Selbstironisch; die Unberechenbarkeit ist die Superwaffe.
+   Held pro Mission (`hero`), der andere fliegt als Wingman. `mech`/Comedy/
+   Blasmusik werden in einer späteren Stufe ergänzt — die Missionen sind schon
+   voll spielbar über die bestehende Runtime.
+   --------------------------------------------------------------------------- */
+const BTEAM_PILOTS = {
+  sepp:    { name:'SEPP',    full:'Fw. Sepp „Brummbär" Huber',      color:0x8a5a24, mech:'grantl' },
+  wiggerl: { name:'WIGGERL', full:'Gefr. Wiggerl „Radi" Brandtner', color:0x2f7a3a, mech:'dusel' },
+};
+const BTEAM_CAMPAIGN = [
+  {
+    id:'b0', name:'Wer sonst?', type:'tutorial', tod:'day', start:'runway', hero:'sepp', wingman:false,
+    story:`<span class="who">OBERST WAGNER:</span> Die „Adler" — unsere beste Staffel — sind heute Morgen bei einem Überraschungsangriff komplett ausgelöscht worden. Und jetzt steh ich hier … mit euch. Der Reserve. Feldwebel Huber, Sie sind angeblich der Ranghöchste, der noch atmet. Also: rollen, abheben, ein paar alte Übungsdrohnen zerlegen, wieder runterbringen. Bitte. Ich fleh Sie an. Machen Sie's nicht kaputt.`,
+    objectives:[
+      { id:'takeoff', kind:'takeoff', primary:true, label:'Irgendwie abheben (Shift, ab Vr Nase heben)' },
+      { id:'kill', kind:'destroyAir', count:3, primary:true, label:'3 Übungsdrohnen zerlegen' },
+      { id:'land', kind:'land', primary:true, label:'Die Kiste heil wieder runterbringen' },
+    ],
+    spawns:{ air:[['f16',3]] },
+    intro:['SEPP|Sakradi, wer hat denn den Sitz so weit vorn gschobn… passt scho. Wo is der Gashebel?','WAGNER|Shift ist Vollgas, Huber. SHIFT. Herrgott.'],
+    win:['SEPP|Ha! Steht no ois dro. Des war doch ned so schwaar.','WAGNER|…Sie sind gelandet. Ich fass es nicht. Vielleicht sterben wir doch nicht sofort.'],
+    cutsceneAfter:'bt_draft',
+  },
+  {
+    id:'b1', name:'Anfängerglück', type:'air', tod:'day', hero:'wiggerl', wingman:true,
+    story:`<span class="who">WAGNER:</span> Echte Mission. Eine Drohnenrotte greift einen Konvoi an. Ich schick euch zwei hoch, weil ich <i>niemand</i> anderen mehr hab. Brandtner, Sie fliegen — und bitte, BITTE, konzentrieren Sie sich. <span class="who">WIGGERL:</span> „Konzentrieren, jo. Voi. … Hey Sepp, hast du gwusst, dass Wolken von unten anders ausschaun?"`,
+    objectives:[
+      { id:'kill', kind:'destroyAir', count:5, primary:true, label:'Die Angreifer vom Konvoi wegholen' },
+      { id:'struct', kind:'minHP', hp:20, primary:false, label:'Irgendwie am Stück bleiben' },
+    ],
+    spawns:{ ally:true, air:[['f16',3],['f18',2]] },
+    intro:['WIGGERL|Ohhh, schau da moi, so vui auf oimoi… i hab da so a Gfui, des wird lustig.','SEPP|RADI! Aufpassn, ned traamen!'],
+    win:['WIGGERL|Ups. Alle weg. …War des jetzt i?','SEPP|Des war reiner Dusel, Bua. Aber i nimms.'],
+  },
+  {
+    id:'b2', name:'Der Grantler', type:'mixed', tod:'dusk', hero:'sepp', wingman:true,
+    story:`<span class="who">SEPP:</span> Bodenzeug. Radare, a Bunker, a paar SAMs — und obenrum Jäger, damit's ned fad wird. I hass Bodenangriffe. I hass SAMs. Und i hass, dass i des jetzt auch no erklären muss. Nimm die Luft-Boden-Raketen für die Bunker, Bua. Grün heißt Lock, dann H. Und jetzt lass mi in Ruah granteln.`,
+    objectives:[
+      { id:'bunker', kind:'destroyGround', tag:'bunker', count:2, primary:true, label:'2 Bunker mit LB-Raketen knacken' },
+      { id:'sam', kind:'destroyGround', tag:'sam', count:2, primary:true, label:'2 SAM-Stellungen ausschalten' },
+      { id:'air', kind:'destroyAir', count:3, primary:false, label:'Jäger vom Hals halten' },
+    ],
+    spawns:{ ally:true, ground:[['bunker',2],['sam',2]], air:[['f16',3]] },
+    agms:6, bombs:6, weapon:'agm',
+    intro:['SEPP|Erst die Bunker, dann die SAMs. Und wehe, du fliegst mir in die Druckwelle.','WIGGERL|Sepp, du wirst ganz rot im Gsicht… steht dir eigentlich.'],
+    win:['SEPP|SO. Ois zam. Und jetzt a Ruah.','WIGGERL|Weißt was, Sepp? Wennst grantig bist, triffst besser. Faszinierend.'],
+    cutsceneAfter:'bt_groove',
+  },
+  {
+    id:'b3', name:'Die verschollene Kiste', type:'mixed', tod:'day', hero:'wiggerl', wingman:true,
+    story:`<span class="who">WIGGERL:</span> Sepp, i hab wos ghört am Funk — a ganze Palette Festbier, abgstürzt mit am Transporter, mitten im Feindgebiet. DES müssn wir retten. <span class="who">WAGNER:</span> Sie fliegen NICHT wegen Bier ins Feindgebiet! …Also gut, es steht zufällig eh ein echtes Ziel daneben. Räumt die Gegend, sichert den Bereich. Und Brandtner — das Bier ist zweitrangig. ZWEITRANGIG.`,
+    objectives:[
+      { id:'convoy', kind:'destroyGround', tag:'truck', count:3, primary:true, label:'Die Bewacher-Konvois zerlegen' },
+      { id:'air', kind:'destroyAir', count:4, primary:true, label:'Luftraum über der „Fracht" sichern' },
+    ],
+    spawns:{ ally:true, ground:[['truck',3]], air:[['f16',3],['f18',1]] },
+    agms:4, bombs:6, weapon:'bomb',
+    intro:['WIGGERL|I riech des Bier scho von hier obn. Des is a Zeichen.','SEPP|Des is Kerosin, du Depp. Konzentrier di.'],
+    win:['WIGGERL|Bereich gsichert! Und d\'Kiste is heil! I HABS GWUSST!','SEPP|…de hoi ma später. Aber wehe, es fehlt was.'],
+  },
+  {
+    id:'b4', name:'Bierzelt-Taktik', type:'air', tod:'dusk', hero:'sepp', wingman:true,
+    story:`<span class="who">SEPP:</span> Zuhör'n. I hab an Plan. Er is beklopft. Er is so beklopft, dass ihn kei Computer der Welt kommen sieht — genau DES is der Trick. Wir fliegen rein wie zwei Besoffene beim Schafkopf: null Muster, ois auf Zufall. Die Rechenkisten drehn durch, weil sie nix vorausrechnen können. <span class="who">WIGGERL:</span> „Also fliegen wir einfach wie immer?" <span class="who">SEPP:</span> „…ganz genau wie immer, Bua."`,
+    objectives:[
+      { id:'break', kind:'destroyAir', count:8, primary:true, label:'Die verwirrte Drohnenwand zerlegen (8)' },
+      { id:'struct', kind:'minHP', hp:20, primary:false, label:'Struktur über 20% halten' },
+    ],
+    spawns:{ ally:true, air:[['f18',4,'aggressor'],['f22',3,'sniper']], ace:'f22', waveDelay:true },
+    intro:['STIMME|PROGNOSE … NICHT MÖGLICH. WIEDERHOLE: NICHT MÖGLICH.','SEPP|Hörst as? De schnoin durch. Genau so gfoit ma des.'],
+    win:['WIGGERL|Warad des jetzt guad oda schlecht? …de san jedenfalls oi weg.','SEPP|Des, Bua, war a Meisterwerk. Merk dir des.'],
+  },
+  {
+    id:'b5', name:'Zwei gegen alle', type:'air', tod:'night', hero:'wiggerl', wingman:true,
+    story:`<span class="who">WAGNER:</span> Sie haben uns umzingelt. Command hat euch abgeschrieben — „zwei Betrunkene gegen eine Armee". Ich sag's ehrlich: ich hätt euch auch abgeschrieben. Beweist mir, dass ich ein Idiot bin. Bleibt beieinander da oben. Passt auf euch auf. Auf euch beide.`,
+    objectives:[
+      { id:'protect', kind:'protect', primary:true, label:'Aufeinander aufpassen (Wingman schützen)' },
+      { id:'clear', kind:'destroyAir', count:9, primary:true, label:'Die Übermacht durchbrechen (9)' },
+    ],
+    spawns:{ ally:true, air:[['f16',5],['f18',3],['f22',2]], ace:'f22', waveDelay:true },
+    intro:['WIGGERL|Sepp? Bleibst bei mir, gell?','SEPP|Imma, Bua. Imma. Jetzt schiaß.'],
+    win:['SEPP|Beide no da. Beide. Des is… des is a guads Gfui.','WAGNER|Ich bin ein Idiot. Ich hab mich noch nie so gefreut, ein Idiot zu sein.'],
+    cutsceneAfter:'bt_final',
+  },
+  {
+    id:'b6', name:'O\'zapft is!', type:'boss', tod:'dusk', boss:'kronos', hero:'sepp', wingman:true, start:'runway',
+    story:`<span class="who">SEPP:</span> Des is es. De ham a fliegende Festung baut, so groß wie a Bierzelt an der Wiesn. Und wir zwei Hansln soin de vom Himmel hoin. <span class="who">WIGGERL:</span> „I hab d\'Kiste dabei. Fürs danach." <span class="who">SEPP:</span> „…des is der beste Plan, den du je ghabt hast. Türme zerst, dann den Kern. Und dann, Bua — dann wird ozapft."`,
+    objectives:[
+      { id:'takeoff', kind:'takeoff', primary:false, label:'Ein letztes Mal starten (nüchtern genug)' },
+      { id:'turrets', kind:'destroyGround', tag:'turret', count:4, primary:true, label:'Die Geschütztürme der Festung brechen' },
+      { id:'core', kind:'boss', primary:true, label:'Die Festung vom Himmel holen' },
+    ],
+    spawns:{ boss:'kronos', air:[['f22',3]] },
+    agms:6, bombs:6, weapon:'agm',
+    intro:['WAGNER|Letzter Vorhang, Männer. Ganz Deutschland schaut zu. Bitte blamiert uns nicht.','SEPP|Ozapft wird, wenns owe is. PACKMA\'S!'],
+    win:['SEPP|SIE FOIT! De Festung foit! …Bua, hoi d\'Kiste.','WIGGERL|Scho offen, Sepp. Prost. Auf d\'Adler — und auf uns zwoa Deppen, de\'s doch packt ham.'],
+  },
+];
+
+// B-Team interstitials (kept separate; showCutscene consults both objects).
+const BTEAM_CUTSCENES = {
+  bt_draft:{ chapter:'DAS B-TEAM', title:'Die letzte Wahl',
+    body:`Im Hangar hängt noch das Staffelfoto der „Adler" — durchgestrichen, schwarzer Trauerflor.<br><br><span class="who">WAGNER:</span> „Ich hatte die Besten. Jetzt hab ich … euch. Einen Feldwebel, der mehr flucht als redet, und einen Gefreiten, der mit seinem Flugzeug spricht."<br><br><span class="who">SEPP:</span> „Und? De Besten san tot. De zwoa Deppen leben no. Vielleicht is Blödsinn genau des, was koa Computer kommen siegt."<br><br>Wagner sieht die beiden lange an. Zum ersten Mal seit Tagen hat er einen leisen, absurden Funken Hoffnung.` },
+  bt_groove:{ chapter:'DAS B-TEAM', title:'Langsam läuft\'s',
+    body:`Irgendwo zwischen Granteln und Dusel haben die zwei einen Rhythmus gefunden.<br><br><span class="who">WIGGERL:</span> „Sepp, mir san eigentlich a ganz guads Team, oda?"<br><span class="who">SEPP:</span> „Sag des nie wieder laut. Nachher glaubst as no."<br><br>Auf den Feindschirmen häufen sich derweil rote Fehlermeldungen: <i>Zielverhalten nicht klassifizierbar.</i>` },
+  bt_final:{ chapter:'DAS B-TEAM', title:'Vor dem letzten Zapfhahn',
+    body:`Die Nacht vor dem Finale. Die verschollene Bierkiste steht ungeöffnet zwischen den zwei Maschinen — ein Versprechen für „danach".<br><br><span class="who">SEPP:</span> „Wemma des überleben, Bua, dann zapf ma de auf. Ned vorher."<br><span class="who">WIGGERL:</span> „Abgmacht. …Und wemma\'s ned überleben?"<br><span class="who">SEPP:</span> „…dann ham ma wenigstens ois versucht. Und jetzt schlaf, morgen retten mir de Welt. Irgendwie."` },
+};
+
 // Interstitial story sequences shown between missions (deeper narrative).
 const CUTSCENES = {
   act2intro:{ chapter:'AKT II — Das kalte Kalkül', title:'Was übrig blieb',
@@ -632,7 +744,12 @@ const CUTSCENES = {
 // Mission runtime state (populated by setupMission)
 const mission = { active:false, def:null, index:-1, objectives:[], radioQueue:[], radioT:0, done:false, outcome:null,
   reinforceT:0, waveIndex:0 };
-let campaignUnlocked = 1;   // how many missions are unlocked (1-based count)
+let campaignUnlocked = 1;   // how many HELIOS missions are unlocked (1-based count)
+let bteamUnlocked = 1;      // how many B-Team missions are unlocked
+let activeCampaign = CAMPAIGN;   // which mission list the runtime is currently running
+let campaignId = 'helios';       // 'helios' | 'bteam'
+function unlockedCount(){ return campaignId==='bteam' ? bteamUnlocked : campaignUnlocked; }
+function bumpUnlocked(n){ if(campaignId==='bteam') bteamUnlocked=Math.max(bteamUnlocked,n); else campaignUnlocked=Math.max(campaignUnlocked,n); }
 let gameMode = 'menu';      // 'campaign' | 'endless'
 let storyChoice = null;     // 'trust' | 'human' — set at the choice point, colours the ending
 let endlessMod = null;      // null | 'ace' — endless-mode difficulty modifier
@@ -641,7 +758,7 @@ let endlessMod = null;      // null | 'ace' — endless-mode difficulty modifier
    0c. SAVE / PROGRESS (localStorage, id-keyed, degrades safely if blocked)
    --------------------------------------------------------------------------- */
 const SAVE_KEY='himmelsbrand_save', SAVE_VERSION=1;
-const DEFAULT_SAVE = () => ({ v:SAVE_VERSION, campaignUnlocked:1, storyChoice:null,
+const DEFAULT_SAVE = () => ({ v:SAVE_VERSION, campaignUnlocked:1, bteamUnlocked:1, storyChoice:null,
     missions:{}, endlessBest:0, endlessWaveBest:0, unlocks:{ ace:false, goldWings:false } });
 let SAVE = DEFAULT_SAVE();
 let storageOK = true;
@@ -656,6 +773,7 @@ function loadSave(){
     if(typeof s.missions!=='object' || !s.missions) s.missions={};
     s.unlocks = Object.assign({ ace:false, goldWings:false }, s.unlocks||{});
     s.campaignUnlocked = Math.max(1, Math.min(CAMPAIGN.length, s.campaignUnlocked|0));
+    s.bteamUnlocked = Math.max(1, Math.min(BTEAM_CAMPAIGN.length, s.bteamUnlocked|0));
     return s;
   }catch(e){ storageOK=false; return DEFAULT_SAVE(); }
 }
@@ -688,6 +806,7 @@ const MEDAL=['','BRONZE','SILBER','GOLD'];
 // initialise from disk
 SAVE = loadSave();
 campaignUnlocked = Math.max(campaignUnlocked, SAVE.campaignUnlocked);
+bteamUnlocked = Math.max(bteamUnlocked, SAVE.bteamUnlocked);
 if(SAVE.storyChoice) storyChoice = SAVE.storyChoice;
 
 /* ---------------------------------------------------------------------------
@@ -1538,6 +1657,7 @@ const player = {
   bombs: 0, agms: 0, weapon:'missile', bombCd:0, agmCd:0,   // secondary weapon: 'missile' | 'agm' | 'bomb'
   fireCd: 0, missileCd: 0, reloadT: 0,
   alive: true, boost:false, crashCd:0,
+  hero:null,               // B-Team: 'sepp' | 'wiggerl' (drives Grantl/Dusel); null in HELIOS/endless
   // ground handling
   onGround:false,          // rolling on the runway (not yet flying)
   gearDown:true,           // landing gear extended
@@ -1556,7 +1676,7 @@ function resetPlayer(){
   player.speed=CFG.cruiseSpeed; player.hp=CFG.playerHP; player.missiles=CFG.missileMax;
   player.bombs=0; player.agms=0; player.weapon='missile'; player.bombCd=0; player.agmCd=0;
   player.alive=true; player.fireCd=0; player.missileCd=0; player.reloadT=0; player.crashCd=0;
-  player.onGround=false; player.gearDown=true; player.gearRetractT=0; player.vy=0; player.landed=false; player.runway=null;
+  player.onGround=false; player.gearDown=true; player.gearRetractT=0; player.vy=0; player.landed=false; player.runway=null; player.hero=null;
   if(player.obj.userData.gear){ player.obj.userData.gear.scale.y=1; player.obj.userData.gear.visible=true; }
 }
 
@@ -2145,7 +2265,7 @@ function drawHUD(){
         hctx.strokeStyle='rgba(90,200,255,0.95)'; hctx.lineWidth=2;
         hctx.strokeRect(axp-13,ayp-13,26,26);
         hctx.fillStyle='rgba(90,200,255,0.95)'; hctx.font='10px monospace'; hctx.textAlign='center';
-        hctx.fillText('LÄRCHE', axp, ayp-17);
+        hctx.fillText(ally.name||'LÄRCHE', axp, ayp-17);
         const hw=Math.max(0,ally.hp/ally.maxhp);
         hctx.fillStyle='rgba(40,40,50,0.7)'; hctx.fillRect(axp-16,ayp+16,32,4);
         hctx.fillStyle=hw<0.35?'#ff5a5a':'#5ac8ff'; hctx.fillRect(axp-16,ayp+16,32*hw,4);
@@ -2394,8 +2514,8 @@ function gameOver(victory){
     const def=mission.def;
     if(victory){
       goTitle.textContent='MISSION ERFÜLLT'; goTitle.style.color='#7dffb0';
-      // unlock next
-      if(mission.index+1 > campaignUnlocked-1) campaignUnlocked=Math.max(campaignUnlocked, mission.index+2);
+      // unlock next (per active campaign)
+      if(mission.index+1 > unlockedCount()-1) bumpUnlocked(mission.index+2);
       // --- rating + persistence (wall-clock time, unaffected by slow-mo) ---
       const elapsed=(performance.now()-mission.startT-(mission.pausedMs||0))/1000;
       const res={ hp:Math.max(0,player.hp), elapsed, landReq:mission.landReq, landClean:(mission.landed && !mission.landHard) };
@@ -2403,20 +2523,23 @@ function gameOver(victory){
       const wasAce=SAVE.unlocks.ace, wasGold=SAVE.unlocks.goldWings;
       const rec=recordMission(def,res);
       SAVE.campaignUnlocked=Math.max(SAVE.campaignUnlocked,campaignUnlocked);
-      SAVE.storyChoice=storyChoice; refreshUnlocks(); persistSave();
-      document.body.classList.toggle('gold-wings', SAVE.unlocks.goldWings);
-      const hasNext = mission.index < CAMPAIGN.length-1;
+      SAVE.bteamUnlocked=Math.max(SAVE.bteamUnlocked,bteamUnlocked);
+      SAVE.storyChoice=storyChoice;
+      if(campaignId==='helios'){ refreshUnlocks(); document.body.classList.toggle('gold-wings', SAVE.unlocks.goldWings); }
+      persistSave();
+      const hasNext = mission.index < activeCampaign.length-1;
       const winLine = def.win && def.win[0] ? def.win[0].split('|').pop() : '';
       const starRow = `<div class="debrief-stars">`+[0,1,2].map(k=>`<span class="${k<res.stars?'on':''}">${k<res.stars?'★':'☆'}</span>`).join('')+`</div>`;
-      const unlockNote = (!wasAce&&SAVE.unlocks.ace?'<div class="unlock-note">FREIGESCHALTET: ASS-MODUS (Endlos)</div>':'')
-                       + (!wasGold&&SAVE.unlocks.goldWings?'<div class="unlock-note">FREIGESCHALTET: FLIEGERASS (goldene Schwingen)</div>':'');
+      const unlockNote = campaignId!=='helios' ? '' :
+                       ((!wasAce&&SAVE.unlocks.ace?'<div class="unlock-note">FREIGESCHALTET: ASS-MODUS (Endlos)</div>':'')
+                       + (!wasGold&&SAVE.unlocks.goldWings?'<div class="unlock-note">FREIGESCHALTET: FLIEGERASS (goldene Schwingen)</div>':''));
       document.getElementById('go-stats').innerHTML =
         starRow +
         `<div style="font-size:16px;color:#ffce8a;letter-spacing:3px;margin-bottom:8px">${MEDAL[res.stars]}${(rec.improvedScore||rec.improvedStars)?' &nbsp;<span class="newrec">◆ NEUER REKORD</span>':''}</div>`+
         `<div style="font-size:19px;color:#cfe6ff;max-width:640px;line-height:1.6;margin-bottom:10px">${winLine}</div>`+
         `<div>Punkte <b>${score}</b> &nbsp;·&nbsp; Zeit <b>${fmtTime(res.elapsed)}</b> &nbsp;·&nbsp; Struktur <b>${Math.round(res.hp)}%</b></div>`+
         unlockNote +
-        (hasNext?'':`<div style="margin-top:14px;color:#ffce8a">Kampagne abgeschlossen — der Himmel gehört wieder den Menschen.</div>`);
+        (hasNext?'':`<div style="margin-top:14px;color:#ffce8a">${campaignId==='bteam'?'B-Team-Kampagne abgeschlossen — o\'zapft is, Bua! 🍺':'Kampagne abgeschlossen — der Himmel gehört wieder den Menschen.'}</div>`);
       const nextIdx=mission.index+1;
       const cut=def.cutsceneAfter;   // interstitial to play before the next mission
       if(hasNext){ nextBtn.classList.remove('hidden');
@@ -2441,7 +2564,7 @@ function gameOver(victory){
 
 // Interstitial story screen. `after` is a callback run when the player continues.
 function showCutscene(key, after){
-  let cs=CUTSCENES[key]; if(!cs){ after&&after(); return; }
+  let cs=CUTSCENES[key]||BTEAM_CUTSCENES[key]; if(!cs){ after&&after(); return; }
   state='cutscene';
   document.getElementById('gameover').classList.add('hidden');
   document.getElementById('cut-chapter').textContent=cs.chapter||'';
@@ -2493,9 +2616,9 @@ function togglePause(){ if(state==='playing') pauseGame(); else if(state==='paus
 const TYPE_NAME={air:'LUFTKAMPF',ground:'BODENANGRIFF',mixed:'KOMBINIERT',boss:'BOSS',tutorial:'FLUGSCHULE',escort:'ESKORTE'};
 function buildMissionList(){
   const wrap=document.getElementById('missionlist'); wrap.innerHTML='';
-  CAMPAIGN.forEach((m,i)=>{
+  activeCampaign.forEach((m,i)=>{
     const rec=SAVE.missions[m.id];
-    const reached = i < campaignUnlocked;      // reached in the story so far
+    const reached = i < unlockedCount();      // reached in the story so far
     const done = !!(rec && rec.cleared);
     const card=document.createElement('div');
     card.className='mcard'+(done?' done':'');
@@ -2511,7 +2634,7 @@ function buildMissionList(){
   });
 }
 function openBriefing(i){
-  const m=CAMPAIGN[i];
+  const m=activeCampaign[i];
   document.getElementById('brief-num').textContent='MISSION '+(i+1);
   document.getElementById('brief-name').textContent=m.name;
   const tEl=document.getElementById('brief-type');
@@ -2531,11 +2654,17 @@ function refreshMenu(){
     + (SAVE.endlessWaveBest?` &nbsp;·&nbsp; ENDLOS-REKORD: ${SAVE.endlessWaveBest} WELLEN`:'')
     + (!storageOK?` &nbsp;·&nbsp; <span style="color:#ff9a5a">Speichern blockiert</span>`:''); }
 }
-document.getElementById('btn-campaign').onclick=()=>{ buildMissionList(); refreshMenu(); showScreen('missionselect'); };
+function openCampaign(id){
+  campaignId=id; activeCampaign = (id==='bteam') ? BTEAM_CAMPAIGN : CAMPAIGN;
+  const sub=document.getElementById('ms-subbrand'); if(sub) sub.textContent = (id==='bteam') ? 'DAS B-TEAM' : 'KAMPAGNE';
+  buildMissionList(); refreshMenu(); showScreen('missionselect');
+}
+document.getElementById('btn-campaign').onclick=()=>openCampaign('helios');
+document.getElementById('btn-bteam').onclick=()=>openCampaign('bteam');
 document.getElementById('btn-endless').onclick=()=>startEndless();
 document.getElementById('btn-ace').onclick=()=>startEndless('ace');
 document.getElementById('btn-howto').onclick=()=>showScreen('howto');
-document.getElementById('btn-reset').onclick=()=>{ if(confirm('Gesamten Fortschritt wirklich löschen?')){ SAVE=DEFAULT_SAVE(); campaignUnlocked=1; storyChoice=null; persistSave(); buildMissionList(); refreshMenu(); } };
+document.getElementById('btn-reset').onclick=()=>{ if(confirm('Gesamten Fortschritt wirklich löschen?')){ SAVE=DEFAULT_SAVE(); campaignUnlocked=1; bteamUnlocked=1; storyChoice=null; persistSave(); buildMissionList(); refreshMenu(); } };
 document.querySelectorAll('.backbtn').forEach(b=> b.onclick=()=>{ const t=b.getAttribute('data-back'); if(t==='missionselect'){ buildMissionList(); } showScreen(t); });
 document.getElementById('restartbtn').onclick=()=>startEndless();  // default; overwritten per-context in gameOver
 document.getElementById('resumebtn').onclick=()=>resumeGame();
@@ -2596,7 +2725,7 @@ function renderObjectives(){
    15d. MISSION RUNTIME
    --------------------------------------------------------------------------- */
 function setupMission(index){
-  const def=CAMPAIGN[index];
+  const def=activeCampaign[index];
   mission.active=true; mission.def=def; mission.index=index; mission.done=false; mission.outcome=null;
   mission.radioQueue=[]; mission.reinforceT=0; mission.waveIndex=0; mission.failReason=null;
   mission.spawnDelayT=0; mission.pendingAir=null; mission.landReady=false;
@@ -2614,6 +2743,7 @@ function setupMission(index){
   player.agms  = (def.agms!=null)  ? def.agms  : (needsGround ? CFG.agmMax : 0);
   player.weapon = def.weapon || (player.bombs>0 ? 'bomb' : (player.agms>0 ? 'agm' : 'missile'));
   updateMissileHUD();
+  player.hero = (campaignId==='bteam') ? (def.hero||'sepp') : null;   // drives B-Team pilot mechanics
 
   clearRunway();
   const hasLandObj = def.objectives.some(o=>o.kind==='land');
@@ -2646,7 +2776,11 @@ function setupMission(index){
   // spawn ground targets in a cluster ahead of the player
   if(def.spawns.ground){ layoutGroundTargets(def.spawns.ground); }
   // ally to escort
-  if(def.spawns.ally){ spawnAlly(); }
+  // ally / wingman: in the B-Team campaign the wingman is the OTHER pilot (unless wingman:false)
+  if(campaignId==='bteam' && def.wingman!==false && def.hero){
+    const other = def.hero==='sepp' ? BTEAM_PILOTS.wiggerl : BTEAM_PILOTS.sepp;
+    spawnAlly({ name:other.name, color:other.color, hp:ALLY_HP });
+  } else if(def.spawns.ally){ spawnAlly(); }
   // boss
   if(def.spawns.boss){ spawnBoss(def.spawns.boss); }
   // gauntlet: staggered waves handled in updateMission
@@ -2788,20 +2922,24 @@ function updateMission(dt){
 let ally=null;
 function clearAlly(){ if(ally){ scene.remove(ally.obj); ally=null; } }
 const ALLY_HP=420;
-function spawnAlly(){
+function spawnAlly(opts){
+  opts = opts || {};
+  const name = opts.name || 'LÄRCHE';
+  const tint = (opts.color!=null) ? opts.color : 0x122a4a;
+  const hp = opts.hp || ALLY_HP;
   const obj=buildEurofighter();
-  // repaint allied: subtle blue tint via emissive, and no German tail needed
-  obj.traverse(o=>{ if(o.isMesh && o.material && o.material.emissive){ o.material=o.material.clone(); o.material.emissive=new THREE.Color(0x122a4a); o.material.emissiveIntensity=0.4; } });
+  // repaint allied: a subtle emissive tint distinguishes the friendly (blue = Lärche, else pilot colour)
+  obj.traverse(o=>{ if(o.isMesh && o.material && o.material.emissive){ o.material=o.material.clone(); o.material.emissive=new THREE.Color(tint); o.material.emissiveIntensity=0.45; } });
   const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion);
   obj.position.copy(player.obj.position).addScaledVector(fwd, 180).add(new THREE.Vector3(80,20,0));
   scene.add(obj);
-  ally={ obj, hp:ALLY_HP, maxhp:ALLY_HP, heading:player.heading, phase:Math.random()*6, smokeCd:0, fireCd:1, heading2:player.heading, dir:new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion) };
+  ally={ obj, name, hp, maxhp:hp, heading:player.heading, phase:Math.random()*6, smokeCd:0, fireCd:1, heading2:player.heading, dir:new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion) };
   return ally;
 }
 function damageAlly(d){ if(!ally) return; ally.hp-=d;
-  if(ally.hp<=0){ ally.hp=0; explode(ally.obj.position.x,ally.obj.position.y,ally.obj.position.z,1.6); Audio.explosion(true);
+  if(ally.hp<=0){ const nm=ally.name||'Lärche'; ally.hp=0; explode(ally.obj.position.x,ally.obj.position.y,ally.obj.position.z,1.6); Audio.explosion(true);
     scene.remove(ally.obj); ally=null;
-    if(mission.active){ const o=mission.objectives.find(x=>x.kind==='protect'); if(o){ o.failed=true; mission.failReason='Hauptmann Lärche wurde abgeschossen.'; renderObjectives(); }
+    if(mission.active){ const o=mission.objectives.find(x=>x.kind==='protect'); if(o){ o.failed=true; mission.failReason=nm+' wurde abgeschossen.'; renderObjectives(); }
       // A failed PRIMARY objective ends the mission (otherwise the escort ran endlessly).
       checkMissionFailed();
     }
