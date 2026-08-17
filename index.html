@@ -151,8 +151,8 @@
   <div id="stat-right" class="hud-el">
     <div class="lbl">HÖHE</div>
     <div><span id="alt" class="val big">0</span><span class="lbl"> M</span></div>
-    <div style="margin-top:10px" class="lbl">WELLE</div>
-    <div id="wave" class="val">1</div>
+    <div id="wavestat"><div style="margin-top:10px" class="lbl">WELLE</div>
+    <div id="wave" class="val">1</div></div>
     <div style="margin-top:10px" class="lbl">PUNKTE</div>
     <div id="score" class="val">0</div>
     <div style="margin-top:10px" class="lbl">FEINDE</div>
@@ -424,7 +424,7 @@ const CAMPAIGN = [
     win:['WAGNER|Der Platz brennt. HELIOS hat kein Zuhause mehr an der Front.'],
   },
   {
-    id:'m5', name:'Leviathan', type:'boss', tod:'day', boss:'kronos',
+    id:'m5', name:'Leviathan', type:'boss', tod:'day', boss:'kronos', weapon:'missile',
     story:`<span class="who">WAGNER:</span> Jetzt das Ungeheuer. <span class="who">KRONOS</span> — die schwimmende Drohnenwerft. Ein Flugkörper von der Größe eines Trägers, von dem HELIOS ununterbrochen Nachschub baut. Panzerung, Geschütztürme, eigene Jägerdeckung. Nimm zuerst die Türme, dann den Reaktorkern mittschiffs. Das wird kein Duell. Das wird eine Belagerung.`,
     objectives:[
       { id:'turrets', kind:'destroyGround', tag:'turret', count:4, primary:true, label:'4 Geschütztürme zerstören' },
@@ -601,7 +601,7 @@ const CAMPAIGN = [
     cutsceneAfter:'ending',
   },
   {
-    id:'m13', name:'Himmelsbrand', type:'boss', tod:'dusk', boss:'kronos', act:2, finale:true, start:'runway',
+    id:'m13', name:'Himmelsbrand', type:'boss', tod:'dusk', boss:'kronos', act:2, finale:true, start:'runway', weapon:'missile',
     story:`<span class="who">WAGNER:</span> Was auch immer du am Kern entschieden hast — PROMETHEUS wirft sein letztes und größtes Werkzeug gegen uns: eine fliegende Festung, gebaut aus allem, was ihm bleibt. Start von der Basis, Geier. Ein letztes Mal. Danach ist entweder Frieden — oder gar nichts mehr. Bring sie runter. Und dann bring dich selbst nach Hause.`,
     objectives:[
       { id:'takeoff', kind:'takeoff', primary:false, label:'Ein letztes Mal starten' },
@@ -693,7 +693,7 @@ const BTEAM_CAMPAIGN = [
       { id:'break', kind:'destroyAir', count:8, primary:true, label:'Die verwirrte Drohnenwand zerlegen (8)' },
       { id:'struct', kind:'minHP', hp:20, primary:false, label:'Struktur über 20% halten' },
     ],
-    spawns:{ ally:true, air:[['f18',4,'aggressor'],['f22',3,'sniper']], ace:'f22', waveDelay:true },
+    spawns:{ ally:true, air:[['f18',5,'aggressor'],['f22',3,'sniper']], ace:'f22', waveDelay:true },
     intro:['STIMME|PROGNOSE … NICHT MÖGLICH. WIEDERHOLE: NICHT MÖGLICH.','SEPP|Hörst as? De schnoin durch. Genau so gfoit ma des.'],
     win:['WIGGERL|Warad des jetzt guad oda schlecht? …de san jedenfalls oi weg.','SEPP|Des, Bua, war a Meisterwerk. Merk dir des.'],
   },
@@ -771,6 +771,8 @@ function bumpUnlocked(n){ if(campaignId==='bteam') bteamUnlocked=Math.max(bteamU
 let gameMode = 'menu';      // 'campaign' | 'endless'
 let storyChoice = null;     // 'trust' | 'human' — set at the choice point, colours the ending
 let brotzeit = 'radler';    // B-Team: chosen pre-mission Brotzeit (buff/debuff)
+let winLocked = false;      // true during the post-win celebration window -> player can't be killed into a loss
+let _lastEnemyCount = -1;   // avoid rewriting the enemies HUD DOM every frame
 let endlessMod = null;      // null | 'ace' — endless-mode difficulty modifier
 
 /* ---------------------------------------------------------------------------
@@ -1103,6 +1105,8 @@ const Audio = (function(){
   // so parts stay locked in sync and simply fade in/out as the fight heats up.
   function scheduler(){
     if(!ctx || ctx.state!=='running'){ if(ctx) nextNoteTime=ctx.currentTime; return; }
+    // if the tab was backgrounded (timer throttled), resync instead of dumping all missed notes at once
+    if(nextNoteTime < ctx.currentTime) nextNoteTime = ctx.currentTime;
     while(nextNoteTime < ctx.currentTime+0.14){
       const s=step16, bar=musicBar;
       const t=nextNoteTime + (s%2===1?SWING:0);       // subtle swing on off-16ths
@@ -1187,6 +1191,11 @@ const Audio = (function(){
   function hitTaken(){ noiseBurst(0.18,0.5,600); blip(90,0.2,'sawtooth',0.3,40); }
   function lockTone(active){ if(!enabled) return; warnGain.gain.setTargetAtTime(active?0.05:0, ctx.currentTime, 0.05);
     if(active) warnOsc.frequency.setValueAtTime(1200, ctx.currentTime); }
+  // Ramp all continuous flight voices to 0 (engine roar/whine/air/sub + lock tone).
+  // setEngine leaves non-zero floors, so we need this when leaving gameplay/pausing.
+  function silenceFlight(){ if(!enabled) return; const t=ctx.currentTime;
+    for(const g of [subGain,whineGain,roarGain,airGain,warnGain]) if(g) g.gain.setTargetAtTime(0, t, 0.08); }
+  function duckMusic(on){ if(!enabled||!musicBus) return; musicBus.gain.setTargetAtTime(on?0.0:0.62, ctx.currentTime, 0.12); }
   function reload(){ blip(500,0.08,'sine',0.2,800); setTimeout(()=>blip(700,0.1,'sine',0.2,1000),90); }
   function bombDrop(){ noiseBurst(0.25,0.35,900); blip(300,0.2,'sine',0.18,90); }
   function samLaunch(pan){ const d=panNode(pan); noiseBurst(0.6,0.4,1200,'lowpass',d); blip(500,0.6,'sawtooth',0.2,140,d); }
@@ -1252,7 +1261,7 @@ const Audio = (function(){
     bogey:bogeyGain?bogeyGain.gain.value:0, missileVoices:missileVoiceCount }; }
 
   return { init, resume, setEngine, gun, missileLaunch, explosion, hit, hitTaken, lockTone, reload, bombDrop, samLaunch, warnBeep,
-    updateMusic, updateBogey, setStyle, startMissileSound, updateMissileSound, stopMissileSound, _debug };
+    updateMusic, updateBogey, setStyle, silenceFlight, duckMusic, startMissileSound, updateMissileSound, stopMissileSound, _debug };
 })();
 
 /* ---------------------------------------------------------------------------
@@ -1855,7 +1864,7 @@ function fireMissile(){
   const side=new THREE.Vector3((player.missiles%2===0?1:-1),0,0).applyQuaternion(player.obj.quaternion);
   const startPos=player.obj.position.clone().add(side.multiplyScalar(6)).add(fwd.clone().multiplyScalar(3));
   const mesh=new THREE.Mesh(missileGeo, missileMat); mesh.position.copy(startPos); scene.add(mesh);
-  const light=new THREE.PointLight(0xff8844,1.2,60); mesh.add(light);
+  // (no per-missile PointLight: changing the scene's light count recompiles all lit shaders in r128 = combat hitch; the emissive material glows enough)
   // Launch at a modest speed along the nose, then accelerate to missileSpeed in
   // updateMissiles so it always pulls AWAY from the aircraft (you can't overtake it).
   const mi={ mesh, vel:fwd.clone().multiplyScalar(Math.max(player.speed, CFG.missileLaunchSpeed)), speed:Math.max(player.speed, CFG.missileLaunchSpeed), target, guided:!!target, life:CFG.missileLife, trailCd:0 };
@@ -1878,7 +1887,7 @@ function fireAGM(){
   const side=new THREE.Vector3((player.agms%2===0?1:-1),0,0).applyQuaternion(player.obj.quaternion);
   const startPos=player.obj.position.clone().add(side.multiplyScalar(6)).add(fwd.clone().multiplyScalar(3));
   const mesh=new THREE.Mesh(missileGeo, agmMat); mesh.position.copy(startPos); scene.add(mesh);
-  const light=new THREE.PointLight(0x66ff44,1.2,60); mesh.add(light);
+  // (no per-missile PointLight — see fireMissile note; avoids shader recompile hitches)
   const launchSp=Math.max(player.speed, CFG.agmLaunchSpeed);
   const mi={ mesh, vel:fwd.clone().multiplyScalar(launchSp), speed:launchSp,
     agm:true, groundTarget:gt, guided:!!gt, life:CFG.agmLife, trailCd:0 };
@@ -1907,6 +1916,8 @@ function dropBomb(){
   const vel=player.vel.clone();
   bombs.push({ mesh, vel, life:12 });
   Audio.bombDrop();
+  // out of bombs -> fall the selection back to a loaded weapon (else CCIP vanishes + right-click silently fires a missile)
+  if(player.bombs===0 && player.weapon==='bomb') player.weapon = player.agms>0 ? 'agm' : 'missile';
   updateWeaponHUD();
 }
 // Predict where a bomb dropped THIS frame would land (for the CCIP sight).
@@ -2228,8 +2239,10 @@ function updateMissileHUD(){
 }
 function updateWeaponHUD(){
   const sel=player.weapon;
-  dom.weaponTab.innerHTML =
-    `<div class="${sel==='missile'?'wsel':''}">✦ RAKETE ${player.missiles}${sel==='missile'?' ◄':''}</div>`+
+  const mslLine = player.reloadT>0
+    ? `<div style="color:#ff9a5a">✦ RAKETE — NACHLADEN…</div>`
+    : `<div class="${sel==='missile'?'wsel':''}">✦ RAKETE ${player.missiles}${sel==='missile'?' ◄':''}</div>`;
+  dom.weaponTab.innerHTML = mslLine +
     (player.agms>0 ? `<div class="${sel==='agm'?'wsel':''}">◈ LB-RAKETE ${player.agms}${sel==='agm'?' ◄':''}</div>` : '')+
     (player.bombs>0 ? `<div class="${sel==='bomb'?'wsel':''}">💣 BOMBE ${player.bombs}${sel==='bomb'?' ◄':''}</div>` : '');
 }
@@ -2249,6 +2262,7 @@ function banner(main, sub){
 }
 
 // Canvas HUD: reticle, target boxes, lock, off-screen arrows, radar
+const GT_LABELS={radar:'RADAR',truck:'TANKER',sam:'SAM',hangar:'HANGAR',turret:'TURM',pylon:'PYLON',bunker:'BUNKER',depot:'DEPOT',bierkiste:'🍺 BIERKISTE'};
 function drawHUD(){
   const w=hudCanvas.width, h=hudCanvas.height; hctx.clearRect(0,0,w,h);
   // red damage flash — drawn in ALL states so a fatal crash punch is visible
@@ -2382,15 +2396,14 @@ function drawHUD(){
     const on = gp.x>=-1&&gp.x<=1&&gp.y>=-1&&gp.y<=1;
     const gx=(gp.x*0.5+0.5)*w, gy=(-gp.y*0.5+0.5)*h;
     if(on){
-      const isAgmLock = (player.weapon==='agm' && player.agms>0 && gt===groundLock);
+      const isAgmLock = (player.agms>0 && gt===groundLock);   // H fires an AGM regardless of selected weapon, so show the lock whenever AGMs are loaded
       hctx.strokeStyle = gt.invuln?'rgba(255,215,90,0.95)':(isAgmLock?'rgba(90,255,120,0.95)':(gt.sam?'rgba(255,80,80,0.9)':'rgba(255,170,60,0.85)'));
       hctx.lineWidth=isAgmLock?2.5:2;
       hctx.beginPath(); hctx.moveTo(gx,gy-9); hctx.lineTo(gx+9,gy); hctx.lineTo(gx,gy+9); hctx.lineTo(gx-9,gy); hctx.closePath(); hctx.stroke();
       // health pip — only for destroyable targets (the crate is a fly-over objective, not a kill)
       if(!gt.invuln){ const hpw=Math.max(0,gt.hp/gt.maxhp);
         hctx.fillStyle='rgba(255,90,60,0.8)'; hctx.fillRect(gx-12,gy+12,24*hpw,3); }
-      const labels={radar:'RADAR',truck:'TANKER',sam:'SAM',hangar:'HANGAR',turret:'TURM',pylon:'PYLON',bunker:'BUNKER',depot:'DEPOT',bierkiste:'🍺 BIERKISTE'};
-      if(labels[gt.tag]){ hctx.fillStyle=hctx.strokeStyle; hctx.font='10px monospace'; hctx.textAlign='center'; hctx.fillText(labels[gt.tag], gx, gy-13); hctx.textAlign='left'; }
+      if(GT_LABELS[gt.tag]){ hctx.fillStyle=hctx.strokeStyle; hctx.font='10px monospace'; hctx.textAlign='center'; hctx.fillText(GT_LABELS[gt.tag], gx, gy-13); hctx.textAlign='left'; }
       if(isAgmLock){  // green AGM lock brackets + label
         const b=16; hctx.strokeStyle='rgba(90,255,120,0.95)';
         hctx.beginPath();
@@ -2618,6 +2631,13 @@ function gotoMenu(){
   clearVictoryTimer();
   clearGroundTargets(); clearBoss(); clearRunway(); clearAlly();
   for(const e of enemies) scene.remove(e.obj); enemies.length=0;
+  // tear down in-flight projectiles too (else a fired missile's oscillator + meshes leak into the menu)
+  for(const m of missiles){ Audio.stopMissileSound(m.snd); scene.remove(m.mesh); } missiles.length=0;
+  for(const m of enemyMissiles) scene.remove(m.mesh); enemyMissiles.length=0;
+  for(const b of bombs) scene.remove(b.mesh); bombs.length=0;
+  for(const b of bullets) releaseBullet(b); bullets.length=0;
+  player.obj.visible=true;   // restore the showcase jet (gameOver may have hidden it)
+  Audio.silenceFlight();
   hideHudExtras();
   refreshMenu();
   showScreen('menu');
@@ -2634,7 +2654,7 @@ function resetWorld(){
   for(const b of bombs) scene.remove(b.mesh); bombs.length=0;
   pincerCd=6; acePincerAnnounced=false; rwrT=0;
   clearGroundTargets(); clearBoss(); clearRunway(); clearAlly();
-  score=0; wave=0; waveActive=false; betweenTimer=2.0; shake=0; combo=0; comboT=0;
+  score=0; wave=0; waveActive=false; betweenTimer=2.0; shake=0; combo=0; comboT=0; winLocked=false; _lastEnemyCount=-1;
   if(dom.score) dom.score.textContent='0';
   player.obj.visible=true;
   resetPlayer();
@@ -2647,6 +2667,7 @@ function startEndless(mod){
   endlessMod = mod || null;           // set fresh every run (never carried over)
   gameMode='endless'; mission.active=false;
   showScreen(null);
+  { const ws=document.getElementById('wavestat'); if(ws) ws.style.display=''; }  // WELLE stat is endless-only
   resetWorld();
   applyTimeOfDay(endlessMod==='ace' ? 'night' : 'day');
   player.missiles=CFG.missileMax; player.bombs=0; player.weapon='missile';
@@ -2664,6 +2685,7 @@ function launchMission(index){
   gameMode='campaign';
   Audio.setStyle(campaignId==='bteam' ? 'bteam' : 'score');
   showScreen(null);
+  { const ws=document.getElementById('wavestat'); if(ws) ws.style.display='none'; }  // no WELLE counter in scripted campaign
   resetWorld();
   setupMission(index);
   updateTerrain(0,0);
@@ -2776,6 +2798,7 @@ function pauseGame(){
   state='paused';
   if(mission.active) mission.pauseStart=performance.now();
   firingMouse=false; for(const k in keys) keys[k]=false; Voice.stop();
+  Audio.silenceFlight(); Audio.duckMusic(true); Audio.updateBogey(0,1,0);   // quiet the game while paused
   const struc = Math.max(0, Math.round(player.hp/(player.maxHp||CFG.playerHP)*100));
   const info = gameMode==='campaign' ? `${mission.def.name.toUpperCase()} · STRUKTUR ${struc}%`
                                      : `WELLE ${wave} · ${score} PUNKTE · STRUKTUR ${struc}%`;
@@ -2784,6 +2807,7 @@ function pauseGame(){
 }
 function resumeGame(){ if(state!=='paused') return;
   if(mission.active && mission.pauseStart){ mission.pausedMs+=performance.now()-mission.pauseStart; mission.pauseStart=0; }
+  Audio.duckMusic(false);   // engine/lock re-drive themselves once playing again
   pauseScreen.classList.add('hidden'); state='playing'; }
 function togglePause(){ if(state==='playing') pauseGame(); else if(state==='paused') resumeGame(); }
 
@@ -3036,7 +3060,7 @@ function checkMissionComplete(){
   if(!mission.active || mission.done) return;
   const primaries=mission.objectives.filter(o=>o.primary);
   if(primaries.every(o=>o.done)){
-    mission.done=true; mission.active=false;
+    mission.done=true; mission.active=false; winLocked=true;   // win committed — leftover fire can't turn this into a loss
     banner(campaignId==='bteam'?'PACKMA\'S GHABT! 🍺':'MISSION ERFÜLLT', mission.def.name.toUpperCase());
     queueRadioNow(mission.def.win);
     player.alive=true;
@@ -3118,7 +3142,8 @@ function updateMission(dt){
       dom.enemies.textContent=enemies.length;
     }
   }
-  dom.enemies.textContent = enemies.length + groundTargets.filter(g=>!g.dead && !g.invuln).length;
+  let _ec=enemies.length; for(const g of groundTargets){ if(!g.dead && !g.invuln) _ec++; }
+  if(_ec!==_lastEnemyCount){ _lastEnemyCount=_ec; dom.enemies.textContent=_ec; }
 }
 
 /* ---------------------------------------------------------------------------
@@ -3277,7 +3302,8 @@ function damageBoss(dmg){
   if(boss.hp<=0) killBoss();
 }
 function killBoss(){
-  if(!boss) return;
+  if(!boss || boss.dead) return;        // guard re-entry: further hits in the 1.8s despawn window must no-op
+  boss.dead=true; boss.exposed=false;   // stops damageBoss/killBoss from re-firing the slow-mo + explosion cascade
   const p=boss.obj.position;
   // cinematic killing blow: slow-mo + heavy shake + a burst of big hot debris
   slowmo=SLOWMO_DUR; shake=Math.max(shake,1.3); markHit(true,false);
@@ -3572,7 +3598,7 @@ function updatePlayer(dt){
       player.obj.position.y = groundY+16;
       player.pitch=Math.max(player.pitch, 0.3);
       player.pitchRate=Math.max(player.pitchRate, 0.4);
-      if(player.hp<=0){ player.alive=false; gameOver(false); }
+      if(player.hp<=0 && !winLocked){ player.alive=false; gameOver(false); }
     }
   }
   if(player.crashCd>0) player.crashCd-=dt;
@@ -3673,7 +3699,7 @@ function updateBullets(dt){
       if(player.alive && distSqPointSeg(pp.x,pp.y,pp.z, ax,ay,az, sx,sy,sz) < 14*14){
         player.hp-=b.dmg; hit=true; shake=Math.max(shake,0.55); damageFlash=Math.max(damageFlash,0.5); Audio.hitTaken();
         fireP.spawn(pp.x,pp.y,pp.z,(Math.random()-0.5)*60,20,(Math.random()-0.5)*60,0.25,10,2,C_WHITE,C_RED,0.9,0);
-        if(player.hp<=0){ player.alive=false; gameOver(); }
+        if(player.hp<=0 && !winLocked){ player.alive=false; gameOver(false); }
       }
     }
     if(hit || b.life<=0){ releaseBullet(b); bullets.splice(i,1); }
@@ -3843,7 +3869,7 @@ function updateEnemyMissiles(dt){
       } else {
         player.hp-=CFG.enemyMissileDmg; shake=Math.max(shake,0.7); damageFlash=Math.max(damageFlash,0.6); Audio.hitTaken();
         explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0.8); Audio.explosion(false, screenPanX(mi.mesh.position));
-        if(player.hp<=0){ player.alive=false; gameOver(false); }
+        if(player.hp<=0 && !winLocked){ player.alive=false; gameOver(false); }
         done=true;
       }
     }
@@ -4163,7 +4189,7 @@ function loop(now){
       (nearest&&nd<1600)?Math.min(1,(1600-nd)/1600)*0.12:0);
     Audio.updateMusic(rawDt, mode, I);
   } else if(state!=='paused'){
-    Audio.updateBogey(0,1,0); Audio.updateMusic(rawDt, 'menu', 0);
+    Audio.updateBogey(0,1,0); Audio.updateMusic(rawDt, 'menu', 0); Audio.silenceFlight();
   }
 
   updateCamera(dt);
