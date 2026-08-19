@@ -324,10 +324,10 @@ const CFG = {
   waterLevel: 0,
   minSpeed: 150, cruiseSpeed: 250, maxSpeed: 380, boostSpeed: 520,
   bulletSpeed: 1500, bulletLife: 1.2, bulletDmg: 11, fireInterval: 0.05,
-  missileSpeed: 900, missileLaunchSpeed: 260, missileAccel: 1400, missileLife: 6.0, missileTurn: 2.6, missileDmg: 90, missileDmgBoss: 150, missileMax: 6,
+  missileSpeed: 900, missileLaunchSpeed: 260, missileAccel: 1400, missileLife: 6.0, missileTurn: 2.6, missileDmg: 90, missileDmgBoss: 150, missileMax: 6, missileRegen: 2.4,
   // Air-to-GROUND guided missile (AGM): standoff precision vs ground/boss point targets.
   // Locks a GROUND target (not aircraft), climbs to speed, homes in 3D, big single-hit punch.
-  agmSpeed: 800, agmLaunchSpeed: 300, agmAccel: 950, agmLife: 7.5, agmTurn: 2.2, agmDmg: 200, agmMax: 4, agmHitR: 22,
+  agmSpeed: 800, agmLaunchSpeed: 300, agmAccel: 950, agmLife: 7.5, agmTurn: 2.2, agmDmg: 280, agmMax: 4, agmHitR: 22,
   enemyBulletSpeed: 900, enemyBulletDmg: 3.2, enemyBulletLife: 1.6,
   aimAssist: 0.42,         // fraction of correction applied to MG bullets (toward lead point)
   gunRange: 1600,          // effective MG range for the lead pipper / "GUNS" cue
@@ -353,7 +353,7 @@ const CFG = {
 // so you dominate at cruise without having to crawl — keeps dogfights snappy.
 function speedT(sp){ return THREE.MathUtils.clamp((sp-CFG.minSpeed)/(CFG.boostSpeed-CFG.minSpeed),0,1); }
 // Player: strong, flatter curve — always agile, only mildly penalised at top speed.
-function playerTurnMultFor(sp){ return THREE.MathUtils.lerp(1.9, 1.0, speedT(sp)); }
+function playerTurnMultFor(sp){ return THREE.MathUtils.lerp(2.0, 0.95, speedT(sp)); }   // slightly steeper: braking to turn pays off, boosting costs agility (still inside the fairness cap)
 // Enemies: noticeably less agile than the player at any matched speed.
 function turnMultFor(sp){ return THREE.MathUtils.lerp(1.5, 0.5, speedT(sp)); }
 function pitchMultFor(sp){ return THREE.MathUtils.lerp(1.25, 0.85, speedT(sp)); }
@@ -466,7 +466,7 @@ const CAMPAIGN = [
       { id:'probe', kind:'destroyAir', count:6, primary:true, label:'Die neue Drohnenformation ausschalten' },
       { id:'struct', kind:'minHP', hp:25, primary:false, label:'Struktur über 25% halten' },
     ],
-    spawns:{ air:[['f18',3,'aggressor'],['f22',3]], ace:'f22' },
+    spawns:{ air:[['f18',3,'aggressor'],['f22',3]], waveDelay:true },
     intro:['WAGNER|Kein Funk, keine Prahlerei diesmal. Sie greifen einfach an.','?|…—kzzt— …ist da wer? Hört mich irgendjemand auf diesem Kanal?'],
     win:['?|Endlich! Deutsche Kennung — du fliegst manuell, oder? Gott sei Dank. Hier spricht Hauptmann Lärche. Ich dachte, ich bin die Letzte.','WAGNER|Lärche? Das ist unmöglich. Ihre Staffel gilt seit dem ersten Tag als verloren.'],
     cutsceneAfter:'lerche',
@@ -580,10 +580,10 @@ const CAMPAIGN = [
     id:'m11', name:'Der Schwarm', type:'air', tod:'night', act:2,
     story:`<span class="who">LÄRCHE:</span> Das ist es, wovor HELIOS uns geschützt hat. PROMETHEUS hat einen Kamikaze-Schwarm gebaut — hunderte kleine, dumme, tödliche Dinger, die nur eine Regel kennen: treffen. Kein Verhandeln, kein Muster, kein Erbarmen. Wir müssen durch, koste es, was es wolle. Bleib schnell, bleib unberechenbar. Wer stehen bleibt, stirbt.`,
     objectives:[
-      { id:'swarm', kind:'destroyAir', count:12, primary:true, label:'Durch den Schwarm brechen (12)' },
+      { id:'swarm', kind:'destroyAir', count:10, primary:true, label:'Durch den Schwarm brechen (10)' },
       { id:'survive', kind:'minHP', hp:1, primary:false, label:'Am Leben bleiben' },
     ],
-    spawns:{ air:[['f16',6],['f18',4],['f22',2]], ace:'f22', waveDelay:true },
+    spawns:{ air:[['f16',5],['f18',3],['f22',2]], ace:'f22', waveDelay:true },
     intro:['LÄRCHE|Sie kommen in Wellen. Immer weiter. Halt durch!','WAGNER|Ich zähl deine Treffer mit, Geier. Zwölf, dann ist die Bresche offen.'],
     win:['LÄRCHE|Die Bresche ist offen! Vor uns liegt der Kern von PROMETHEUS. Und … da ist noch etwas. Eine Stimme. HELIOS’ Stimme.'],
     cutsceneAfter:'choice',
@@ -630,7 +630,7 @@ const BTEAM_PILOTS = {
 // Brotzeit: a pre-mission risk/reward pick (B-Team only). bz sets resting combat modifiers.
 const BROTZEIT = {
   helles:    { label:'🍺 Helles',     note:'„Schwips" — engere Kurven, aber zittrigeres Zielen', bz:{dmg:1,   fire:1,    turn:1.18, wobble:0.02,  hp:0}  },
-  weisswurst:{ label:'🌭 Weißwurst',  note:'Satt & zufrieden — +25 Struktur',                    bz:{dmg:1,   fire:1,    turn:1,    wobble:0,     hp:25} },
+  weisswurst:{ label:'🌭 Weißwurst',  note:'Satt & zufrieden — +25 Struktur, aber etwas träger',   bz:{dmg:1,   fire:1,    turn:0.96, wobble:0,     hp:25} },
   radler:    { label:'🍋 Radler',     note:'Ausgewogen — etwas mehr Feuerkraft',                 bz:{dmg:1.12,fire:1.05, turn:1,    wobble:0,     hp:0}  },
   espresso:  { label:'☕ Espresso',    note:'Schnelleres Nachladen — aber nervöser Finger',       bz:{dmg:1,   fire:1.28, turn:1,    wobble:0.012, hp:0}  },
 };
@@ -690,10 +690,10 @@ const BTEAM_CAMPAIGN = [
     id:'b4', name:'Bierzelt-Taktik', type:'air', tod:'dusk', hero:'sepp', wingman:true,
     story:`<span class="who">SEPP:</span> Zuhör'n. I hab an Plan. Er is beklopft. Er is so beklopft, dass ihn kei Computer der Welt kommen sieht — genau DES is der Trick. Wir fliegen rein wie zwei Besoffene beim Schafkopf: null Muster, ois auf Zufall. Die Rechenkisten drehn durch, weil sie nix vorausrechnen können. <span class="who">WIGGERL:</span> „Also fliegen wir einfach wie immer?" <span class="who">SEPP:</span> „…ganz genau wie immer, Bua."`,
     objectives:[
-      { id:'break', kind:'destroyAir', count:8, primary:true, label:'Die verwirrte Drohnenwand zerlegen (8)' },
+      { id:'break', kind:'destroyAir', count:7, primary:true, label:'Die verwirrte Drohnenwand zerlegen (7)' },
       { id:'struct', kind:'minHP', hp:20, primary:false, label:'Struktur über 20% halten' },
     ],
-    spawns:{ ally:true, air:[['f18',5,'aggressor'],['f22',3,'sniper']], ace:'f22', waveDelay:true },
+    spawns:{ ally:true, air:[['f18',4,'aggressor'],['f22',3,'sniper']], ace:'f22', waveDelay:true },
     intro:['STIMME|PROGNOSE … NICHT MÖGLICH. WIEDERHOLE: NICHT MÖGLICH.','SEPP|Hörst as? De schnoin durch. Genau so gfoit ma des.'],
     win:['WIGGERL|Warad des jetzt guad oda schlecht? …de san jedenfalls oi weg.','SEPP|Des, Bua, war a Meisterwerk. Merk dir des.'],
   },
@@ -813,13 +813,14 @@ function recordMission(def, res){
 function totalStars(){ let n=0; for(const m of CAMPAIGN){ const r=SAVE.missions[m.id]; if(r) n+=(r.stars||0); } return n; }
 function refreshUnlocks(){
   SAVE.unlocks.ace = CAMPAIGN.slice(0,8).every(m=>SAVE.missions[m.id] && SAVE.missions[m.id].cleared);
-  SAVE.unlocks.goldWings = totalStars()>=21;
+  SAVE.unlocks.goldWings = totalStars()>=48;   // ~80% of 60 -> a real 'master almost everything' goal (was 21 = auto on any completion)
 }
 function rateMission(def, r){
   const par = def.par || DEFAULT_PAR[def.type] || 200;
-  const cStruct  = r.hp >= 65;
+  const mx = player.maxHp||CFG.playerHP;                       // ratio-based so Weißwurst (+25 max) can't cheese the star gates
+  const cStruct  = r.hp/mx >= 0.65;
   const cTime    = r.elapsed <= par;
-  const cFinesse = r.landReq ? r.landClean : (r.hp >= 92);
+  const cFinesse = r.landReq ? r.landClean : (r.hp/mx >= 0.92);
   return Math.min(3, 1 + (cStruct?1:0) + (cTime?1:0) + (cFinesse?1:0));
 }
 const MEDAL=['','BRONZE','SILBER','GOLD'];
@@ -1798,7 +1799,7 @@ const player = {
   roll: 0,           // visual bank only, radians
   yawRate: 0, pitchRate: 0, yawSign: 1,  // smoothed input rates for inertia; yawSign = screen-yaw orientation (hysteresis)
   bombs: 0, agms: 0, weapon:'missile', bombCd:0, agmCd:0,   // secondary weapon: 'missile' | 'agm' | 'bomb'
-  fireCd: 0, missileCd: 0, reloadT: 0,
+  fireCd: 0, missileCd: 0, reloadT: 0, missileRegen: 0,
   alive: true, boost:false, crashCd:0,
   hero:null,               // B-Team: 'sepp' | 'wiggerl' (drives Grantl/Dusel); null in HELIOS/endless
   // combat modifiers (Brotzeit sets the resting values; Grantl-Modus multiplies on top)
@@ -1822,7 +1823,7 @@ function resetPlayer(){
   player.vel.set(0,0,-1);
   player.speed=CFG.cruiseSpeed; player.hp=CFG.playerHP; player.maxHp=CFG.playerHP; player.missiles=CFG.missileMax;
   player.bombs=0; player.agms=0; player.weapon='missile'; player.bombCd=0; player.agmCd=0;
-  player.alive=true; player.fireCd=0; player.missileCd=0; player.reloadT=0; player.crashCd=0;
+  player.alive=true; player.fireCd=0; player.missileCd=0; player.reloadT=0; player.missileRegen=0; player.crashCd=0;
   player.onGround=false; player.gearDown=true; player.gearRetractT=0; player.vy=0; player.landed=false; player.runway=null; player.hero=null;
   player.bz={dmg:1,fire:1,turn:1,wobble:0,hp:0}; player.dmgMul=1; player.fireRateMul=1; player.turnMul=1; player.aimWobble=0;
   player.grantl=0; player.grantlActive=false; player.grantlT=0; player.duselFlash=0; player._lastHp=player.hp;
@@ -1855,7 +1856,7 @@ const missileGeo=new THREE.CylinderGeometry(0.35,0.35,4,8); missileGeo.rotateX(M
 const missileMat=new THREE.MeshStandardMaterial({color:0xdddddd, metalness:0.4, roughness:0.5, emissive:0x220000});
 const enemyMissileMat=new THREE.MeshStandardMaterial({color:0x662222, metalness:0.4, roughness:0.5, emissive:0xff2200, emissiveIntensity:0.8});
 function fireMissile(){
-  if(player.missiles<=0 || player.reloadT>0) return;
+  if(player.missiles<=0 || player.missileCd>0) return;   // per-shot cadence spreads the salvo (was a dead var = instant 6-round dump)
   // Only guided if there is a genuine lock. No lock = DUMB-FIRE: flies straight,
   // never re-acquires, and only detonates on a target it physically hits.
   const target = currentLock || null;
@@ -1870,8 +1871,9 @@ function fireMissile(){
   const mi={ mesh, vel:fwd.clone().multiplyScalar(Math.max(player.speed, CFG.missileLaunchSpeed)), speed:Math.max(player.speed, CFG.missileLaunchSpeed), target, guided:!!target, life:CFG.missileLife, trailCd:0 };
   mi.snd=Audio.startMissileSound(); missiles.push(mi);
   Audio.missileLaunch(0);
+  player.missileCd=0.45;                       // ~0.45s between shots -> lock re-acquires, salvo spreads across targets
+  player.missileRegen=CFG.missileRegen;        // pause the regen right after a shot
   updateMissileHUD();
-  if(player.missiles===0){ player.reloadT=6; } // auto reload after depletion
 }
 
 /* ---------------------------------------------------------------------------
@@ -1961,7 +1963,7 @@ function updateBombs(dt){
       // splash damage to nearby ground targets
       for(const gt of groundTargets){ if(gt.dead) continue;
         const d=Math.hypot(b.mesh.position.x-gt.obj.position.x, b.mesh.position.z-gt.obj.position.z);
-        if(d<gt.radius+35) damageGround(gt, 700*(1-d/(gt.radius+35))); }
+        if(d<gt.radius+22) damageGround(gt, 450*(1-d/(gt.radius+22))); }   // tighter/weaker splash -> CCIP accuracy matters (direct hit still 1000 = one-shot)
       scene.remove(b.mesh); bombs.splice(i,1);
     }
   }
@@ -2022,7 +2024,7 @@ function buildGroundModel(tag){
     const col=new THREE.Mesh(new THREE.CylinderGeometry(2.5,3.5,26,8), GROUND_MAT_DARK); col.position.y=13; g.add(col);
     const ring=new THREE.Mesh(new THREE.TorusGeometry(5,1,8,20), new THREE.MeshStandardMaterial({color:0x992222, emissive:0xff2200, emissiveIntensity:1.2, metalness:0.4, roughness:0.3}));
     ring.position.y=24; ring.rotation.x=Math.PI/2; g.add(ring); g.userData.spin=ring;
-    return {g, radius:16, height:30, hp:110};
+    return {g, radius:16, height:30, hp:110, sam:true};   // pylons now actually fire — clearing each cuts incoming fire (was inert scenery)
   }
   if(tag==='bunker'){ // hardened bunker — high HP, low profile; a proper AGM target
     const base=new THREE.Mesh(new THREE.BoxGeometry(18,7,18), GROUND_MAT_DARK); base.position.y=3.5; g.add(base);
@@ -2091,9 +2093,9 @@ const enemies=[];
 // turn WIDER than the player (turnMultFor << playerTurnMultFor) → you have a clear
 // maneuver edge without needing to brake to a crawl.
 const ENEMY_STATS={
-  f16:{ hp:34, cruise:300, max:420, baseTurn:1.35, radius:22, score:100, fireRange:1350, fireCd:0.11, burst:5, missileChance:0.0 },
-  f18:{ hp:54, cruise:290, max:410, baseTurn:1.20, radius:24, score:180, fireRange:1450, fireCd:0.10, burst:7, missileChance:0.10 },
-  f22:{ hp:104, cruise:330, max:470, baseTurn:1.65, radius:28, score:400, fireRange:1650, fireCd:0.09, burst:9,  missileChance:0.22 },
+  f16:{ hp:34, cruise:300, max:420, baseTurn:1.35, radius:22, score:100, fireRange:1350, fireCd:0.11, burst:5, missileChance:0.0,  accuracy:0.058 },
+  f18:{ hp:54, cruise:290, max:410, baseTurn:1.20, radius:24, score:180, fireRange:1450, fireCd:0.10, burst:7, missileChance:0.10, accuracy:0.044 },
+  f22:{ hp:104, cruise:330, max:470, baseTurn:1.65, radius:28, score:400, fireRange:1400, fireCd:0.09, burst:9, missileChance:0.22, accuracy:0.032 },
 };
 // Personalities layered on the engage/break/extend/flee FSM. Multipliers vs base.
 // FAIRNESS: baseTurn*turnMul must stay <= ~1.85 for any base so the player's
@@ -2101,7 +2103,7 @@ const ENEMY_STATS={
 const PERSONALITIES={
   grunt    :{ turnMul:1.00, spdMul:1.00, hpMul:1.00, aggro:0.60, closeR:450, standoff:0,    breakBias:1.00, missiles:0, evade:0.0 },
   aggressor:{ turnMul:1.00, spdMul:1.05, hpMul:1.15, aggro:0.90, closeR:320, standoff:0,    breakBias:0.55, missiles:0, evade:0.0 },
-  sniper   :{ turnMul:0.90, spdMul:0.95, hpMul:0.85, aggro:0.30, closeR:450, standoff:1400, breakBias:1.40, missiles:2, evade:0.0 },
+  sniper   :{ turnMul:0.90, spdMul:0.95, hpMul:0.85, aggro:0.42, closeR:450, standoff:1150, breakBias:1.20, missiles:2, evade:0.0 },
   ace      :{ turnMul:1.12, spdMul:1.10, hpMul:1.50, aggro:0.80, closeR:380, standoff:0,    breakBias:1.00, missiles:1, evade:0.75 },
 };
 const ACE_NAMES=['NEMESIS-1','LEITWOLF','REVENANT-9','KRÖNUNG','SCHWARZE WITWE','FAFNIR-7'];
@@ -2111,7 +2113,7 @@ function pickPersonality(type){
   const r=Math.random();
   if(type==='f16') return r<0.80?'grunt':'aggressor';
   if(type==='f18') return r<0.55?'grunt':(r<0.85?'aggressor':'sniper');
-  return r<0.35?'grunt':(r<0.70?'aggressor':'sniper');   // f22
+  return r<0.45?'grunt':(r<0.80?'aggressor':'sniper');   // f22 (sniper share ~20% so fights commit to the merge)
 }
 function spawnEnemy(type, pos, persona){
   const st=ENEMY_STATS[type];
@@ -2124,7 +2126,8 @@ function spawnEnemy(type, pos, persona){
     speed:st.cruise*pk.spdMul, roll:0,
     state:'engage', stateT:1+Math.random()*1.5,   // AI state machine + timer
     fireCd:Math.random()*1, burstLeft:0, burstCd:0,
-    missilesLeft:pk.missiles, mslCd:3+Math.random()*3,
+    missilesLeft: pk.missiles + ((pk.missiles===0 && st.missileChance>0 && Math.random()<st.missileChance)?1:0),  // non-sniper f18/f22 sometimes pack one shot (missileChance was dead before)
+    mslCd:3+Math.random()*3,
     wing:null, pinRole:null, pinSide:1, pinT:0, evadeT:0,
     jinkDir:(Math.random()<0.5?-1:1), jinkPhase:Math.random()*Math.PI*2,
     isAce:false, aceName:null,
@@ -2239,9 +2242,7 @@ function updateMissileHUD(){
 }
 function updateWeaponHUD(){
   const sel=player.weapon;
-  const mslLine = player.reloadT>0
-    ? `<div style="color:#ff9a5a">✦ RAKETE — NACHLADEN…</div>`
-    : `<div class="${sel==='missile'?'wsel':''}">✦ RAKETE ${player.missiles}${sel==='missile'?' ◄':''}</div>`;
+  const mslLine = `<div class="${sel==='missile'?'wsel':''}">✦ RAKETE ${player.missiles}${player.missiles<CFG.missileMax?' <span style="color:#ff9a5a">⟳</span>':''}${sel==='missile'?' ◄':''}</div>`;
   dom.weaponTab.innerHTML = mslLine +
     (player.agms>0 ? `<div class="${sel==='agm'?'wsel':''}">◈ LB-RAKETE ${player.agms}${sel==='agm'?' ◄':''}</div>` : '')+
     (player.bombs>0 ? `<div class="${sel==='bomb'?'wsel':''}">💣 BOMBE ${player.bombs}${sel==='bomb'?' ◄':''}</div>` : '');
@@ -2567,6 +2568,7 @@ function drawHUD(){
    --------------------------------------------------------------------------- */
 let state='menu'; // menu, playing, paused, gameover
 let score=0, wave=0, waveActive=false, betweenTimer=0, shake=0, menuTime=0;
+let endlessQueue=[], endlessReinforceT=0;   // endless reinforcement drip
 let combo=0, comboT=0;   // kill-streak multiplier: consecutive kills within a time window
 // --- Juice / hit-feel timers (ALL decay on real time = rawDt, never scaled dt) ---
 let hitStop=0, slowmo=0;            // drive the global timescale in loop()
@@ -2578,15 +2580,19 @@ let killPopT=0;                     // HUD score pop
 function startWave(n){
   wave=n; dom.wave.textContent=n; waveActive=true;
   const ace = endlessMod==='ace';
-  const count = Math.min((ace?4:3)+Math.floor(n*0.8), ace?10:9);
   let f22 = (n>=3 ? Math.floor((n-1)/3) : 0) + (ace?1:0);
   let f18 = Math.floor(n/2);
-  let f16 = Math.max(1, count - f18 - f22);
-  const list=[];
+  let f16 = Math.max(1, (ace?4:3)+Math.floor(n*0.8) - f18 - f22);
+  let list=[];
   for(let i=0;i<f16;i++) list.push('f16');
   for(let i=0;i<f18;i++) list.push('f18');
   for(let i=0;i<f22;i++) list.push('f22');
-  for(const t of list) spawnEnemyNear(t);
+  // hard cap: drop f16 first, then f18 (keep f22 count as the difficulty lever) so late waves don't balloon to 16-25 planes
+  const CAP = ace?14:12;
+  while(list.length>CAP){ const i=list.indexOf('f16'); if(i>=0) list.splice(i,1); else { const j=list.indexOf('f18'); if(j>=0) list.splice(j,1); else break; } }
+  // spawn up to 8 now, drip the rest -> a dense staggered wall instead of one overwhelming burst
+  const now=list.slice(0,8); endlessQueue=list.slice(8); endlessReinforceT=1.4;
+  for(const t of now) spawnEnemyNear(t);
   banner('WELLE '+n, list.length+' FEINDLICHE DROHNEN');
   dom.enemies.textContent=enemies.length;
 }
@@ -2605,14 +2611,20 @@ function spawnAce(type, pos){
   radio('HELIOS|'+e.aceName+' übernimmt.'); Audio.warnBeep();
   return e;
 }
-function nextWaveCheck(){
+function nextWaveCheck(dt){
   if(gameMode!=='endless') return;
-  if(waveActive && enemies.length===0){
+  // drip reinforcements so a big wave staggers in (keep ~8 alive) instead of a single burst
+  if(endlessQueue.length){
+    endlessReinforceT-=dt;
+    if(endlessReinforceT<=0 && enemies.length<8){ spawnEnemyNear(endlessQueue.shift()); endlessReinforceT=1.4; dom.enemies.textContent=enemies.length; }
+  }
+  if(waveActive && enemies.length===0 && endlessQueue.length===0){
     waveActive=false; betweenTimer=4.0;
-    player.hp=Math.min(player.maxHp, player.hp+30);
-    player.missiles=CFG.missileMax; player.reloadT=0; updateMissileHUD();
+    const heal=Math.max(12, 30-wave);   // heal tapers with wave -> chip damage accumulates, every clear stays sweaty
+    player.hp=Math.min(player.maxHp, player.hp+heal);
+    player.missiles=CFG.missileMax; player.missileRegen=0; updateMissileHUD();
     Audio.reload();
-    banner('WELLE '+wave+' GESCHAFFT', 'Aufmunitioniert · +30 Struktur');
+    banner('WELLE '+wave+' GESCHAFFT', 'Aufmunitioniert · +'+heal+' Struktur');
   }
 }
 
@@ -2654,7 +2666,7 @@ function resetWorld(){
   for(const b of bombs) scene.remove(b.mesh); bombs.length=0;
   pincerCd=6; acePincerAnnounced=false; rwrT=0;
   clearGroundTargets(); clearBoss(); clearRunway(); clearAlly();
-  score=0; wave=0; waveActive=false; betweenTimer=2.0; shake=0; combo=0; comboT=0; winLocked=false; _lastEnemyCount=-1;
+  score=0; wave=0; waveActive=false; betweenTimer=2.0; shake=0; combo=0; comboT=0; winLocked=false; _lastEnemyCount=-1; endlessQueue.length=0; endlessReinforceT=0;
   if(dom.score) dom.score.textContent='0';
   player.obj.visible=true;
   resetPlayer();
@@ -2949,7 +2961,7 @@ function setupMission(index){
   // A mission may override counts via def.bombs / def.agms (and a default via def.weapon).
   const needsGround = def.objectives.some(o=>o.kind==='destroyGround');
   player.missiles=CFG.missileMax;
-  player.bombs = (def.bombs!=null) ? def.bombs : (needsGround ? 12 : 0);
+  player.bombs = (def.bombs!=null) ? def.bombs : (needsGround ? 8 : 0);
   player.agms  = (def.agms!=null)  ? def.agms  : (needsGround ? CFG.agmMax : 0);
   player.weapon = def.weapon || (player.bombs>0 ? 'bomb' : (player.agms>0 ? 'agm' : 'missile'));
   updateMissileHUD();
@@ -3006,7 +3018,7 @@ function setupMission(index){
     spawnAlly({ name:other.name, full:other.name, color:other.color, hp:ALLY_HP });
   } else if(def.spawns.ally){ spawnAlly(); }
   // boss
-  if(def.spawns.boss){ spawnBoss(def.spawns.boss); }
+  if(def.spawns.boss){ spawnBoss(def.spawns.boss, !!(def.finale||def.choicePoint)); }
   // gauntlet: staggered waves handled in updateMission
   mission.gauntlet = !!def.spawns.waveDelay;
   if(mission.gauntlet){ mission.gauntletQueue=def.spawns.air.flatMap(([t,n,persona])=>Array(n).fill({t,persona})); mission.reinforceT=1.5; }
@@ -3226,11 +3238,12 @@ function fireAllyBullet(pos, dir, target){
    --------------------------------------------------------------------------- */
 let boss=null;
 function clearBoss(){ if(boss){ scene.remove(boss.obj); boss=null; } dom.bosswrap.classList.remove('show'); }
-function spawnBoss(kind){
+function spawnBoss(kind, finale){
   const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion);
   const bx=player.obj.position.x+fwd.x*3800, bz=player.obj.position.z+fwd.z*3800;
   if(kind==='kronos') boss=buildKronos(bx,bz);
   else boss=buildAuge(bx,bz);
+  if(finale){ boss.hp=Math.round(boss.hp*1.25); boss.maxhp=boss.hp; boss.finale=true; }  // choice-point / finale climax: tougher core + bigger death
   scene.add(boss.obj);
   dom.bosswrap.classList.add('show');
   dom.bosswrap.querySelector('.bname').textContent=boss.name;
@@ -3285,7 +3298,11 @@ function buildAuge(x,z){
 }
 function updateBossBar(){
   if(!boss) return;
-  dom.bosswrap.querySelector('.bossbar>div').style.width = Math.max(0,(boss.hp/boss.maxhp*100))+'%';
+  // during the shield phase the bar tracks PARTS destroyed (0->40%); once exposed it's the real core HP
+  const barW = boss.exposed
+    ? Math.max(0, boss.hp/boss.maxhp*100)
+    : (boss.parts.length ? (1 - boss.parts.filter(p=>!p.dead).length/boss.parts.length)*40 : 0);
+  dom.bosswrap.querySelector('.bossbar>div').style.width = barW+'%';
   // live phase label: tell the player exactly what to shoot right now
   const partsAlive = boss.parts.filter(p=>!p.dead).length;
   const partName = boss.kind==='auge' ? 'PYLON' : 'TURM';
@@ -3309,7 +3326,8 @@ function killBoss(){
   slowmo=SLOWMO_DUR; shake=Math.max(shake,1.3); markHit(true,false);
   spawnDebris(p.x,p.y+20,p.z, 24, 2.2, true);
   // spectacular chain of explosions
-  for(let i=0;i<10;i++){ setTimeout(()=>{ if(!boss)return; groundExplode(p.x+(Math.random()-0.5)*120, p.y+20+Math.random()*40, p.z+(Math.random()-0.5)*180, 2.2); }, i*160); }
+  const nBoom=boss.finale?16:10;
+  for(let i=0;i<nBoom;i++){ setTimeout(()=>{ if(!boss)return; groundExplode(p.x+(Math.random()-0.5)*120, p.y+20+Math.random()*40, p.z+(Math.random()-0.5)*180, 2.2); }, i*160); }
   setTimeout(()=>{ clearBoss(); }, 1800);
   onBossDestroyed();
 }
@@ -3331,11 +3349,17 @@ function updateBoss(dt){
   // boss fires at player when exposed or (kronos) always
   boss.fireCd-=dt;
   if(boss.fireCd<=0 && player.alive){
-    boss.fireCd = boss.exposed?0.5:1.0;
     const src=new THREE.Vector3(); (boss.core||boss.eye||boss.obj).getWorldPosition(src); src.y+=10;
-    const d=player.obj.position.clone().sub(src).normalize();
-    d.x+=(Math.random()-0.5)*0.06; d.y+=(Math.random()-0.5)*0.06; d.z+=(Math.random()-0.5)*0.06;
-    fireBullet(src, d.normalize(), false);
+    const base=player.obj.position.clone().sub(src).normalize();
+    if(boss.exposed){
+      // exposed core has teeth: a telegraphed 3-shot fan (dodgeable by weaving) so you can't just park + hold fire
+      boss.fireCd=0.8;
+      for(const off of [-0.14,0,0.14]){ const d=base.clone(); d.x+=off; fireBullet(src, d.normalize(), false, 6); }
+    } else {
+      boss.fireCd=1.0;
+      const d=base.clone(); d.x+=(Math.random()-0.5)*0.06; d.y+=(Math.random()-0.5)*0.06;
+      fireBullet(src, d.normalize(), false);
+    }
   }
 }
 
@@ -3607,7 +3631,9 @@ function updatePlayer(dt){
 
   // --- Weapons ---
   player.fireCd-=dt; player.missileCd-=dt; if(player.bombCd>0) player.bombCd-=dt; if(player.agmCd>0) player.agmCd-=dt;
-  if(player.reloadT>0){ player.reloadT-=dt; if(player.reloadT<=0){ player.missiles=CFG.missileMax; updateMissileHUD(); Audio.reload(); } }
+  // regenerating missile magazine: +1 every missileRegen s while below max (no more all-or-nothing reload / stuck-at-1)
+  if(player.missiles<CFG.missileMax){ player.missileRegen-=dt;
+    if(player.missileRegen<=0){ player.missiles=Math.min(CFG.missileMax, player.missiles+1); player.missileRegen=CFG.missileRegen; updateMissileHUD(); if(player.missiles===CFG.missileMax) Audio.reload(); } }
   const firing = firingMouse || keys['Space'];
   if(firing && player.fireCd<=0){
     player.fireCd=CFG.fireInterval / (player.fireRateMul||1);           // Grantl / Espresso = faster
@@ -3693,7 +3719,7 @@ function updateBullets(dt){
         if(distSqPointSeg(gp.x,gp.y+gt.height*0.5,gp.z, ax,ay,az, sx,sy,sz) < (gt.radius*0.85)*(gt.radius*0.85)){ damageGround(gt, gt.bossPart? b.dmg : b.dmg*0.5); Audio.hit(screenPanX(gp)); markHit(false,false); hit=true; break; } } }
       // boss weak point (generous hit radius so guns are viable on the core)
       if(!hit && boss && boss.exposed){ (boss.core||boss.eye).getWorldPosition(_wp); const wr=boss.kind==='auge'?24:18;
-        if(distSqPointSeg(_wp.x,_wp.y,_wp.z, ax,ay,az, sx,sy,sz) < wr*wr){ damageBoss(b.dmg); Audio.hit(screenPanX(_wp)); markHit(false,false); hit=true; } }
+        if(distSqPointSeg(_wp.x,_wp.y,_wp.z, ax,ay,az, sx,sy,sz) < wr*wr){ damageBoss(b.dmg*0.5); Audio.hit(screenPanX(_wp)); markHit(false,false); hit=true; } }   // guns chip the core; missiles/AGM are the payoff
     } else {
       const pp=player.obj.position;
       if(player.alive && distSqPointSeg(pp.x,pp.y,pp.z, ax,ay,az, sx,sy,sz) < 14*14){
@@ -3794,6 +3820,8 @@ function killEnemy(e){
     killMsg('★ ACE ZERSTÖRT: '+e.aceName+'  +'+gain);
     banner('ACE ABGESCHOSSEN', e.aceName);
     player.hp=Math.min(player.maxHp, player.hp+15);
+    player.missiles=CFG.missileMax; player.missileRegen=0; updateMissileHUD();   // rearm on the marquee kill — closes the resource loop
+    Audio.reload();
   } else {
     const gain=Math.round(e.st.score*mult);
     score+=gain; dom.score.textContent=score;
@@ -3997,7 +4025,7 @@ function updateEnemies(dt){
           const muzzlePos=e.obj.position.clone().addScaledVector(cur,10);
           const lead=player.obj.position.clone().addScaledVector(player.vel, dist/CFG.enemyBulletSpeed*0.5);
           const d=lead.sub(muzzlePos).normalize();
-          d.x+=(Math.random()-0.5)*0.045; d.y+=(Math.random()-0.5)*0.045; d.z+=(Math.random()-0.5)*0.045;
+          const sc=st.accuracy||0.045; d.x+=(Math.random()-0.5)*sc; d.y+=(Math.random()-0.5)*sc;   // per-type accuracy (elites bite); no z-jitter
           fireBullet(muzzlePos, d.normalize(), false);
         }
       } else if(e.fireCd<=0){ e.fireCd=1.3+Math.random()*1.5; e.burstLeft=st.burst; e.burstCd=0; }
@@ -4037,15 +4065,14 @@ function updateGroundTargets(dt){
       if(gt.samLockT>1.2) anyLock=true;                 // launch-warning window
       gt.fireCd-=dt;
       if(gt.fireCd<=0 && gt.samLockT>1.2){
-        gt.fireCd=1.4+Math.random()*1.2;
+        gt.fireCd=2.6+Math.random()*1.0;
         const src=gt.obj.position.clone(); src.y+=gt.height*0.8;
         const lead=player.obj.position.clone().addScaledVector(player.vel, dist/CFG.enemyBulletSpeed*0.6);
-        const d=lead.sub(src).normalize();
-        d.x+=(Math.random()-0.5)*0.03; d.y+=(Math.random()-0.5)*0.03; d.z+=(Math.random()-0.5)*0.03;
-        fireBullet(src, d.normalize(), false);
+        const base=lead.sub(src).normalize();
+        // 3-round dodgeable burst (~5 dmg each) so overflying defended ground actually costs structure -> AGM standoff has a point
+        for(const off of [-0.05,0,0.05]){ const d=base.clone(); d.x+=off+(Math.random()-0.5)*0.03; d.y+=(Math.random()-0.5)*0.03; fireBullet(src, d.normalize(), false, 5); }
         Audio.samLaunch(screenPanX(src));
-        // tracer puff
-        fireP.spawn(src.x,src.y,src.z, d.x*200,d.y*200,d.z*200, 0.2, 16, 3, C_WHITE, C_RED, 0.9, 0);
+        fireP.spawn(src.x,src.y,src.z, base.x*200,base.y*200,base.z*200, 0.2, 16, 3, C_WHITE, C_RED, 0.9, 0);
       }
     } else { gt.samLockT=Math.max(0, gt.samLockT-dt*2); }
   }
@@ -4153,7 +4180,7 @@ function loop(now){
     updateBombs(dt);
     if(rwrT>0) rwrT-=rawDt;
     if(gameMode==='campaign') updateMission(dt);
-    nextWaveCheck();
+    nextWaveCheck(dt);
     if(gameMode==='endless' && betweenTimer>0){ betweenTimer-=dt; if(betweenTimer<=0 && !waveActive) startWave(wave+1); }
     // kill-combo window: lose the streak if no kill within the timeout
     if(comboT>0){ comboT-=dt; if(comboT<=0) combo=0; }
