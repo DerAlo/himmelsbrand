@@ -1255,7 +1255,7 @@ const Audio = (function(){
     snd.gain.gain.setTargetAtTime(0, t, 0.02); try{ snd.osc.stop(t+0.06); }catch(e){} missileVoiceCount=Math.max(0,missileVoiceCount-1);
   }
   function setStyle(s){ musicStyle = (s==='bteam') ? 'bteam' : 'score'; }
-  function _debug(){ return { state:ctx&&ctx.state, mode:musicMode, style:musicStyle, I:+musicIntensity.toFixed(3), bar:musicBar, step:step16,
+  function _debug(){ return { state:ctx&&ctx.state, mode:musicMode, style:musicStyle, bus:musicBus?+musicBus.gain.value.toFixed(3):0, I:+musicIntensity.toFixed(3), bar:musicBar, step:step16,
     pad:padGain?+padGain.gain.value.toFixed(3):0, bass:bassGain?+bassGain.gain.value.toFixed(3):0, arp:arpGain?+arpGain.gain.value.toFixed(3):0,
     lead:leadGain?+leadGain.gain.value.toFixed(3):0, perc:percGain?+percGain.gain.value.toFixed(3):0,
     brass:brassGain?+brassGain.gain.value.toFixed(3):0, menace:menaceGain?+menaceGain.gain.value.toFixed(3):0,
@@ -2639,7 +2639,7 @@ function showScreen(id){
 }
 function gotoMenu(){
   state='menu'; gameMode='menu'; mission.active=false;
-  Audio.setStyle('score'); Voice.stop();
+  Audio.setStyle('score'); Voice.stop(); Audio.duckMusic(false);   // undo any pause-duck (Pause->Menü left the music bus at 0)
   clearVictoryTimer();
   clearGroundTargets(); clearBoss(); clearRunway(); clearAlly();
   for(const e of enemies) scene.remove(e.obj); enemies.length=0;
@@ -2674,7 +2674,7 @@ function resetWorld(){
 
 /* ===== ENDLESS ===== */
 function startEndless(mod){
-  Audio.init(); Audio.resume(); Audio.setStyle('score');
+  Audio.init(); Audio.resume(); Audio.setStyle('score'); Audio.duckMusic(false);
   campaignId='helios';   // endless is not a B-Team run — avoid comedy-label leak
   endlessMod = mod || null;           // set fresh every run (never carried over)
   gameMode='endless'; mission.active=false;
@@ -2695,7 +2695,7 @@ function startEndless(mod){
 function launchMission(index){
   Audio.init(); Audio.resume();
   gameMode='campaign';
-  Audio.setStyle(campaignId==='bteam' ? 'bteam' : 'score');
+  Audio.setStyle(campaignId==='bteam' ? 'bteam' : 'score'); Audio.duckMusic(false);
   showScreen(null);
   { const ws=document.getElementById('wavestat'); if(ws) ws.style.display='none'; }  // no WELLE counter in scripted campaign
   resetWorld();
