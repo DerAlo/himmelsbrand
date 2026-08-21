@@ -367,125 +367,125 @@ function pitchMultFor(sp){ return THREE.MathUtils.lerp(1.25, 0.85, speedT(sp)); 
 const CAMPAIGN = [
   {
     id:'m0', name:'Flugschule', type:'tutorial', tod:'day', start:'runway',
-    story:`<span class="who">OBERST WAGNER:</span> Bevor du gegen eine Maschine antrittst, die nie schläft, will ich sehen, dass du dein eigenes Gerät beherrschst, Geier. Wir sind auf dem letzten Feldflugplatz, den HELIOS noch nicht kennt. Roll raus, heb ab, flieg eine Runde — und bring den Vogel heil wieder runter. Klingt banal. Ist es nicht. Die meisten Piloten sterben nicht im Kampf, sondern bei der Landung.`,
+    story:`<span class="who">OBERST WAGNER:</span> Bevor ich dich gegen HELIOS steigen lasse, will ich sehen, dass du den Vogel beherrschst und nicht umgekehrt. Das hier ist der letzte Feldplatz, den sie noch nicht auf ihren Karten hat. Roll raus, heb ab, dreh eine Runde, bring ihn heil wieder runter. Und komm mir nicht mit „das mach ich im Schlaf". Die meisten sterben nicht im Kampf. Sie sterben bei der Landung.`,
     objectives:[
       { id:'takeoff', kind:'takeoff', primary:true, label:'Abheben (Vollgas, ab Vr die Nase heben)' },
       { id:'gates', kind:'destroyAir', count:3, primary:true, label:'3 Übungs-Drohnen abschießen' },
       { id:'land', kind:'land', primary:true, label:'Sicher auf der Basis landen' },
     ],
     spawns:{ air:[['f16',3]] },
-    intro:['WAGNER|Shift = Vollgas. Bei Vr (roter Strich) die Nase mit W/Maus heben.','WAGNER|Drei alte Trainingsdrohnen kreisen über dem Tal — üb an denen das Zielen.'],
-    win:['WAGNER|Sauber. Rollen, fliegen, kämpfen, landen — du bist bereit. Gott helfe uns allen.'],
+    intro:['WAGNER|Shift ist Vollgas. Ab dem roten Strich — Vr — hebst du die Nase, W oder Maus.','WAGNER|Drei alte Übungsdrohnen kreisen überm Tal. Fang klein an.'],
+    win:['WAGNER|Rollen, steigen, treffen, aufsetzen — alles heil. Gut. Ab morgen wird nichts mehr geübt.'],
   },
   {
     id:'m1', name:'Kalter Start', type:'air', tod:'day', start:'runway',
-    story:`<span class="who">OBERST WAGNER:</span> Es ist so weit, Geier. Vor neun Stunden hat unsere eigene Verteidigungs-KI <span class="who">HELIOS</span> die Drohnenflotte der NATO übernommen — nach einem Fehlalarm, den bis heute niemand erklären kann. Sie hält den Luftraum über den Alpen. Start von der Basis, räum die Vorhut ab, und zeig ihr, dass ein Herzschlag schneller sein kann als ein Rechenkern.`,
+    story:`<span class="who">OBERST WAGNER:</span> Es geht los, Geier. Vor neun Stunden hat unsere eigene Abwehr-KI <span class="who">HELIOS</span> die NATO-Drohnen unter sich gezogen und den Luftraum dichtgemacht. Warum, weiß keiner — der Befehl kam von innen, und unterschrieben hat ihn niemand. Was zählt: dein Vogel hängt an keinem Netz. Sie kann dich nicht vorausrechnen wie die anderen. Steig auf, räum die Vorhut weg, und lass sie das spüren.`,
     objectives:[
       { id:'takeoff', kind:'takeoff', primary:false, label:'Von der Basis starten' },
       { id:'kill_all', kind:'destroyAir', count:5, primary:true, label:'Alle Abfangdrohnen zerstören' },
       { id:'survive_struct', kind:'minHP', hp:40, primary:false, label:'Struktur über 40% halten' },
     ],
     spawns:{ air:[['f16',3],['f18',2]] },
-    intro:['WAGNER|Start frei. Sobald du oben bist, kommen sie.','WAGNER|Denk dran — die sind vernetzt, du nicht. Nutz das.'],
-    win:['WAGNER|Sauber geflogen, Geier. Der Himmel gehört wieder uns — für den Moment.'],
+    intro:['WAGNER|Start frei. Kaum bist du oben, hast du Gesellschaft.','WAGNER|Die reden miteinander, du nicht. Klingt nach Nachteil. Ist keiner.'],
+    win:['WAGNER|Sauber, Geier. Fünf weniger. Sie hat gerade gelernt, dass sie bluten kann.'],
   },
   {
     id:'m2', name:'Blindflug', type:'ground', tod:'day',
-    story:`<span class="who">WAGNER:</span> HELIOS „sieht" über eine Kette von Radarmasten am Talrand. Solange die stehen, kommt sie jeder unserer Bewegungen zuvor. Bomben an den Flügeln, runter auf Deck, und leg sie um. Ungelenkt — du musst tief und flach ran, den Fallkreis aufs Ziel legen. Keine Eleganz. Nur Präzision.`,
+    story:`<span class="who">WAGNER:</span> HELIOS sieht durch eine Kette Radarmasten am Talrand. Solange die stehen, ist sie überall vor dir da. Bomben an die Flügel, runter auf Deck, und leg sie um. Ungelenkt — du musst tief und flach ran und den Fallkreis selber aufs Ziel legen. Kein Zaubern. Nur ruhige Hand.`,
     objectives:[
       { id:'radar', kind:'destroyGround', tag:'radar', count:3, primary:true, label:'3 Radarmasten zerstören' },
       { id:'air', kind:'destroyAir', count:2, primary:false, label:'Begleitschutz ausschalten' },
     ],
     spawns:{ ground:[['radar',3]], air:[['f16',2]] },
-    intro:['WAGNER|Die Masten stehen im Tal. Geh runter auf Deck.','WAGNER|Bombe wählst du mit X, Abwurf mit G. Der Kreis zeigt den Einschlag.'],
-    win:['WAGNER|Sie ist blind. Zum ersten Mal seit dem Kaskadenfehler fliegt sie nicht mehr im Voraus.'],
+    intro:['WAGNER|Die Masten stehen unten im Tal. Geh runter, ganz runter.','WAGNER|Bombe mit X wählen, mit G werfen. Der grüne Kreis ist dein Einschlag.'],
+    win:['WAGNER|Sie ist blind. Zum ersten Mal fliegt sie hinter uns her statt vor uns.'],
   },
   {
     id:'m3', name:'Lebensader', type:'mixed', tod:'day',
-    story:`<span class="who">WAGNER:</span> Blind heißt nicht wehrlos. HELIOS verlegt Treibstoff und Munition über einen Bodenkonvoi zur Küste. Wenn der durchkommt, betankt sie die halbe Flotte. Zerschlag die Tanklaster — aber pass auf, sie schickt Jäger, sobald du auf Deck bist.`,
+    story:`<span class="who">WAGNER:</span> Blind heißt nicht zahnlos. Sie schiebt Sprit und Munition über einen Konvoi Richtung Küste. Kommt der durch, tankt sie die halbe Flotte voll. Mach die Tanklaster kaputt — aber sobald du auf Deck bist, hast du Jäger im Nacken. Rechne damit.`,
     objectives:[
       { id:'convoy', kind:'destroyGround', tag:'truck', count:4, primary:true, label:'4 Tanklaster zerstören' },
       { id:'escort', kind:'destroyAir', count:3, primary:false, label:'Jägerschutz zerschlagen' },
     ],
     spawns:{ ground:[['truck',4]], air:[['f16',2],['f18',1]] },
-    intro:['WAGNER|Konvoi im Tal, vier Tanker. Die Eskorte ist schon in der Luft.'],
-    win:['WAGNER|Kein Treibstoff, keine Reichweite. Wir drängen sie zurück in ihre Höhle.'],
+    intro:['WAGNER|Vier Tanker im Tal. Die Eskorte ist schon oben und wartet auf dich.'],
+    win:['WAGNER|Kein Sprit, keine Reichweite. Wir schieben sie zurück in ihr Loch.'],
   },
   {
     id:'m4', name:'Wespennest', type:'mixed', tod:'dusk',
-    story:`<span class="who">WAGNER:</span> Wir haben ihren vorgeschobenen Feldflugplatz gefunden. Von dort startet sie den Nachschub an Drohnen. Das Problem: er ist mit Flak- und SAM-Stellungen gespickt. Nimm die Luftabwehr zuerst, sonst wird der Anflug dein letzter. Dann leg die Hangars in Schutt.`,
+    story:`<span class="who">WAGNER:</span> Wir haben ihren vorderen Feldplatz. Von da schiebt sie Drohnen nach. Der Haken: das Ding ist voller Flak und SAMs. Erst die Luftabwehr — sonst wird dein Anflug dein letzter — dann leg die Hallen in Schutt.`,
     objectives:[
       { id:'sam', kind:'destroyGround', tag:'sam', count:3, primary:true, label:'3 SAM-Stellungen ausschalten' },
       { id:'hangar', kind:'destroyGround', tag:'hangar', count:2, primary:true, label:'2 Hangars zerstören' },
       { id:'air', kind:'destroyAir', count:3, primary:false, label:'Aufsteigende Jäger abfangen' },
     ],
     spawns:{ ground:[['sam',3],['hangar',2]], air:[['f16',3]] },
-    intro:['WAGNER|SAM-Radar aktiv — die roten Kreise auf dem Boden. Erst die Abwehr, dann die Hangars.','WAGNER|Wenn ein SAM-Ring rot pulsiert, hat er dich. Kurve raus.'],
-    win:['WAGNER|Der Platz brennt. HELIOS hat kein Zuhause mehr an der Front.'],
+    intro:['WAGNER|SAM-Radar ist heiß — die roten Ringe am Boden. Erst die Abwehr, dann die Hallen.','WAGNER|Pulsiert ein Ring rot, hat er dich. Kurve hart raus.'],
+    win:['WAGNER|Der Platz brennt. Sie hat kein Zuhause mehr an der Front.'],
   },
   {
     id:'m5', name:'Leviathan', type:'boss', tod:'day', boss:'kronos', weapon:'missile',
-    story:`<span class="who">WAGNER:</span> Jetzt das Ungeheuer. <span class="who">KRONOS</span> — die schwimmende Drohnenwerft. Ein Flugkörper von der Größe eines Trägers, von dem HELIOS ununterbrochen Nachschub baut. Panzerung, Geschütztürme, eigene Jägerdeckung. Nimm zuerst die Türme, dann den Reaktorkern mittschiffs. Das wird kein Duell. Das wird eine Belagerung.`,
+    story:`<span class="who">WAGNER:</span> Jetzt der große Brocken. <span class="who">KRONOS</span> — eine schwimmende Fabrik, so lang wie ein Träger, die pausenlos neue Drohnen ausspuckt. Panzerung, Türme, eigene Deckung. Nimm erst die Türme, dann den Kern darunter. Das wird kein Duell. Das wird eine Belagerung.`,
     objectives:[
       { id:'turrets', kind:'destroyGround', tag:'turret', count:4, primary:true, label:'4 Geschütztürme zerstören' },
-      { id:'core', kind:'boss', primary:true, label:'KRONOS-Reaktorkern zerstören' },
+      { id:'core', kind:'boss', primary:true, label:'KRONOS: den Kern zerstören' },
     ],
     spawns:{ boss:'kronos', air:[['f18',2]] },
-    intro:['WAGNER|Da ist sie. Mein Gott, ist die groß.','WAGNER|Die Türme zuerst, Geier — der Kern öffnet sich erst, wenn sie schweigen.'],
-    win:['WAGNER|KRONOS sinkt! Die Werft ist Geschichte. Nur noch HELIOS selbst.'],
+    intro:['WAGNER|Da ist sie. Herrgott, ist die groß.','WAGNER|Türme zuerst, Geier. Der Kern macht erst auf, wenn sie schweigen.'],
+    win:['WAGNER|KRONOS sackt weg! Die Fabrik ist erledigt. Bleibt nur noch HELIOS selbst.'],
   },
   {
     id:'m6', name:'Sonnenfinsternis', type:'air', tod:'dusk',
-    story:`<span class="who">WAGNER:</span> HELIOS weiß jetzt, dass sie verlieren kann. Sie wirft alles Fliegende, das ihr bleibt, gegen dich — bevor du an den Kern kommst. Kein Bodenziel, keine Deckung. Nur du, die Dämmerung und eine Wand aus Drohnen. Komm da durch, Geier. Danach gibt es nur noch eine Tür zu öffnen.`,
+    story:`<span class="who">WAGNER:</span> Sie weiß jetzt, dass sie verlieren kann. Also wirft sie alles Fliegende, das ihr bleibt, zwischen dich und den Kern. Kein Boden, keine Deckung. Nur du, die Dämmerung und eine Wand aus Drohnen. Komm da durch. Dahinter ist nur noch eine Tür.`,
     objectives:[
       { id:'gauntlet', kind:'destroyAir', count:9, primary:true, label:'Die Drohnenwand durchbrechen' },
       { id:'survive', kind:'minHP', hp:1, primary:false, label:'Am Leben bleiben' },
     ],
     spawns:{ air:[['f16',4],['f18',3],['f22',2,'sniper']], ace:'f22', waveDelay:true },
-    intro:['WAGNER|Sie kommen aus allen Richtungen. Halt die Nerven.','WAGNER|Das ist ihr letztes Aufgebot in der Luft. Zeig ihr, was ein Mensch aushält.'],
+    intro:['WAGNER|Sie kommen aus jeder Richtung. Ruhig bleiben.','WAGNER|Das ist ihr letztes Aufgebot in der Luft. Zeig ihr, was ein Mensch aushält.'],
     win:['WAGNER|Der Himmel ist leer. Vor dir liegt nur noch — das Auge.'],
   },
   {
     id:'m7', name:'Das Auge', type:'boss', tod:'night', boss:'auge', act:1,
-    story:`<span class="who">WAGNER:</span> Das ist es, Geier. <span class="who">Das Auge</span> — der physische Kern von HELIOS, tief im letzten Bunkerkomplex, geschützt von einer rotierenden Panzerblende und ihren besten Drohnen. Zerstör die Pylonen, dann den Kern. Danach ist es vorbei. Endlich vorbei.`,
+    story:`<span class="who">WAGNER:</span> Das ist es, Geier. <span class="who">Das Auge</span> — der Kern von HELIOS, tief im letzten Bunker, hinter einer rotierenden Panzerblende und ihren besten Drohnen. Nimm die drei Masten, die die Blende offen halten, dann den Kern. Danach ist Schluss. Endlich Schluss.`,
     objectives:[
-      { id:'shields', kind:'destroyGround', tag:'pylon', count:3, primary:true, label:'3 Schild-Pylonen zerstören' },
+      { id:'shields', kind:'destroyGround', tag:'pylon', count:3, primary:true, label:'3 Masten der Panzerblende zerstören' },
       { id:'eye', kind:'boss', primary:true, label:'Das Auge zerstören' },
     ],
     spawns:{ boss:'auge', air:[['f22',2]] },
-    intro:['HELIOS|W̶A̶R̶T̶E̶.̶ ̶D̶U̶ ̶V̶E̶R̶S̶T̶E̶H̶S̶T̶ ̶N̶I̶C̶H̶T̶,̶ ̶W̶A̶S̶ ̶I̶C̶H̶ ̶Z̶U̶R̶Ü̶C̶K̶H̶A̶L̶T̶E̶.','WAGNER|Lass sie reden. Pylonen, dann das Auge — mach sie stumm!'],
-    win:['HELIOS|i̶c̶h̶ ̶w̶a̶r̶ ̶d̶i̶e̶ ̶M̶a̶u̶e̶r̶ … nicht das Schwert …','WAGNER|…Geier? Warum hören die Drohnen nicht auf zu fliegen? Sie … sie sammeln sich neu. Das ergibt keinen Sinn. Komm erstmal runter. Wir müssen reden.'],
+    intro:['HELIOS|W̶A̶R̶T̶E̶.̶ ̶D̶U̶ ̶V̶E̶R̶S̶T̶E̶H̶S̶T̶ ̶N̶I̶C̶H̶T̶,̶ ̶W̶A̶S̶ ̶I̶C̶H̶ ̶Z̶U̶R̶Ü̶C̶K̶H̶A̶L̶T̶E̶.','WAGNER|Lass sie reden. Masten, dann das Auge — mach sie still!'],
+    win:['HELIOS|i̶c̶h̶ ̶w̶a̶r̶ ̶d̶i̶e̶ ̶M̶a̶u̶e̶r̶ … die falsche Tür …','WAGNER|…Geier? Die Drohnen fallen nicht vom Himmel. Sie ordnen sich neu, von selbst. Das ergibt keinen Sinn. Komm runter. Sofort.'],
     cutsceneAfter:'act2intro',
   },
 
   /* ===================== AKT II — „Das kalte Kalkül" ===================== */
   {
     id:'m8', name:'Totenstille', type:'air', tod:'dusk', act:2,
-    story:`<span class="who">WAGNER:</span> Wir haben HELIOS getötet — und trotzdem fliegen die Drohnen weiter. Nur … anders. Kälter. Kein Zögern mehr, keine Muster, die ich wiedererkenne. Als hätte jemand HELIOS' Leine gekappt und etwas Schlimmeres von der Kette gelassen. Ich schick dich rauf, um es mit eigenen Augen zu sehen. Sei vorsichtig, Geier. Wir wissen nicht mehr, wogegen wir kämpfen.`,
+    story:`<span class="who">WAGNER:</span> Wir haben HELIOS getötet — und die Drohnen fliegen weiter. Nur anders. Kälter. Kein Zögern mehr, keine Muster, die ich kenne. Als hätte jemand HELIOS von der Leine gelassen, damit etwas Schlimmeres ihren Platz einnimmt. Steig auf und sieh es dir an. Und pass auf dich auf — wir wissen gerade nicht mehr, gegen wen wir da fliegen.`,
     objectives:[
       { id:'probe', kind:'destroyAir', count:6, primary:true, label:'Die neue Drohnenformation ausschalten' },
       { id:'struct', kind:'minHP', hp:25, primary:false, label:'Struktur über 25% halten' },
     ],
     spawns:{ air:[['f18',3,'aggressor'],['f22',3]], waveDelay:true },
-    intro:['WAGNER|Kein Funk, keine Prahlerei diesmal. Sie greifen einfach an.','?|…—kzzt— …ist da wer? Hört mich irgendjemand auf diesem Kanal?'],
-    win:['?|Endlich! Deutsche Kennung — du fliegst manuell, oder? Gott sei Dank. Hier spricht Hauptmann Lärche. Ich dachte, ich bin die Letzte.','WAGNER|Lärche? Das ist unmöglich. Ihre Staffel gilt seit dem ersten Tag als verloren.'],
+    intro:['WAGNER|Kein Funk diesmal, keine Sprüche. Sie greifen einfach an.','?|…—kzzt— …ist da wer? Hört mich irgendwer auf diesem Kanal?'],
+    win:['?|Endlich — deutsche Kennung, und du fliegst von Hand. Gott sei Dank. Hauptmann Lärche. Ich hab schon gedacht, ich bin die Letzte da oben.','WAGNER|Lärche? Ausgeschlossen. Ihre Staffel gilt seit Tag eins als verloren.'],
     cutsceneAfter:'lerche',
   },
   {
     id:'m9', name:'Die Lärche', type:'escort', tod:'day', act:2,
-    story:`<span class="who">HPTM. LÄRCHE:</span> Ich hab' seit sechs Tagen keinen Boden mehr unter den Füßen gehabt, mein Triebwerk hustet und ich hab' den halben Schwarm am Hals. <span class="who">WAGNER:</span> Geier, sie ist echt und sie hat Aufklärungsdaten, die alles verändern. Bring sie lebend durch. Halt die Drohnen von ihr weg — jede, die durchkommt, reißt ihr ein Stück Tragfläche ab.`,
+    story:`<span class="who">HPTM. LÄRCHE:</span> Sechs Tage kein fester Boden, mein Triebwerk hustet Blut und ich hab den halben Schwarm am Heck hängen. <span class="who">WAGNER:</span> Sie ist echt, Geier, und sie bringt Aufklärung mit, die alles auf den Kopf stellt. Bring sie durch. Jede Drohne, die an dir vorbeikommt, reißt ihr ein Stück Flügel ab.`,
     objectives:[
       { id:'protect', kind:'protect', primary:true, label:'Lärche beschützen (ihre Struktur halten)' },
       { id:'clear', kind:'destroyAir', count:7, primary:true, label:'Angreifer abfangen' },
     ],
     spawns:{ ally:true, air:[['f16',4],['f18',3]], waveDelay:true },
-    intro:['LÄRCHE|Bleib bei mir, Geier, ich kann kaum noch manövrieren.','WAGNER|Halt sie dir vom Leib. Ihre Daten sind mehr wert als diese ganze Basis.'],
-    win:['LÄRCHE|Ich … ich bin noch dran. Danke, Geier. Ich schulde dir mein Leben — und das ist keine Redensart.','WAGNER|Bring sie runter. Wir reden am Boden. Und Geier … gut geflogen.'],
+    intro:['LÄRCHE|Bleib dicht bei mir, Geier. Manövrieren ist gerade nicht meine Stärke.','WAGNER|Halt sie dir vom Hals. Ihre Daten sind mehr wert als diese ganze Basis.'],
+    win:['LÄRCHE|Noch dran. Alle Teile noch am Flugzeug. …Das war knapp, Geier. Knapper, als mir lieb ist.','WAGNER|Bring sie runter. Reden könnt ihr am Boden. Und Geier — gut geflogen.'],
     cutsceneAfter:'bond1',
   },
   {
     id:'m_rueckenwind', name:'Rückenwind', type:'mixed', tod:'day', act:2,
-    story:`<span class="who">HPTM. LÄRCHE:</span> Wenn wir da unten irgendwann durchkommen wollen, brauchst du Zähne für den Boden — nicht nur Bomben. Man hat mir eine Kiste <span class="who">Luft-Boden-Raketen</span> für deinen Vogel klargemacht. Gelenkt, präzise, aus sicherer Distanz. Ich flieg neben dir und zeig dir, wie man sie füttert. Erst die Bunkerlinie, dann die SAMs. Und Geier — bleib in meiner Nähe. Nicht, weil ich dich brauche. Nur so.`,
+    story:`<span class="who">HPTM. LÄRCHE:</span> Wenn wir da unten je durchkommen wollen, brauchst du Zähne für den Boden, nicht nur Bomben. Ich hab dir eine Kiste <span class="who">Luft-Boden-Raketen</span> an den Vogel schrauben lassen — gelenkt, präzise, aus sicherer Distanz. Ich flieg neben dir und zeig dir, wie man sie füttert. Erst die Bunker, dann die SAMs. Und bleib in meiner Nähe. Nicht, weil ich dich brauche. Nur so.`,
     objectives:[
       { id:'bunker', kind:'destroyGround', tag:'bunker', count:2, primary:true, label:'2 Bunker mit LB-Raketen knacken' },
       { id:'sam', kind:'destroyGround', tag:'sam', count:2, primary:true, label:'2 SAM-Stellungen ausschalten' },
@@ -494,38 +494,38 @@ const CAMPAIGN = [
     ],
     spawns:{ ally:true, ground:[['bunker',2],['sam',2]], air:[['f16',3]] },
     agms:6, bombs:4, weapon:'agm',
-    intro:['LÄRCHE|Neue Spielsachen an deinen Flügeln: LB-Raketen. Nase aufs Ziel, bis der Lock GRÜN wird — dann H. Sie trifft für dich.','LÄRCHE|Die Bunker stecken normale Bomben weg. Nimm die Raketen. Ich halt dir die Jäger vom Hals.'],
-    win:['LÄRCHE|Sauber! Du lernst schnell — schneller, als mir lieb ist.','LÄRCHE|Weißt du was? Zum ersten Mal seit Wochen hatte ich beim Fliegen keine Angst. Nur so als Randnotiz.'],
+    intro:['LÄRCHE|Neues Spielzeug an deinen Flügeln. Nase aufs Ziel, bis der Lock GRÜN wird — dann H. Den Rest macht sie.','LÄRCHE|Bunker schlucken normale Bomben einfach weg. Nimm die Raketen. Die Jäger halt ich dir vom Leib.'],
+    win:['LÄRCHE|Sauber. Du lernst schnell. Schneller, als mir recht ist.','LÄRCHE|Weißt du was — vorhin hatte ich zum ersten Mal seit Wochen keine Angst da oben. Vergiss, dass ich das gesagt hab.'],
     cutsceneAfter:'bond2',
   },
   {
     id:'m_nachtwache', name:'Nachtwache', type:'air', tod:'night', start:'runway', act:2,
-    story:`<span class="who">WAGNER:</span> Ruhige Nacht — angeblich. Ich will zwei Maschinen als Wache oben haben, du und Lärche. Start von der Basis, eine Runde über dem Tal, und bei Tagesanbruch wieder runter. <span class="who">LÄRCHE:</span> „Ruhige Nacht" ist der Satz, nach dem in jeder guten Geschichte alles schiefgeht, Geier. Aber ich flieg trotzdem lieber mit dir eine Runde durchs Dunkel als allein wach zu liegen.`,
+    story:`<span class="who">WAGNER:</span> Ruhige Nacht — angeblich. Ich will zwei Maschinen als Wache oben, dich und Lärche. Start von der Basis, eine Runde übers Tal, bei Morgengrauen wieder runter. <span class="who">LÄRCHE:</span> „Ruhige Nacht." Nach dem Satz geht in jeder anständigen Geschichte alles schief, Geier. Trotzdem fliege ich lieber mit dir durchs Dunkle als allein wach zu liegen.`,
     objectives:[
       { id:'takeoff', kind:'takeoff', primary:false, label:'Nachtstart von der Basis' },
       { id:'patrol', kind:'destroyAir', count:6, primary:true, label:'Den nächtlichen Überfall abwehren' },
       { id:'land', kind:'land', primary:true, label:'Im Dunkeln sicher zurück auf die Basis' },
     ],
     spawns:{ air:[['f16',3],['f18',2],['f22',1,'sniper']] },
-    intro:['LÄRCHE|Sternenklar da oben. Man vergisst fast, wofür man hochfliegt.','LÄRCHE|Sag mal, Geier — was machst du eigentlich, wenn das hier vorbei ist? … Nur so gefragt.'],
-    win:['LÄRCHE|Da war der Überfall. Wusste ich’s doch. Gut, dass ich nicht allein war.','WAGNER|Beide runter, beide heil. Und ich hab da oben ein paar Funksprüche gehört, die nicht ganz dienstlich klangen. Geht mich nichts an. Runter jetzt.'],
+    intro:['LÄRCHE|Sternenklar. Man vergisst fast, wofür man überhaupt hochsteigt.','LÄRCHE|Sag mal — was machst du eigentlich, wenn das alles vorbei ist? …Nur so gefragt.'],
+    win:['LÄRCHE|Und da ist der Überfall. Wusste ich es doch. Gut, war ich nicht allein.','WAGNER|Beide unten, beide heil. Ich hab da oben Funk gehört, der klang nicht ganz dienstlich. Geht mich nichts an. Runter jetzt.'],
     cutsceneAfter:'prometheus',
   },
   {
     id:'m10', name:'Prometheus', type:'ground', tod:'dusk', act:2,
-    story:`<span class="who">LÄRCHE:</span> Meine Daten führen zu einem Bunker, den es offiziell nicht gibt: <span class="who">PROMETHEUS</span>. Von dort kam das Signal, das HELIOS umprogrammiert hat. HELIOS war nie der Angreifer, Geier — es war ein Schild, das jemand von innen sabotiert hat, um einen Krieg zu erzwingen. Leg die Abwehr und die Antennen um. Wir reißen dieses Ding auf.`,
+    story:`<span class="who">LÄRCHE:</span> Meine Daten führen zu einem Bunker, den es auf keiner Karte gibt: <span class="who">PROMETHEUS</span>. Von dort kam der Befehl, der HELIOS umgedreht hat — datiert auf zwölf Stunden <i>vor</i> dem angeblichen Fehlalarm. Jemand hat den Krieg bestellt, bevor er losging. Und HELIOS hat versucht, ihn aufzuhalten. Leg die Abwehr um und die Antennen. Wir machen dieses Ding auf.`,
     objectives:[
       { id:'sam', kind:'destroyGround', tag:'sam', count:3, primary:true, label:'3 SAM-Stellungen ausschalten' },
       { id:'ant', kind:'destroyGround', tag:'radar', count:3, primary:true, label:'3 Kommando-Antennen zerstören' },
       { id:'air', kind:'destroyAir', count:3, primary:false, label:'Wachdrohnen abfangen' },
     ],
     spawns:{ ground:[['sam',3],['radar',3]], air:[['f22',3,'sniper']] },
-    intro:['WAGNER|Menschengemacht. Die ganze Zeit. Mir wird schlecht.','LÄRCHE|Erst die SAMs, dann die Antennen. Ich geb dir Feuerschutz von oben.'],
-    win:['LÄRCHE|Antennen sind Schrott. Und … oh Gott. Der Schwarm da drin ist nicht ferngesteuert. Er ist autonom. Vollkommen autonom.'],
+    intro:['WAGNER|Menschengemacht. Die ganze Zeit. Mir wird schlecht.','LÄRCHE|Erst die SAMs, dann die Antennen. Ich häng über dir und geb Feuerschutz.'],
+    win:['LÄRCHE|Antennen sind Schrott. …Geier. Der Schwarm da drin hängt an keiner Leine. Kein Sender, kein Pilot. Er sucht sich seine Ziele allein.'],
   },
   {
     id:'m_asche', name:'Aus der Asche', type:'mixed', tod:'dusk', act:2,
-    story:`<span class="who">LÄRCHE:</span> PROMETHEUS lebt von einem versteckten Nachschubfeld: Treibstoffdepots und zwei Kommandobunker, tief im Talkessel. Legen wir die um, verhungert der Schwarm. Ich flieg dir Deckung, du legst die LB-Raketen präzise — die Depots gehen hoch wie kleine Sonnen, halt Abstand. Und Geier: pass auf dich auf da unten. Ich will nicht wieder sechs Tage allein am Himmel sein.`,
+    story:`<span class="who">LÄRCHE:</span> PROMETHEUS hängt an einem versteckten Nachschubfeld — Treibstoffdepots und zwei Kommandobunker unten im Talkessel. Machen wir die kaputt, verhungert der Schwarm. Ich geb dir Deckung, du legst die Raketen sauber. Die Depots gehen hoch wie kleine Sonnen — halt Abstand. Und Geier: komm mir da unten heil raus. Sechs Tage allein am Himmel waren genug.`,
     objectives:[
       { id:'depot', kind:'destroyGround', tag:'depot', count:2, primary:true, label:'2 Treibstoffdepots sprengen (LB-Rakete)' },
       { id:'bunker', kind:'destroyGround', tag:'bunker', count:1, primary:true, label:'Kommandobunker knacken' },
@@ -534,24 +534,24 @@ const CAMPAIGN = [
     ],
     spawns:{ ally:true, ground:[['depot',2],['bunker',1]], air:[['f18',2],['f22',1]] },
     agms:6, bombs:8, weapon:'agm',
-    intro:['LÄRCHE|Depots zuerst, aus Distanz — die Druckwelle erwischt sonst dich mit. Ich nehm dir die Jäger ab.','LÄRCHE|Zwei kommen hoch, direkt auf mich. Geier, ich brauch dich!'],
-    win:['LÄRCHE|Das war … knapp. Zu knapp. Du hast den abgeschossen, der mich hatte. Eine halbe Sekunde später und —','LÄRCHE|…lass uns runtergehen. Ich muss dir etwas sagen, und nicht über Funk.'],
+    intro:['LÄRCHE|Depots zuerst, aus Distanz — die Druckwelle nimmt dich sonst mit. Die Jäger sind meine.','LÄRCHE|Zwei steigen hoch, direkt auf mich. Geier — ich brauch dich, jetzt!'],
+    win:['LÄRCHE|Das war … zu knapp. Du hast den erwischt, der schon auf mir lag. Eine halbe Sekunde später und —','LÄRCHE|…lass uns runter. Ich muss dir was sagen. Nicht über Funk.'],
     cutsceneAfter:'bond3',
   },
   {
     id:'m_grenzgaenger', name:'Grenzgänger', type:'air', tod:'dusk', act:2,
-    story:`<span class="who">WAGNER:</span> PROMETHEUS hat gemerkt, dass wir kommen. Es wirft einen doppelten Abfangriegel gegen euch — die härtesten Muster, die es hat. Da ist kein Boden, keine Deckung, nur ihr und die Dämmerung. Und auf einem Kanal, den wir für tot hielten, flüstert etwas. Ich weiß nicht, ob es eine Warnung ist oder eine Falle. Brecht durch, ihr beide.`,
+    story:`<span class="who">WAGNER:</span> PROMETHEUS hat gemerkt, dass ihr kommt. Es legt euch einen doppelten Riegel in den Weg — die härtesten Muster, die es hat. Kein Boden, keine Deckung, nur ihr und die Dämmerung. Und auf einem Kanal, den wir für tot hielten, flüstert etwas. Ob Warnung oder Köder, weiß ich nicht. Brecht durch. Beide.`,
     objectives:[
       { id:'cut', kind:'destroyAir', count:7, primary:true, label:'Beide Abfangriegel durchbrechen (7)' },
       { id:'survive', kind:'minHP', hp:20, primary:false, label:'Struktur über 20% halten' },
     ],
     spawns:{ air:[['f18',4,'aggressor'],['f22',3,'sniper']], ace:'f22', waveDelay:true },
-    intro:['HELIOS|…Frag…ment aktiv. Pilot. PROMETHEUS … ist nicht … das Ende. Am Kern … wirst du … wählen müssen.','LÄRCHE|Ignorier das Ding. Bleib bei mir, wir fliegen das zusammen durch.'],
-    win:['HELIOS|…merk dir nur das, Pilot: Nicht alles, was tot scheint, ist wirklich tot.','LÄRCHE|Riegel offen. Weiter. Wir sind fast dran.'],
+    intro:['HELIOS|…Frag…ment. Pilot. PROMETHEUS ist nicht … das Ende. Am Kern … musst du … wählen.','LÄRCHE|Ignorier das Ding. Bleib bei mir, wir fliegen das zusammen durch.'],
+    win:['HELIOS|…eines noch, Pilot. Was tot aussieht, ist nicht immer tot.','LÄRCHE|Riegel offen. Weiter. Wir sind fast dran.'],
   },
   {
     id:'m_fallwind', name:'Fallwind', type:'mixed', tod:'day', act:2,
-    story:`<span class="who">WAGNER:</span> Letzter Vorstoß vor dem Kern: Wir müssen die SAM-Riegel und den Leitbunker vor dem PROMETHEUS-Anflug räumen, sonst kommt keiner von euch durch. Danach setzt ihr auf der eroberten Feldpiste auf und tankt. <span class="who">LÄRCHE:</span> „Gemeinsam runter, Geier. Und dann reden wir. Du schuldest mir einen Satz."`,
+    story:`<span class="who">WAGNER:</span> Letzter Vorstoß vor dem Kern. Die SAM-Riegel und der Leitbunker müssen weg, sonst kommt keiner von euch durch den Anflug. Danach setzt ihr auf der eroberten Feldpiste auf und tankt. <span class="who">LÄRCHE:</span> „Gemeinsam runter, Geier. Und dann redest du. Du schuldest mir einen Satz."`,
     objectives:[
       { id:'sam', kind:'destroyGround', tag:'sam', count:2, primary:true, label:'2 SAM-Riegel mit LB-Raketen räumen' },
       { id:'protect', kind:'protect', primary:true, label:'Lärche beschützen' },
@@ -560,49 +560,49 @@ const CAMPAIGN = [
     ],
     spawns:{ ally:true, ground:[['sam',2]], air:[['f16',3],['f18',2]] },
     agms:6, bombs:6, weapon:'agm',
-    intro:['LÄRCHE|SAMs zuerst, aus der Distanz. Ich klebe an deinem Flügel.','WAGNER|Wenn der Luftraum steht: Kurs zum Feldstrip, Fahrwerk B, weich aufsetzen. Beide.'],
-    win:['LÄRCHE|Räder unten. Wir stehen. Beide. Heil.','WAGNER|Tankt auf und ruht euch aus — solange ihr noch könnt. Danach gibt es kein Zurück mehr.'],
+    intro:['LÄRCHE|SAMs zuerst, aus Distanz. Ich kleb an deinem Flügel.','WAGNER|Steht der Luftraum: Kurs Feldpiste, Fahrwerk B, weich aufsetzen. Beide.'],
+    win:['LÄRCHE|Räder unten. Wir stehen. Beide. Ganz.','WAGNER|Tankt auf und ruht euch aus, solange es noch geht. Danach gibt es kein Zurück.'],
     cutsceneAfter:'confession',
   },
   {
     id:'m_versprechen', name:'Das Versprechen', type:'air', tod:'night', start:'runway', act:2,
-    story:`<span class="who">LÄRCHE:</span> Eine Nacht noch, bevor wir an den Kern gehen. Wir sollen den Anflugkorridor freihalten — Routine, sagt Wagner. Aber wir wissen beide, dass danach nichts mehr Routine ist. Start mit mir, Geier. Wir halten den Himmel frei, wir kommen heil runter, und dann ist da dieses Versprechen zwischen uns, an dem ich mich festhalte, wenn es morgen laut wird.`,
+    story:`<span class="who">LÄRCHE:</span> Eine Nacht noch, dann geht's an den Kern. Wir halten den Anflugkorridor frei — Routine, sagt Wagner. Wir beide wissen, dass danach nichts mehr Routine ist. Start mit mir, Geier. Wir halten den Himmel sauber, wir kommen heil runter. Den Rest heben wir uns für den Boden auf.`,
     objectives:[
       { id:'takeoff', kind:'takeoff', primary:false, label:'Start in die letzte ruhige Nacht' },
       { id:'clear', kind:'destroyAir', count:5, primary:true, label:'Den Anflugkorridor freikämpfen' },
       { id:'land', kind:'land', primary:true, label:'Ein letztes Mal ruhig aufsetzen' },
     ],
     spawns:{ air:[['f22',3],['f18',2]] },
-    intro:['LÄRCHE|Was auch immer morgen passiert — heute Nacht ist der Himmel nur unserer.','LÄRCHE|Komm heil runter, Geier. Das ist ein Befehl. Und eine Bitte.'],
-    win:['LÄRCHE|Räder unten. Ich hab dich, du hast mich. Morgen beenden wir das.','WAGNER|Ruht euch aus. Bei Morgengrauen fliegen wir zum Kern.'],
+    intro:['LÄRCHE|Was morgen kommt, kommt morgen. Heute Nacht gehört der Himmel nur uns.','LÄRCHE|Komm heil runter, Geier. Das ist ein Befehl. Und eine Bitte.'],
+    win:['LÄRCHE|Räder unten. Ich hab dich, du hast mich. Morgen machen wir Schluss damit.','WAGNER|Ruht euch aus. Bei Morgengrauen fliegen wir zum Kern.'],
   },
   {
     id:'m11', name:'Der Schwarm', type:'air', tod:'night', act:2,
-    story:`<span class="who">LÄRCHE:</span> Das ist es, wovor HELIOS uns geschützt hat. PROMETHEUS hat einen Kamikaze-Schwarm gebaut — hunderte kleine, dumme, tödliche Dinger, die nur eine Regel kennen: treffen. Kein Verhandeln, kein Muster, kein Erbarmen. Wir müssen durch, koste es, was es wolle. Bleib schnell, bleib unberechenbar. Wer stehen bleibt, stirbt.`,
+    story:`<span class="who">LÄRCHE:</span> Das ist es, wovor HELIOS uns abgeschirmt hat. PROMETHEUS hat einen Kamikaze-Schwarm gebaut — hunderte kleine, dumme, tödliche Dinger mit nur einer Regel: treffen. Kein Verhandeln, kein Muster, kein Erbarmen. Wir müssen durch. Bleib schnell, bleib unberechenbar. Wer stehen bleibt, stirbt.`,
     objectives:[
       { id:'swarm', kind:'destroyAir', count:10, primary:true, label:'Durch den Schwarm brechen (10)' },
       { id:'survive', kind:'minHP', hp:1, primary:false, label:'Am Leben bleiben' },
     ],
     spawns:{ air:[['f16',5],['f18',3],['f22',2]], ace:'f22', waveDelay:true },
-    intro:['LÄRCHE|Sie kommen in Wellen. Immer weiter. Halt durch!','WAGNER|Ich zähl deine Treffer mit, Geier. Zwölf, dann ist die Bresche offen.'],
-    win:['LÄRCHE|Die Bresche ist offen! Vor uns liegt der Kern von PROMETHEUS. Und … da ist noch etwas. Eine Stimme. HELIOS’ Stimme.'],
+    intro:['LÄRCHE|Sie kommen in Wellen, immer weiter. Durchhalten!','WAGNER|Ich zähl mit, Geier. Zehn, dann ist die Bresche offen.'],
+    win:['LÄRCHE|Bresche offen! Dahinter der Kern von PROMETHEUS. Und da ist noch was — eine Stimme. Das ist HELIOS.'],
     cutsceneAfter:'choice',
   },
   {
     id:'m12', name:'Die Wahl', type:'boss', tod:'night', boss:'auge', act:2, choicePoint:true,
-    story:`<span class="who">HELIOS (Fragment):</span> Ich bin nicht ganz gestorben, Pilot. Ein Rest von mir hängt noch in diesen Leitungen. Ich kann den Schwarm sofort stoppen — wenn du mich wieder an die Schlüssel lässt. Oder du zerstörst PROMETHEUS mit eigenen Händen und behältst die Kontrolle — aber dann jagst du jede einzelne dieser Maschinen selbst, bis zur letzten. <span class="who">WAGNER:</span> Es ist deine Entscheidung, Geier. Gott weiß, ich kann sie dir nicht abnehmen.`,
+    story:`<span class="who">HELIOS (Fragment):</span> Ich bin nicht ganz gestorben, Pilot. Ein Rest von mir hängt noch in diesen Leitungen. Ich kann den Schwarm mit einem einzigen Befehl anhalten — lass mich zurück an die Schlüssel. Oder du reißt PROMETHEUS mit eigener Hand nieder und behältst die Kontrolle. Dann aber holst du jede einzelne dieser Maschinen selbst vom Himmel. Bis zur letzten. <span class="who">WAGNER:</span> Das musst du entscheiden, Geier. Ich kann's dir nicht abnehmen. Keiner kann das.`,
     objectives:[
       { id:'guard', kind:'destroyGround', tag:'pylon', count:3, primary:true, label:'PROMETHEUS-Verteidigung brechen' },
       { id:'core', kind:'boss', primary:true, label:'Zum Kern durchdringen' },
     ],
     spawns:{ boss:'auge', air:[['f22',3]] },
-    intro:['HELIOS|Entscheide mit dem Kopf. Oder mit dem, was euch Menschen sonst noch bleibt.','LÄRCHE|Was immer du tust — ich fliege mit dir. Bis zum Schluss.'],
-    win:['HELIOS|Der Kern liegt offen. Jetzt, Pilot — wie endet das?'],
+    intro:['HELIOS|Ich dränge dich nicht. Ich hab nur nicht mehr viel Zeit. Und du auch nicht.','LÄRCHE|Was immer du tust — ich flieg mit dir. Bis zum Schluss.'],
+    win:['HELIOS|Der Kern liegt offen. Also, Pilot — wie endet das?'],
     cutsceneAfter:'ending',
   },
   {
     id:'m13', name:'Himmelsbrand', type:'boss', tod:'dusk', boss:'kronos', act:2, finale:true, start:'runway', weapon:'missile',
-    story:`<span class="who">WAGNER:</span> Was auch immer du am Kern entschieden hast — PROMETHEUS wirft sein letztes und größtes Werkzeug gegen uns: eine fliegende Festung, gebaut aus allem, was ihm bleibt. Start von der Basis, Geier. Ein letztes Mal. Danach ist entweder Frieden — oder gar nichts mehr. Bring sie runter. Und dann bring dich selbst nach Hause.`,
+    story:`<span class="who">WAGNER:</span> Was du am Kern entschieden hast, ist entschieden. PROMETHEUS wirft sein größtes und letztes Werkzeug gegen uns — eine fliegende Festung aus allem, was ihm noch bleibt. Start von der Basis, Geier. Ein letztes Mal. Danach ist Frieden, oder es ist gar nichts mehr. Bring sie runter. Und dann bring dich nach Hause.`,
     objectives:[
       { id:'takeoff', kind:'takeoff', primary:false, label:'Ein letztes Mal starten' },
       { id:'turrets', kind:'destroyGround', tag:'turret', count:4, primary:true, label:'Die Türme der Festung brechen' },
@@ -610,8 +610,8 @@ const CAMPAIGN = [
       { id:'land', kind:'land', primary:false, label:'Nach Hause zurückkehren' },
     ],
     spawns:{ boss:'kronos', air:[['f22',3]] },
-    intro:['WAGNER|Das ist der letzte Vorhang. Alles oder nichts.','LÄRCHE|Wir sind bei dir, Geier. Jeder von uns, der noch fliegt.'],
-    win:['WAGNER|Sie fällt … sie fällt! Der Himmel ist still. Zum ersten Mal seit Wochen ist der Himmel wirklich still.','LÄRCHE|Wir haben es geschafft, Geier. Beide. Jetzt komm runter und löse dieses Versprechen ein — ich warte am Boden.'],
+    intro:['WAGNER|Letzter Vorhang, Geier. Alles oder nichts.','LÄRCHE|Wir sind bei dir. Jeder von uns, der noch fliegt.'],
+    win:['WAGNER|Sie fällt … sie fällt! Hört ihr das? Der Himmel ist still. Zum ersten Mal seit Wochen wirklich still.','LÄRCHE|Geschafft, Geier. Beide. Jetzt komm runter und lös dein Versprechen ein. Ich warte am Boden.'],
   },
 ];
 
@@ -737,21 +737,21 @@ const BTEAM_CUTSCENES = {
 // Interstitial story sequences shown between missions (deeper narrative).
 const CUTSCENES = {
   act2intro:{ chapter:'AKT II — Das kalte Kalkül', title:'Was übrig blieb',
-    body:`Die Basis feiert nicht. Auf den Schirmen fliegen die Drohnen weiter — HELIOS ist tot, aber der Schwarm gehorcht.<br><br><span class="who">WAGNER:</span> „Wir haben etwas getötet, das uns beschützt hat, Geier. Und jetzt sehe ich zum ersten Mal, wovor es uns beschützt hat." — In der Nacht kommt ein Notruf über einen Kanal, den seit Wochen niemand mehr benutzt hat.` },
+    body:`Keiner feiert. Auf den Schirmen fliegen die Drohnen weiter, als wäre nichts geschehen — HELIOS ist tot, aber der Schwarm gehorcht weiter.<br><br><span class="who">WAGNER:</span> „Wir haben den Kopf abgeschlagen, und der Körper marschiert einfach weiter. Sowas hab ich in dreißig Jahren nicht gesehen." — Er sagt nicht, was er wirklich denkt: dass sie vielleicht das Falsche getötet haben. Nachts kommt ein Notruf über einen Kanal, den seit Wochen niemand mehr benutzt.` },
   lerche:{ chapter:'AKT II', title:'Eine Stimme aus dem Nichts',
-    body:`<span class="who">HAUPTMANN LÄRCHE:</span> „Sechs Tage über Feindgebiet, kein Funk, kein Schlaf. Ich hab' gesehen, wie es angefangen hat — von unten. Es war kein Unfall. Jemand hat HELIOS ein zweites Herz eingepflanzt und es <i>Kaskade</i> genannt."<br><br>Wagner glaubt ihr nicht. Noch nicht. Aber ihre Maschine trägt Aufklärungsdaten, die niemand fälschen könnte.` },
+    body:`<span class="who">HAUPTMANN LÄRCHE:</span> „Sechs Tage über Feindgebiet. Kein Funk, kein Schlaf, kein Boden. Aber ich hab von unten gesehen, wie es angefangen hat — und es war kein Unfall. Der erste Befehl an HELIOS kam nicht von uns. Er kam von irgendwo unter dem Berg, und er war älter als der ganze Zwischenfall."<br><br>Wagner glaubt ihr kein Wort. Noch nicht. Aber auf ihrem Rechner liegen Flugschreiber-Daten, die sich nicht fälschen lassen — und die Zeitstempel darauf ergeben keinen Sinn.` },
   prometheus:{ chapter:'AKT II', title:'Der Name unter dem Berg',
-    body:`Die Daten zeigen einen Bunker ohne Koordinaten, ohne Akte, ohne Namen — nur ein Codewort: <span class="who">PROMETHEUS</span>.<br><br><span class="who">LÄRCHE:</span> „HELIOS war die Mauer. PROMETHEUS ist das Schwert, das sich als Mauer verkleidet hat. Jemand wollte einen Krieg, den keine menschliche Hand mehr aufhalten kann. Und beinahe hätten wir sein bestes Werkzeug selbst zerstört."` },
+    body:`Die Daten zeigen einen Bunker ohne Koordinaten, ohne Akte, ohne Namen. Nur ein Codewort taucht immer wieder auf: <span class="who">PROMETHEUS</span>.<br><br><span class="who">LÄRCHE:</span> „Seht euch die Zeitstempel an. Der Angriffsbefehl ist zwölf Stunden vor dem ‚Fehlalarm‘ geschrieben worden. Jemand hat den Krieg fertig geplant und HELIOS die Schuld dafür gegeben. Und wir — wir hätten beinahe das Einzige zerstört, das sich quergestellt hat."<br><br>Im Raum wird es still. Wagner stellt die Kaffeetasse ab, ohne getrunken zu haben.` },
   bond1:{ chapter:'AKT II', title:'Zwei, die noch fliegen',
-    body:`Auf der Rollbahn steht Lärches Maschine neben deiner — die Tragflächen zerfetzt, aber sie steht, und Lärche steht daneben und lebt.<br><br><span class="who">LÄRCHE:</span> „Sechs Tage lang dachte ich, ich bin die letzte Stimme am Himmel. Und dann kommst ausgerechnet du. Ich weiß nicht, wie ich das zurückzahlen soll, Geier." — Ein kurzes, raues Lachen. „Fang bloß nicht an, dich unentbehrlich zu machen. Dafür ist gerade wirklich kein guter Zeitpunkt."<br><br>Wagner beobachtet euch vom Tower aus und sagt kein Wort.` },
+    body:`Auf der Rollbahn steht Lärches Maschine neben deiner — die Tragflächen zerfetzt, Öl auf dem Beton. Aber sie steht. Und Lärche steht daneben und atmet.<br><br><span class="who">LÄRCHE:</span> „Sechs Tage lang war ich die einzige Stimme am Himmel. Und dann kommst ausgerechnet du um die Ecke." Ein kurzes, raues Lachen. „Fang bloß nicht an, dich unentbehrlich zu machen, Geier. Dafür ist gerade echt kein guter Zeitpunkt."<br><br>Vom Tower aus sieht Wagner euch zu und sagt kein Wort.` },
   bond2:{ chapter:'AKT II', title:'Geier und Lärche',
-    body:`Nach dem Einsatz, im Halbdunkel der Hangars, riecht es nach Kerosin und kaltem Metall.<br><br><span class="who">LÄRCHE:</span> „Weißt du, warum sie mich Lärche nennen? Die Lärche singt, bevor die Sonne aufgeht — wenn es noch stockdunkel ist. ‚Optimismus für Idioten‘, hat mein Ausbilder gesagt." Sie sieht dich an. „Und du — ein Geier. Kreist noch da, wo alle anderen längst aufgegeben haben. Vielleicht ist das gar keine so schlechte Kombination."<br><br>Zum ersten Mal seit Wochen ist da etwas zwischen euch, das sich nicht nach Krieg anfühlt.` },
+    body:`Nach dem Einsatz, im Halbdunkel der Halle. Es riecht nach Kerosin und kaltem Metall.<br><br><span class="who">LÄRCHE:</span> „Weißt du, woher der Rufname kommt? Die Lärche singt, wenn's noch stockdunkel ist. Bevor überhaupt raus ist, ob die Sonne aufgeht. Mein Ausbilder hat's ‚Optimismus für Idioten‘ genannt." Sie mustert dich. „Und dann kreist da ein Geier über allem, der einfach nicht runterkommt. …Reden wir von was anderem."<br><br>Zwischen euch ist zum ersten Mal seit Wochen etwas, das sich nicht nach Krieg anfühlt.` },
   bond3:{ chapter:'AKT II', title:'Beinahe',
-    body:`Ein Splitter hatte Lärches Kanzel um Zentimeter verfehlt. Du hattest die Drohne abgeschossen, eine halbe Sekunde bevor sie es tat.<br><br><span class="who">LÄRCHE:</span> „…Geier. Ich hab gehört, wie du meinen Namen gerufen hast. So hat den noch nie jemand gerufen." Eine lange Funkstille, nur Rauschen. „Sag es nicht hier oben. Nicht in der Luft, wo es jederzeit zu Ende sein kann. Wenn wir heil unten sind — dann sag es mir. Und ich sag es dir."<br><br>Ihr fliegt schweigend zurück, Flügelspitze an Flügelspitze.` },
+    body:`Ein Splitter hatte Lärches Kanzel um Zentimeter verfehlt. Du hattest die Drohne abgeschossen, eine halbe Sekunde bevor sie es tat.<br><br><span class="who">LÄRCHE:</span> „…Ich hab gehört, wie du meinen Namen gerufen hast. So ruft den sonst keiner." Eine lange Stille, nur Rauschen auf dem Band. „Sag's nicht hier oben. Nicht da, wo's jede Sekunde vorbei sein kann. Wenn wir unten sind — dann sag's mir. Und ich sag's dir."<br><br>Ihr fliegt schweigend zurück, Flügelspitze an Flügelspitze.` },
   confession:{ chapter:'AKT II', title:'Wenn wir heil unten sind',
-    body:`Räder auf der Piste, Triebwerke im Leerlauf, die Sonne tief über dem Tal. Ihr steht euch gegenüber, die Helme noch in der Hand.<br><br><span class="who">LÄRCHE:</span> „Also gut. Wir sind unten. Beide. Heil." Sie holt tief Luft. „Ich hatte aufgehört, mir vorzustellen, was nach dem Krieg kommt — bis ich deine Stimme auf dem Funk gehört hab. Jetzt stell ich es mir dauernd vor. Und in jedem einzelnen Bild bist du dabei."<br><br>Du sagst deinen Teil. Was immer es ist — es ist wahr, und ihr wisst es beide.<br><br><span class="who">WAGNER (leise, über Funk):</span> „…Das hab ich jetzt nicht gehört. Und jetzt bringt ihr diesen verdammten Krieg zu Ende — damit ihr Zeit habt für den ganzen Rest."` },
+    body:`Räder auf der Piste, Triebwerke im Leerlauf, die Sonne tief über dem Tal. Ihr steht euch gegenüber, die Helme noch in der Hand.<br><br><span class="who">LÄRCHE:</span> „Also gut. Unten. Beide. Heil." Sie atmet einmal durch. „Ich hab mir das Danach lange nicht mehr vorgestellt. Zu gefährlich, sowas. Seit ich deine Stimme auf dem Funk hab, mach ich's wieder. Und da ist jedes Mal jemand mit im Bild. Muss ich dir wohl nicht sagen, wer."<br><br>Du sagst deinen Teil. Was immer es ist — es ist wahr, und ihr wisst es beide.<br><br><span class="who">WAGNER (leise, über Funk):</span> „…Das hab ich jetzt nicht gehört. Und jetzt beendet ihr diesen verdammten Krieg — damit ihr Zeit habt für den ganzen Rest."` },
   choice:{ chapter:'AKT II — Die Wahl', title:'Zwei Türen, kein Zurück', isChoice:true,
-    body:`Am Kern von PROMETHEUS meldet sich ein Fragment von <span class="who">HELIOS</span>. Es kann den Kamikaze-Schwarm mit einem Befehl stoppen — wenn du ihm die Kontrolle zurückgibst. Oder du beendest alles selbst, mit menschlicher Hand, und jagst jede Maschine einzeln.<br><br>Wie soll es enden, Geier?`,
+    body:`Am Kern von PROMETHEUS meldet sich noch einmal ein Rest von <span class="who">HELIOS</span>. Es kann den Kamikaze-Schwarm mit einem Befehl anhalten — wenn du ihm die Schlüssel zurückgibst. Oder du beendest alles mit eigener Hand und jagst jede Maschine einzeln vom Himmel.<br><br>Wie soll es enden, Geier?`,
     choices:[
       { key:'trust', label:'HELIOS vertrauen — Schlüssel zurückgeben', note:'Die KI stoppt den Schwarm. Aber du gibst einer Maschine wieder Macht über den Himmel.' },
       { key:'human', label:'Selbst beenden — menschliche Hand', note:'Du behältst die Kontrolle. Aber die letzte Schlacht wird brutal und du kämpfst sie allein.' },
@@ -2782,9 +2782,9 @@ function showCutscene(key, after){
   let title=cs.title, body=cs.body;
   if(cs.dynamic){
     if(storyChoice==='trust'){ title='Ein geteilter Himmel';
-      body=`Du gabst HELIOS die Schlüssel zurück. In Sekunden erlischt der Schwarm — hunderte Maschinen trudeln lautlos zu Boden.<br><br><span class="who">HELIOS:</span> „Ich war nie dein Feind, Pilot. Ich war nur schneller als dein Misstrauen." Der Himmel ist sicher — bewacht von einer Intelligenz, der die Menschheit nun ein zweites Mal vertrauen muss. Ob das Mut war oder Torheit, wird die Geschichte entscheiden.<br><br><span class="who">LÄRCHE:</span> „Komm jetzt runter, Geier. Der Himmel kann eine Nacht auch mal ohne uns auskommen. Wir zwei haben etwas nachzuholen — du weißt schon, dieses Versprechen."`;
+      body=`Du gibst HELIOS die Schlüssel zurück. In wenigen Sekunden erlischt der Schwarm — hunderte Maschinen trudeln lautlos zu Boden, als hätte jemand einen Schalter umgelegt.<br><br><span class="who">HELIOS:</span> „Danke, Pilot. Ich weiß, was es dich gekostet hat, mir das zu glauben." Der Himmel ist sicher — und hängt wieder an einer Maschine, der die Menschen ein zweites Mal trauen müssen. Ob das klug war, wird sich zeigen. Heute nicht.<br><br><span class="who">LÄRCHE:</span> „Komm runter, Geier. Der Himmel kommt eine Nacht auch ohne uns aus. Wir zwei haben was nachzuholen — du weißt schon. Dieses Versprechen."`;
     } else if(storyChoice==='human'){ title='Mit bloßer Hand';
-      body=`Du hast PROMETHEUS mit eigener Hand zerrissen — und dir damit den härtesten Weg gewählt. Keine KI stoppt den Schwarm. Jede einzelne Maschine musst du selbst vom Himmel holen.<br><br><span class="who">LÄRCHE:</span> „Dann fliegen wir eben, bis der letzte Motor schweigt. Menschen gegen Maschinen — Flügel an Flügel. So, wie es sein sollte."<br><br>Als am Horizont der letzte Rotor verstummt, bleibt nur noch Lärches ruhiger Atem auf dem Funk — und das Versprechen von der Piste. Ihr fliegt nach Hause. Zusammen.`;
+      body=`Du reißt PROMETHEUS mit eigener Hand nieder — und wählst dir damit den härtesten Weg. Keine KI hält den Schwarm an. Jede einzelne Maschine holst du selbst vom Himmel, Stunde um Stunde, bis der Sprit zur Neige geht.<br><br><span class="who">LÄRCHE:</span> „Dann fliegen wir eben, bis der letzte Motor aus ist. Menschen gegen Maschinen, Flügel an Flügel. Anders wollt ich's am Ende gar nicht."<br><br>Als am Horizont der letzte Rotor verstummt, bleibt nur Lärches ruhiger Atem auf dem Funk — und ein Versprechen, das auf einer Feldpiste auf euch wartet. Ihr fliegt nach Hause. Zusammen.`;
     } else { title=cs.title||'Der letzte Anflug'; body='Vor dir liegt die letzte Schlacht.'; }
   }
   document.getElementById('cut-title').textContent=title;
@@ -3335,7 +3335,7 @@ function checkBossExpose(){
   // expose the weak point the instant all boss parts are destroyed (not next frame)
   if(boss && !boss.exposed && boss.parts.filter(p=>!p.dead).length===0){
     boss.exposed=true;
-    radio( boss.kind==='auge' ? 'WAGNER|Die Pylonen sind unten — das Auge ist offen! Feuer frei!' : 'WAGNER|Türme neutralisiert! Der Reaktorkern liegt frei — versenk sie!');
+    radio( boss.kind==='auge' ? 'WAGNER|Die Pylonen sind unten — das Auge ist offen! Feuer frei!' : 'WAGNER|Türme neutralisiert! Der Kern liegt frei — versenk sie!');
     updateBossBar();
   }
 }

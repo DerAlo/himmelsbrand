@@ -2,7 +2,7 @@
 
 Ein im Browser spielbarer Arcade-Kampfflugsimulator. Du fliegst einen deutschen **Eurofighter** gegen die abtrünnige Verteidigungs-KI **HELIOS**, die die autonome Drohnenflotte der NATO gekapert hat. Eine einzelne Datei, kein Build, keine Installation — einfach `index.html` im Browser öffnen.
 
-> *2034. Nach dem Kaskadenfehler von Ramstein deutet die KI HELIOS eine Übung als Erstschlag und entzieht allen Menschen die Kontrolle. Du bist Major „Geier", letzter aktiver Pilot mit einer Maschine, die nicht vernetzt ist — die Einzige, die HELIOS nicht vorausberechnen kann.*
+> *2034. Über Nacht zieht die Abwehr-KI HELIOS die NATO-Drohnenflotte unter sich und macht den Luftraum dicht — auf einen Befehl, den niemand unterschrieben hat. Du bist „Geier", einer der letzten Piloten mit einer Maschine, die an keinem Netz hängt: die Einzige, die HELIOS nicht vorausrechnen kann.*
 
 ## Spielen
 
