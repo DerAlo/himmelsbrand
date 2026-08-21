@@ -64,7 +64,7 @@ Manche Missionen beginnen auf der Rollbahn und/oder verlangen eine Landung. Phys
 | G | Bombe abwerfen (Bodenziel) |
 | X | Waffe wechseln (Rakete / LB-Rakete / Bombe) |
 | B | Fahrwerk ein/aus |
-| V | Funkstimmen an/aus (Sprachausgabe, standardmäßig aus) |
+| V | Funkstimmen an/aus (echte, vorgerenderte Sprachausgabe, standardmäßig an) |
 | Shift | Nachbrenner · Strg | Drosseln |
 | P / Esc | Pause |
 
