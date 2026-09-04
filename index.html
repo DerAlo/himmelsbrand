@@ -1660,7 +1660,7 @@ function updateTerrain(px,pz,budget){
 }
 
 // Water plane (follows player)
-const waterMat = new THREE.MeshStandardMaterial({ color:0x0d2f52, transparent:true, opacity:0.90, roughness:0.18, metalness:0.02, envMapIntensity:0.85 });   // dielectric: F0 ~0.02, reflection comes from the env map + Fresnel
+const waterMat = new THREE.MeshStandardMaterial({ color:0x0a2440, transparent:true, opacity:0.92, roughness:0.20, metalness:0.02, envMapIntensity:0.75 });   // dielectric: F0 ~0.02, reflection comes from the env map + Fresnel
 // DEPTH-AWARE SHORELINE.
 // The flat y=0 plane used to cut a hard polygonal staircase wherever a slope crossed sea
 // level, and because the terrain continues below the surface that cut showed every
@@ -1696,7 +1696,7 @@ waterMat.onBeforeCompile=function(sh){
   sh.uniforms.uDepthTex={ value: depthTex };
   sh.uniforms.uDepthCenter={ value: depthCenter };
   sh.uniforms.uDepthSpan={ value: DEPTH_SPAN };
-  sh.uniforms.uShallow={ value: new THREE.Color(0x3f8f96) };   // turquoise shallows
+  sh.uniforms.uShallow={ value: new THREE.Color(0x2c6d78) };   // turquoise shallows
   sh.uniforms.uLightLevel={ value: 1.0 };                      // set from applyTimeOfDay: surf must not glow at night
   sh.uniforms.uSand={ value: new THREE.Color(0x9d9a80) };
   waterMat.userData.shader = sh;
@@ -1732,12 +1732,12 @@ waterMat.onBeforeCompile=function(sh){
     d[i]=(nx*inv*0.5+0.5)*255; d[i+1]=(ny*inv*0.5+0.5)*255; d[i+2]=(inv*0.5+0.5)*255; d[i+3]=255;
     }
   const t=new THREE.DataTexture(d,N,N,THREE.RGBAFormat);
-  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(90,90);        // ~130 units/tile: ripples read as water, not corrugated sheet
+  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(34,34);        // ~350 units/tile: fine enough for ripples, coarse enough that the tiling is not the pattern
   t.magFilter=THREE.LinearFilter; t.minFilter=THREE.LinearMipmapLinearFilter;
   t.generateMipmaps=true;                                            // kills the shimmer at grazing angles
   t.anisotropy=Math.min(8, renderer.capabilities.getMaxAnisotropy());
   t.needsUpdate=true;
-  waterMat.normalMap=t; waterMat.normalScale=new THREE.Vector2(0.30,0.30);   // lower = less specular fizz (shading aliasing MSAA cannot fix)
+  waterMat.normalMap=t; waterMat.normalScale=new THREE.Vector2(0.16,0.16);   // lower = less specular fizz (shading aliasing MSAA cannot fix)
 })();
 const water = new THREE.Mesh(new THREE.PlaneGeometry(CFG.chunkSize*(CFG.viewRadius*2+2), CFG.chunkSize*(CFG.viewRadius*2+2)), waterMat);
 water.rotation.x=-Math.PI/2; water.position.y=CFG.waterLevel; scene.add(water);
@@ -2732,6 +2732,13 @@ function banner(main, sub){
 
 // Canvas HUD: reticle, target boxes, lock, off-screen arrows, radar
 const GT_LABELS={radar:'RADAR',truck:'TANKER',sam:'SAM',hangar:'HANGAR',turret:'TURM',pylon:'PYLON',bunker:'BUNKER',depot:'DEPOT',bierkiste:'🍺 BIERKISTE'};
+// Canvas text carries no CSS text-shadow, so HUD labels drawn on the 2D layer need their
+// own dark outline or they disappear against a bright sky / dusk horizon.
+function hudText(txt, x, y, fill){
+  hctx.lineWidth=3; hctx.strokeStyle='rgba(0,0,0,0.85)';
+  hctx.strokeText(txt, x, y);
+  hctx.fillStyle=fill; hctx.fillText(txt, x, y);
+}
 function drawHUD(){
   const w=innerWidth, h=innerHeight; hctx.clearRect(0,0,w,h);   // CSS units: hctx carries the dpr transform
   // red damage flash — drawn in ALL states so a fatal crash punch is visible
@@ -2840,8 +2847,8 @@ function drawHUD(){
       // big status cue under the center reticle
       hctx.textAlign='center'; hctx.font='bold 16px monospace';
       if(onTgt){ hctx.fillStyle='rgba(120,255,120,0.98)'; hctx.fillText('◄ FEUER · GUNS ►', cx, cy-44); }
-      else if(near){ hctx.fillStyle='rgba(255,120,120,0.9)'; hctx.font='bold 13px monospace'; hctx.fillText('IN REICHWEITE — auf Zielpunkt halten', cx, cy-44); }
-      else { hctx.fillStyle='rgba(255,210,110,0.8)'; hctx.font='12px monospace'; hctx.fillText('ausser Reichweite ('+Math.round(gunSolution.dist)+' m)', cx, cy-44); }
+      else if(near){ hctx.font='bold 13px monospace'; hudText('IN REICHWEITE — auf Zielpunkt halten', cx, cy-44, 'rgba(255,120,120,0.95)'); }
+      else { hctx.font='12px monospace'; hudText('ausser Reichweite ('+Math.round(gunSolution.dist)+' m)', cx, cy-44, 'rgba(255,210,110,0.9)'); }
       hctx.textAlign='left';
     }
   }
