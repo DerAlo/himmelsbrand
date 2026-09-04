@@ -335,7 +335,7 @@ if (typeof THREE === 'undefined') {
    --------------------------------------------------------------------------- */
 const CFG = {
   chunkSize: 1500,
-  chunkSeg: 40,
+  chunkSeg: 72,             // 20.8 units/facet: the water line no longer cuts visible stair steps
   viewRadius: 3,            // chunks around player (=> 7x7)
   waterLevel: 0,
   minSpeed: 150, cruiseSpeed: 250, maxSpeed: 380, boostSpeed: 520,
@@ -1395,7 +1395,7 @@ addEventListener('resize', resize); resize();
 
 /* ---- Post-FX: bloom + film grade (graceful fallback to plain render if the CDN lib is missing) ---- */
 const GradeShader = {
-  uniforms:{ tDiffuse:{value:null}, uTime:{value:0.0}, uSat:{value:1.16}, uVig:{value:0.13},
+  uniforms:{ tDiffuse:{value:null}, uTime:{value:0.0}, uSat:{value:1.07}, uVig:{value:0.13},
     uAber:{value:0.0}, uGrain:{value:0.0}, uExp:{value:1.02}, uKnee:{value:0.86},
     uLift:{value:new THREE.Color(0x0b1220)}, uWarm:{value:new THREE.Color(0x231708)} },
   vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
@@ -1493,31 +1493,61 @@ const terrainGroup = new THREE.Group(); scene.add(terrainGroup);
 const chunks = new Map();
 const terrainMat = new THREE.MeshLambertMaterial({ vertexColors:true });
 
-function heightColor(h, out){
-  // out: THREE.Color
-  if (h < CFG.waterLevel-1)      out.setRGB(0.40,0.35,0.22);          // lake bed / sand near water
-  else if (h < 12)               out.setRGB(0.72,0.63,0.40);          // beach/sand
-  else if (h < 120)              out.setRGB(0.17+Math.random()*0.03,0.42,0.13); // grass
-  else if (h < 300)              out.setRGB(0.12,0.28,0.10);          // forest
-  else if (h < 460)              out.setRGB(0.31,0.28,0.24);          // rock
-  else                           out.setRGB(0.90,0.93,0.99);          // snow
+// Stable per-position hash: same world x/z always yields the same value, so a rebuilt
+// chunk is bit-identical (Math.random() here made terrain flicker between rebuilds).
+function hash2(x, z){
+  const v = Math.sin(x*12.9898 + z*78.233) * 43758.5453;
+  return v - Math.floor(v);
+}
+// Terrain bands with SMOOTH transitions. Hard if/else thresholds drew sharp contour
+// lines that read as terraces; blending over a band width removes them.
+const TB_SAND=[0.62,0.56,0.40], TB_GRASS=[0.24,0.38,0.19], TB_FOREST=[0.15,0.26,0.13],
+      TB_ROCK=[0.36,0.33,0.29], TB_SNOW=[0.92,0.94,0.99], TB_BED=[0.30,0.28,0.20];
+function mixBand(a, b, t, out){
+  out.setRGB(a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t);
+}
+function smoothBand(e0, e1, x){ const t=Math.min(1,Math.max(0,(x-e0)/(e1-e0))); return t*t*(3-2*t); }
+function heightColor(h, out, wx, wz){
+  if      (h < CFG.waterLevel+2)  mixBand(TB_BED,    TB_SAND,   smoothBand(CFG.waterLevel-14, CFG.waterLevel+2, h), out);
+  else if (h < 34)                mixBand(TB_SAND,   TB_GRASS,  smoothBand(6,   34,  h), out);
+  else if (h < 190)               mixBand(TB_GRASS,  TB_FOREST, smoothBand(90,  190, h), out);
+  else if (h < 400)               mixBand(TB_FOREST, TB_ROCK,   smoothBand(230, 400, h), out);
+  else                            mixBand(TB_ROCK,   TB_SNOW,   smoothBand(410, 520, h), out);
+  // deterministic mottling so large slopes are not flat poster paint
+  if(wx!==undefined){
+    const n = (hash2(Math.floor(wx*0.11), Math.floor(wz*0.11)) - 0.5) * 0.052;
+    out.r=Math.max(0,out.r+n); out.g=Math.max(0,out.g+n); out.b=Math.max(0,out.b+n);
+   }
   return out;
+}
+// Analytic normal from the height field. Because terrainHeight() is a pure function of
+// world position, two adjacent chunks compute the SAME normal on their shared edge —
+// no lighting discontinuity, i.e. no visible chunk grid.
+const NRM_EPS = 6;
+function terrainNormal(x, z, out){
+  const hL=terrainHeight(x-NRM_EPS, z), hR=terrainHeight(x+NRM_EPS, z);
+  const hD=terrainHeight(x, z-NRM_EPS), hU=terrainHeight(x, z+NRM_EPS);
+  return out.set(hL-hR, 2*NRM_EPS, hD-hU).normalize();
 }
 function buildChunk(cx, cz){
   const seg=CFG.chunkSeg, size=CFG.chunkSize;
   const geo=new THREE.PlaneGeometry(size,size,seg,seg); geo.rotateX(-Math.PI/2);
   const pos=geo.attributes.position; const n=pos.count;
-  const colors=new Float32Array(n*3); const col=new THREE.Color();
+  const colors=new Float32Array(n*3); const normals=new Float32Array(n*3);
+  const col=new THREE.Color(); const nrm=new THREE.Vector3();
   const ox=cx*size, oz=cz*size;
   for(let i=0;i<n;i++){
     const vx=pos.getX(i)+ox, vz=pos.getZ(i)+oz;
     const h=terrainHeight(vx,vz);
     pos.setY(i, h);
-    heightColor(h, col);
+    heightColor(h, col, vx, vz);
     colors[i*3]=col.r; colors[i*3+1]=col.g; colors[i*3+2]=col.b;
+    // analytic (not per-chunk) normal -> continuous lighting across chunk borders
+    terrainNormal(vx, vz, nrm);
+    normals[i*3]=nrm.x; normals[i*3+1]=nrm.y; normals[i*3+2]=nrm.z;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors,3));
-  geo.computeVertexNormals();
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals,3));
   const mesh=new THREE.Mesh(geo, terrainMat);
   mesh.position.set(ox,0,oz);
   mesh.frustumCulled=true;
@@ -1535,7 +1565,65 @@ function updateTerrain(px,pz){
 }
 
 // Water plane (follows player)
-const waterMat = new THREE.MeshStandardMaterial({ color:0x2f6fb0, transparent:true, opacity:0.72, roughness:0.15, metalness:0.3 });
+const waterMat = new THREE.MeshStandardMaterial({ color:0x1f5c9e, transparent:true, opacity:0.86, roughness:0.06, metalness:0.55 });
+// DEPTH-AWARE SHORELINE.
+// The flat y=0 plane used to cut a hard polygonal staircase wherever a slope crossed sea
+// level, and because the terrain continues below the surface that cut showed every
+// triangle edge. Fix: feed the water shader a heightfield texture of the surrounding
+// terrain, so each water pixel knows how deep it is. Shallow water goes translucent and
+// tints toward sand, which reads as a beach instead of a sliced edge; deep water stays
+// dark and opaque. The texture is regenerated only when the terrain streams (0.25 s), not
+// per frame.
+const DEPTH_N = 128;                       // heightfield resolution across the water plane
+const depthData = new Uint8Array(DEPTH_N*DEPTH_N*4);
+const depthTex = new THREE.DataTexture(depthData, DEPTH_N, DEPTH_N, THREE.RGBAFormat);
+depthTex.minFilter=depthTex.magFilter=THREE.LinearFilter;
+depthTex.wrapS=depthTex.wrapT=THREE.ClampToEdgeWrapping;
+const DEPTH_SPAN = CFG.chunkSize*(CFG.viewRadius*2+2);
+const depthCenter = new THREE.Vector2(0,0);
+const DEPTH_RANGE = 90;                    // metres of depth mapped into 0..1
+function updateDepthTex(cx, cz){
+  depthCenter.set(cx, cz);
+  let i=0;
+  for(let y=0;y<DEPTH_N;y++){
+    const wz = cz + (y/(DEPTH_N-1) - 0.5)*DEPTH_SPAN;
+    for(let x=0;x<DEPTH_N;x++){
+      const wx = cx + (x/(DEPTH_N-1) - 0.5)*DEPTH_SPAN;
+      const d = CFG.waterLevel - terrainHeight(wx, wz);      // >0 = under water
+      const v = Math.max(0, Math.min(1, d/DEPTH_RANGE))*255;
+      depthData[i]=v; depthData[i+1]=v; depthData[i+2]=v; depthData[i+3]=255;
+      i+=4;
+    }
+  }
+  depthTex.needsUpdate=true;
+}
+waterMat.onBeforeCompile=function(sh){
+  sh.uniforms.uDepthTex={ value: depthTex };
+  sh.uniforms.uDepthCenter={ value: depthCenter };
+  sh.uniforms.uDepthSpan={ value: DEPTH_SPAN };
+  sh.uniforms.uShallow={ value: new THREE.Color(0x74c6c0) };   // turquoise shallows
+  sh.uniforms.uSand={ value: new THREE.Color(0x9d9a80) };
+  waterMat.userData.shader = sh;
+  sh.vertexShader = sh.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;')
+    .replace('#include <fog_vertex>', '#include <fog_vertex>\n  vWPos=(modelMatrix*vec4(position,1.0)).xyz;');
+  sh.fragmentShader = sh.fragmentShader
+    .replace('#include <common>',
+      '#include <common>\nvarying vec3 vWPos;\nuniform sampler2D uDepthTex;\nuniform vec2 uDepthCenter;\nuniform float uDepthSpan;\nuniform vec3 uShallow;\nuniform vec3 uSand;')
+    .replace('#include <dithering_fragment>',
+      '#include <dithering_fragment>\n' +
+      '  vec2 duv = (vWPos.xz - uDepthCenter)/uDepthSpan + 0.5;\n' +
+      '  float depth01 = texture2D(uDepthTex, duv).r;\n' +
+      '  float shore = smoothstep(0.0, 0.030, depth01);        // 0 at the waterline, 1 a few metres out\n' +
+      '  float mid   = smoothstep(0.02, 0.30, depth01);\n' +
+      '  // shallow water: translucent + turquoise, sand showing through; deep: opaque\n' +
+      '  gl_FragColor.rgb = mix(mix(uSand, uShallow, shore), gl_FragColor.rgb, mid);\n' +
+      '  gl_FragColor.a *= mix(0.0, 1.0, shore);\n' +
+      '  // bright foam-ish rim exactly at the contact line hides the polygonal cut\n' +
+      '  float foam = (1.0-smoothstep(0.0, 0.012, depth01)) * smoothstep(0.0, 0.003, depth01);\n' +
+      '  gl_FragColor.rgb += vec3(0.42,0.50,0.52)*foam*0.42;\n' +
+      '  gl_FragColor.a = max(gl_FragColor.a, foam*0.55);');
+};
    // scrolling sparkle normal map (sum of tileable sine ripples) — sun/moon glint lives on the crests
 (function(){
   const N=128, d=new Uint8Array(N*N*4), TAU=Math.PI*2, sc=0.05;
@@ -4448,6 +4536,7 @@ function updateCamera(dt){
    18. MAIN LOOP
    --------------------------------------------------------------------------- */
 seedClouds(0,0);
+updateDepthTex(0,0);
 prewarmFX();          // compile lit shaders with the final light count before gameplay starts
 updateTerrain(0,0);
 document.getElementById('loading').style.display='none';
@@ -4504,7 +4593,8 @@ function loop(now){
     dom.score.style.transform = killPopT>0 ? 'scale('+(1+0.4*(killPopT/KILLPOP_DUR))+')' : 'none';
     // terrain streaming
     terrainTimer-=dt;
-    if(terrainTimer<=0){ terrainTimer=0.25; updateTerrain(player.obj.position.x, player.obj.position.z); }
+    if(terrainTimer<=0){ terrainTimer=0.25; updateTerrain(player.obj.position.x, player.obj.position.z);
+      updateDepthTex(player.obj.position.x, player.obj.position.z); }   // shoreline depth field follows the player
     updateClouds(player.obj.position.x, player.obj.position.z, dt);
   } else if(state==='gameover'){
     // let particles settle, keep the world drifting
