@@ -1642,6 +1642,7 @@ waterMat.onBeforeCompile=function(sh){
   sh.uniforms.uDepthCenter={ value: depthCenter };
   sh.uniforms.uDepthSpan={ value: DEPTH_SPAN };
   sh.uniforms.uShallow={ value: new THREE.Color(0x74c6c0) };   // turquoise shallows
+  sh.uniforms.uLightLevel={ value: 1.0 };                      // set from applyTimeOfDay: surf must not glow at night
   sh.uniforms.uSand={ value: new THREE.Color(0x9d9a80) };
   waterMat.userData.shader = sh;
   sh.vertexShader = sh.vertexShader
@@ -1649,7 +1650,7 @@ waterMat.onBeforeCompile=function(sh){
     .replace('#include <fog_vertex>', '#include <fog_vertex>\n  vWPos=(modelMatrix*vec4(position,1.0)).xyz;');
   sh.fragmentShader = sh.fragmentShader
     .replace('#include <common>',
-      '#include <common>\nvarying vec3 vWPos;\nuniform sampler2D uDepthTex;\nuniform vec2 uDepthCenter;\nuniform float uDepthSpan;\nuniform vec3 uShallow;\nuniform vec3 uSand;')
+      '#include <common>\nvarying vec3 vWPos;\nuniform sampler2D uDepthTex;\nuniform vec2 uDepthCenter;\nuniform float uDepthSpan;\nuniform vec3 uShallow;\nuniform vec3 uSand;\nuniform float uLightLevel;')
     .replace('#include <dithering_fragment>',
       '#include <dithering_fragment>\n' +
       '  vec2 duv = (vWPos.xz - uDepthCenter)/uDepthSpan + 0.5;\n' +
@@ -1657,11 +1658,11 @@ waterMat.onBeforeCompile=function(sh){
       '  float shore = smoothstep(0.0, 0.030, depth01);        // 0 at the waterline, 1 a few metres out\n' +
       '  float mid   = smoothstep(0.02, 0.30, depth01);\n' +
       '  // shallow water: translucent + turquoise, sand showing through; deep: opaque\n' +
-      '  gl_FragColor.rgb = mix(mix(uSand, uShallow, shore), gl_FragColor.rgb, mid);\n' +
+      '  gl_FragColor.rgb = mix(mix(uSand, uShallow, shore)*uLightLevel, gl_FragColor.rgb, mid);\n' +
       '  gl_FragColor.a *= mix(0.0, 1.0, shore);\n' +
       '  // bright foam-ish rim exactly at the contact line hides the polygonal cut\n' +
       '  float foam = (1.0-smoothstep(0.0, 0.012, depth01)) * smoothstep(0.0, 0.003, depth01);\n' +
-      '  gl_FragColor.rgb += vec3(0.42,0.50,0.52)*foam*0.42;\n' +
+      '  gl_FragColor.rgb += vec3(0.42,0.50,0.52)*foam*0.42*uLightLevel;\n' +
       '  gl_FragColor.a = max(gl_FragColor.a, foam*0.55);');
 };
    // scrolling sparkle normal map (sum of tileable sine ripples) — sun/moon glint lives on the crests
@@ -3328,6 +3329,8 @@ function applyTimeOfDay(tod){
   for(const g of clouds) for(const s of g.children) s.material.color.copy(cloudCol);
   // particle fog uniforms follow
   for(const m of particleMaterials){ if(m.uniforms.fogColor) m.uniforms.fogColor.value.copy(scene.fog.color); }
+  // the surf tint is added after lighting, so it needs the light level explicitly
+  if(waterMat.userData.shader) waterMat.userData.shader.uniforms.uLightLevel.value = THREE.MathUtils.clamp(c.hemi/0.50, 0.07, 1.0);
   buildEnvMap();      // the sky drives the reflections, so re-bake it when the sky changes
 }
 
