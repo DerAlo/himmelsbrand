@@ -887,7 +887,21 @@ function terrainHeightRaw(x, z){
   let h = continent*160 + mtn*mountainMask*620 + hills*70 + detail*16;
   // carve rivers/lakes: valleys where a separate noise dips low
   const water = Noise.noise2(x*0.0012-500, z*0.0012+800);
-  if (water < -0.15) h = Math.min(h, -18 + (water+0.15)*40);   // lakes/rivers below sea level
+  // Lake/river basins. A hard Math.min() here was a C0 discontinuity: the height snapped
+  // from the natural terrain straight to the lake bed at the -0.15 contour, i.e. a
+  // near-vertical wall (measured up to 88 degrees) ringing every shore — the jagged edge
+  // that no amount of terrain resolution could fix. Blend over a band instead, so banks
+  // slope into the water.
+  const BANK = 0.30;                                    // width of the shore ramp in noise units
+  if (water < -0.15 + BANK){
+    let t = (-0.15 + BANK - water) / BANK;               // 0 at the outer edge, 1 fully inside
+    t = Math.min(1, Math.max(0, t));
+    t = t*t*(3 - 2*t);                                   // smoothstep: C1 at both ends
+    // Subtract a smooth basin profile rather than clamping to a fixed bed: a mountain
+    // beside a lake then becomes a slope instead of a wall, at any terrain resolution.
+    const depth = (h + 26) * t;                          // pull the surface down toward the bed
+    h = h - depth;
+   }
   return h;
 }
 
