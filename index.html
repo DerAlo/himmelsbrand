@@ -1855,7 +1855,7 @@ function addRimLight(mat, color, power, strength){
    };
 }
 
-function buildEurofighter(){
+function buildEurofighter(withLight){
   const g=new THREE.Group();
   // DoubleSide so the thin wings/fins/canards are visible from every camera angle
   const body=new THREE.MeshStandardMaterial({ map:HULL_TEX_PLAYER, color:0x525d69, metalness:0.72, roughness:0.36, side:THREE.DoubleSide });
@@ -1887,7 +1887,10 @@ function buildEurofighter(){
   for(let i=0;i<3;i++){ const s=new THREE.Mesh(new THREE.PlaneGeometry(0.05,0.9), new THREE.MeshBasicMaterial({color:stripes[i], side:THREE.DoubleSide}));
     s.position.set(0.01,1.4,4.4+i*0.28); g.add(s); }
   // afterburner glow anchor
-  const ab=new THREE.PointLight(0x66aaff,0,40); ab.position.z=7; g.add(ab); g.userData.ab=ab;
+  // Only the player's jet carries the afterburner PointLight: adding/removing lights changes the
+  // scene light count, which recompiles EVERY lit shader in r128 (a visible hitch). Allies rely on
+  // the additive flame cones instead.
+  if(withLight){ const ab=new THREE.PointLight(0x66aaff,0,40); ab.position.z=7; g.add(ab); g.userData.ab=ab; }
     // afterburner cones: twin outer flame + hot core, additively blended, length driven by updatePlayer
   const flMat=new THREE.MeshBasicMaterial({color:0x1b46e0, transparent:true, opacity:0.8, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide});
   const flCoreMat=new THREE.MeshBasicMaterial({color:0xffa030, transparent:true, opacity:0.95, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide});
@@ -2025,7 +2028,7 @@ function buildEnemy(type){
    9. PLAYER
    --------------------------------------------------------------------------- */
 const player = {
-  obj: buildEurofighter(),
+  obj: buildEurofighter(true),      // the player jet keeps the afterburner light
   vel: new THREE.Vector3(0,0,-1),
   speed: CFG.cruiseSpeed,
   hp: CFG.playerHP,
