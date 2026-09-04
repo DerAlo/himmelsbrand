@@ -1387,9 +1387,17 @@ let composer=null, bloomPass=null, gradePass=null;      // post-FX pipeline (bui
 function resize(){
   renderer.setSize(innerWidth, innerHeight);
   camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
-  hudCanvas.width = innerWidth; hudCanvas.height = innerHeight;
+  const _hdpr=Math.min(devicePixelRatio||1, 2);
+  hudCanvas.width = Math.round(innerWidth*_hdpr); hudCanvas.height = Math.round(innerHeight*_hdpr);
+  hudCanvas.style.width = innerWidth+'px'; hudCanvas.style.height = innerHeight+'px';
+  hctx.setTransform(_hdpr, 0, 0, _hdpr, 0, 0);   // HUD code keeps drawing in CSS units
   for(const m of particleMaterials) m.uniforms.scale.value=innerHeight*0.5;
-  if(composer) composer.setSize(innerWidth, innerHeight);
+  if(composer){
+    // The composer owns a custom target, so its internal _pixelRatio is 1: it must be
+    // sized in DEVICE pixels or it silently renders at CSS resolution and upscales.
+    const _d=renderer.getDrawingBufferSize(new THREE.Vector2());
+    composer.setSize(_d.x, _d.y);
+   }
 }
 addEventListener('resize', resize); resize();
 
@@ -1403,9 +1411,11 @@ const GradeShader = {
     uniform float uAber; uniform float uGrain; uniform vec3 uLift; uniform vec3 uWarm; uniform float uExp; uniform float uKnee;
     const vec3 LUM = vec3(0.2126, 0.7152, 0.0722);
     void main(){
-      // Input is ALREADY display-referred: RenderPass writes sRGB-encoded pixels into the
-      // composer target (verified by measurement — adding a transfer curve here bleached
-      // the image and raised its mean by 22 luminance points). So: no encode, no decode.
+      // NO transfer curve here. In r128 a material's output encoding comes from the
+      // DESTINATION: rendering into the composer target (LinearEncoding) applies none,
+      // and the final on-screen pass is what encodes to sRGB. Adding pow(1/2.2) in this
+      // pass was therefore a SECOND encode — measured: +22 luminance, saturation halved
+      // (0.354 -> 0.156). Grade in the values as they arrive.
       vec3 col = texture2D(tDiffuse, vUv).rgb * uExp;
       // Soft shoulder on LUMINANCE only, so highlights roll off without losing chroma.
       float l = dot(col, LUM);
@@ -2670,7 +2680,7 @@ function banner(main, sub){
 // Canvas HUD: reticle, target boxes, lock, off-screen arrows, radar
 const GT_LABELS={radar:'RADAR',truck:'TANKER',sam:'SAM',hangar:'HANGAR',turret:'TURM',pylon:'PYLON',bunker:'BUNKER',depot:'DEPOT',bierkiste:'🍺 BIERKISTE'};
 function drawHUD(){
-  const w=hudCanvas.width, h=hudCanvas.height; hctx.clearRect(0,0,w,h);
+  const w=innerWidth, h=innerHeight; hctx.clearRect(0,0,w,h);   // CSS units: hctx carries the dpr transform
   // red damage flash — drawn in ALL states so a fatal crash punch is visible
   // during the gameover delay (Conflict G).
   if(damageFlash>0){ hctx.fillStyle='rgba(210,25,20,'+Math.min(0.5,damageFlash*0.85)+')'; hctx.fillRect(0,0,w,h); }
