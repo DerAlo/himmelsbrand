@@ -1440,7 +1440,9 @@ if (typeof THREE.EffectComposer==='function' && typeof THREE.RenderPass==='funct
   if(renderer.capabilities.isWebGL2){
     const _sz=renderer.getDrawingBufferSize(new THREE.Vector2());
     _ct=new THREE.WebGLMultisampleRenderTarget(_sz.x, _sz.y,
-      { minFilter:THREE.LinearFilter, magFilter:THREE.LinearFilter, format:THREE.RGBAFormat });
+      // stencilBuffer:true makes r128 allocate DEPTH24_STENCIL8 instead of a 16-bit depth
+      // buffer. Without it the runway decals z-fought away entirely under post-FX.
+      { minFilter:THREE.LinearFilter, magFilter:THREE.LinearFilter, format:THREE.RGBAFormat, stencilBuffer:true });
     _ct.samples=Math.min(4, renderer.getContext().getParameter(renderer.getContext().MAX_SAMPLES)||4);
   }
   composer = _ct ? new THREE.EffectComposer(renderer, _ct) : new THREE.EffectComposer(renderer);
@@ -1615,7 +1617,7 @@ function updateTerrain(px,pz){
 }
 
 // Water plane (follows player)
-const waterMat = new THREE.MeshStandardMaterial({ color:0x1a4f8a, transparent:true, opacity:0.88, roughness:0.045, metalness:0.72, envMapIntensity:1.5 });
+const waterMat = new THREE.MeshStandardMaterial({ color:0x1a4f8a, transparent:true, opacity:0.88, roughness:0.14, metalness:0.62, envMapIntensity:1.35 });
 // DEPTH-AWARE SHORELINE.
 // The flat y=0 plane used to cut a hard polygonal staircase wherever a slope crossed sea
 // level, and because the terrain continues below the surface that cut showed every
@@ -1689,7 +1691,7 @@ waterMat.onBeforeCompile=function(sh){
   const t=new THREE.DataTexture(d,N,N,THREE.RGBAFormat);
   t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(12,12);
   t.magFilter=THREE.LinearFilter; t.minFilter=THREE.LinearFilter; t.needsUpdate=true;
-  waterMat.normalMap=t; waterMat.normalScale=new THREE.Vector2(0.5,0.5);
+  waterMat.normalMap=t; waterMat.normalScale=new THREE.Vector2(0.30,0.30);   // lower = less specular fizz (shading aliasing MSAA cannot fix)
 })();
 const water = new THREE.Mesh(new THREE.PlaneGeometry(CFG.chunkSize*(CFG.viewRadius*2+2), CFG.chunkSize*(CFG.viewRadius*2+2)), waterMat);
 water.rotation.x=-Math.PI/2; water.position.y=CFG.waterLevel; scene.add(water);
@@ -2092,12 +2094,12 @@ function buildRunway(x, z, heading){
   const strip=new THREE.Mesh(new THREE.PlaneGeometry(W,L), new THREE.MeshStandardMaterial({color:0x2b2e33, roughness:0.95, metalness:0.0}));
   strip.rotation.x=-Math.PI/2; strip.position.y=0.4; grp.add(strip);
   // centre dashes
-  for(let i=-L/2+40;i<L/2-40;i+=70){ const d=new THREE.Mesh(new THREE.PlaneGeometry(2.5,26), new THREE.MeshBasicMaterial({color:0xf0f0f0}));
+  for(let i=-L/2+40;i<L/2-40;i+=70){ const d=new THREE.Mesh(new THREE.PlaneGeometry(2.5,26), new THREE.MeshBasicMaterial({color:0xf0f0f0, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-4}));
     d.rotation.x=-Math.PI/2; d.position.set(0,0.5,i); grp.add(d); }
   // threshold bars + edge lines
-  for(const zz of [-L/2+16, L/2-16]){ for(let k=-4;k<=4;k++){ const b=new THREE.Mesh(new THREE.PlaneGeometry(3,16), new THREE.MeshBasicMaterial({color:0xffffff}));
+  for(const zz of [-L/2+16, L/2-16]){ for(let k=-4;k<=4;k++){ const b=new THREE.Mesh(new THREE.PlaneGeometry(3,16), new THREE.MeshBasicMaterial({color:0xffffff, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-4}));
     b.rotation.x=-Math.PI/2; b.position.set(k*5.5,0.5,zz); grp.add(b);} }
-  for(const ex of [-W/2+2, W/2-2]){ const e=new THREE.Mesh(new THREE.PlaneGeometry(1.2,L), new THREE.MeshBasicMaterial({color:0xd8d84a}));
+  for(const ex of [-W/2+2, W/2-2]){ const e=new THREE.Mesh(new THREE.PlaneGeometry(1.2,L), new THREE.MeshBasicMaterial({color:0xd8d84a, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-4}));
     e.rotation.x=-Math.PI/2; e.position.set(ex,0.5,0); grp.add(e); }
   // a couple of hangars + a tower beside the strip (base dressing)
   const bldMat=new THREE.MeshStandardMaterial({color:0x40474f, metalness:0.4, roughness:0.7});
