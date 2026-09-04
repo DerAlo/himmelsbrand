@@ -1486,6 +1486,39 @@ const glowTex = radialTexture('rgba(255,255,255,1)','rgba(255,230,180,0.5)');
 const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xfff1cc, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, fog:false }));
 sunSprite.scale.set(900,900,1); scene.add(sunSprite);
 
+/* ---- ENVIRONMENT MAP from the procedural sky (reflections on metal + water) ----
+   Metal with no envMap reflects nothing and reads as matte plastic. The sky here is a
+   shader, not a texture, so bake it: render sky+sun into a small cube target, prefilter
+   it with PMREMGenerator, and assign scene.environment. r128 applies scene.environment
+   to every MeshStandardMaterial automatically. Cost is paid only at load and whenever
+   the time of day changes. */
+let envRT=null, envPMREM=null, envScene=null, envCam=null;
+function buildEnvMap(){
+  if(!envScene){
+    // A dedicated mini-scene holding ONLY the sky shell and a sun disc: reflecting the
+    // terrain would need a full cube render every frame, which we cannot afford.
+    envScene=new THREE.Scene();
+    const shell=new THREE.Mesh(new THREE.SphereGeometry(500,24,16), skyMat);
+    envScene.add(shell);
+    const disc=new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xfff1cc,
+      transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, fog:false }));
+    disc.scale.set(90,90,1); envScene.add(disc);
+    envScene.userData.disc=disc;
+    envRT=new THREE.WebGLCubeRenderTarget(128, { format:THREE.RGBAFormat, generateMipmaps:true, minFilter:THREE.LinearMipmapLinearFilter });
+    envCam=new THREE.CubeCamera(1, 2000, envRT);
+    envPMREM=new THREE.PMREMGenerator(renderer);
+    envPMREM.compileCubemapShader();
+  }
+  envScene.userData.disc.position.copy(sunDir).multiplyScalar(420);
+  const prevFog=envScene.fog; envScene.fog=null;
+  envCam.update(renderer, envScene);
+  envScene.fog=prevFog;
+  const prev=scene.environment;
+  const t=envPMREM.fromCubemap(envRT.texture);
+  scene.environment=t.texture;
+  if(prev && prev.dispose) prev.dispose();
+}
+
 /* ---------------------------------------------------------------------------
    5. TERRAIN (chunked, procedural, vertex-colored)
    --------------------------------------------------------------------------- */
@@ -1507,12 +1540,19 @@ function mixBand(a, b, t, out){
   out.setRGB(a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t);
 }
 function smoothBand(e0, e1, x){ const t=Math.min(1,Math.max(0,(x-e0)/(e1-e0))); return t*t*(3-2*t); }
+const _hcN=new THREE.Vector3();
 function heightColor(h, out, wx, wz){
-  if      (h < CFG.waterLevel+2)  mixBand(TB_BED,    TB_SAND,   smoothBand(CFG.waterLevel-14, CFG.waterLevel+2, h), out);
-  else if (h < 34)                mixBand(TB_SAND,   TB_GRASS,  smoothBand(6,   34,  h), out);
-  else if (h < 190)               mixBand(TB_GRASS,  TB_FOREST, smoothBand(90,  190, h), out);
-  else if (h < 400)               mixBand(TB_FOREST, TB_ROCK,   smoothBand(230, 400, h), out);
-  else                            mixBand(TB_ROCK,   TB_SNOW,   smoothBand(410, 520, h), out);
+  if      (h < CFG.waterLevel+1)  mixBand(TB_BED,    TB_SAND,   smoothBand(CFG.waterLevel-20, CFG.waterLevel+1, h), out);
+  else if (h < 13)                mixBand(TB_SAND,   TB_GRASS,  smoothBand(2,   13,  h), out);   // narrow beach at the waterline only
+  else if (h < 190)               mixBand(TB_GRASS,  TB_FOREST, smoothBand(60,  190, h), out);
+  else if (h < 400)               mixBand(TB_FOREST, TB_ROCK,   smoothBand(210, 400, h), out);
+  else                            mixBand(TB_ROCK,   TB_SNOW,   smoothBand(430, 540, h), out);
+  // steep faces are bare rock regardless of altitude: grass does not cling to cliffs
+  if(wx!==undefined && h > CFG.waterLevel+4){
+    const nz=terrainNormal(wx, wz, _hcN);
+    const steep=Math.min(1, Math.max(0, (0.86 - nz.y) / 0.34));
+    if(steep>0){ out.r += (TB_ROCK[0]-out.r)*steep; out.g += (TB_ROCK[1]-out.g)*steep; out.b += (TB_ROCK[2]-out.b)*steep; }
+   }
   // deterministic mottling so large slopes are not flat poster paint
   if(wx!==undefined){
     const n = (hash2(Math.floor(wx*0.11), Math.floor(wz*0.11)) - 0.5) * 0.052;
@@ -1565,7 +1605,7 @@ function updateTerrain(px,pz){
 }
 
 // Water plane (follows player)
-const waterMat = new THREE.MeshStandardMaterial({ color:0x1f5c9e, transparent:true, opacity:0.86, roughness:0.06, metalness:0.55 });
+const waterMat = new THREE.MeshStandardMaterial({ color:0x1a4f8a, transparent:true, opacity:0.88, roughness:0.045, metalness:0.72, envMapIntensity:1.5 });
 // DEPTH-AWARE SHORELINE.
 // The flat y=0 plane used to cut a hard polygonal staircase wherever a slope crossed sea
 // level, and because the terrain continues below the surface that cut showed every
@@ -1960,15 +2000,15 @@ function addRimLight(mat, color, power, strength){
 function buildEurofighter(withLight){
   const g=new THREE.Group();
   // DoubleSide so the thin wings/fins/canards are visible from every camera angle
-  const body=new THREE.MeshStandardMaterial({ map:HULL_TEX_PLAYER, color:0x525d69, metalness:0.72, roughness:0.36, side:THREE.DoubleSide });
+  const body=new THREE.MeshStandardMaterial({ map:HULL_TEX_PLAYER, color:0x67707a, metalness:0.22, roughness:0.46, envMapIntensity:0.85, side:THREE.DoubleSide });
   addRimLight(body, 0xbcd8ff, 3.0, 0.30);
-  const dark=new THREE.MeshStandardMaterial({ color:0x24292f, metalness:0.7, roughness:0.35, side:THREE.DoubleSide });
+  const dark=new THREE.MeshStandardMaterial({ color:0x23282e, metalness:0.45, roughness:0.34, envMapIntensity:0.9, side:THREE.DoubleSide });
   // Fuselage
   const fus=new THREE.Mesh(new THREE.CylinderGeometry(0.9,1.3,12,12), body); fus.rotation.x=Math.PI/2; g.add(fus);
   // Nose cone
   const nose=new THREE.Mesh(new THREE.ConeGeometry(0.9,5,12), body); nose.rotation.x=-Math.PI/2; nose.position.z=-8.4; g.add(nose);
   // Canopy
-  const can=new THREE.Mesh(new THREE.SphereGeometry(0.95,12,10,0,Math.PI*2,0,Math.PI/2), new THREE.MeshStandardMaterial({color:0x113344, metalness:0.9, roughness:0.1, transparent:true, opacity:0.75}));
+  const can=new THREE.Mesh(new THREE.SphereGeometry(0.95,12,10,0,Math.PI*2,0,Math.PI/2), new THREE.MeshStandardMaterial({color:0x0d2635, metalness:1.0, roughness:0.04, envMapIntensity:2.0, transparent:true, opacity:0.62}));
   can.scale.set(1,0.8,2.2); can.position.set(0,0.7,-3.5); g.add(can);
   // Delta wings
   const wingGeo=triGeo([ 0,0,-1,  6.5,0,5,  0,0,5.5,   0,0,-1, 0,0,5.5, -6.5,0,5 ]);
@@ -2093,7 +2133,7 @@ function buildEnemy(type){
   // HELIOS drones: dark carbon hulls with a red sensor glow (rogue-AI identity)
   const colors={ f16:0x3a4048, f18:0x33383f, f22:0x24282e };
   // DoubleSide so thin wings/tailplanes/fins render from all angles
-  const body=new THREE.MeshStandardMaterial({ map:HULL_TEX_ENEMY, color:colors[type]||0x3a4048, metalness:0.65, roughness:0.42, side:THREE.DoubleSide,
+  const body=new THREE.MeshStandardMaterial({ map:HULL_TEX_ENEMY, color:colors[type]||0x3a4048, metalness:0.30, roughness:0.40, envMapIntensity:0.55, side:THREE.DoubleSide,
     emissive:0x110000, emissiveIntensity:0.5 });
   addRimLight(body, 0xff5535, 3.2, 0.50);       // hostile drones get a red edge glow
   const dark=new THREE.MeshStandardMaterial({ color:0x15181c, metalness:0.6, roughness:0.4, side:THREE.DoubleSide });
@@ -3288,6 +3328,7 @@ function applyTimeOfDay(tod){
   for(const g of clouds) for(const s of g.children) s.material.color.copy(cloudCol);
   // particle fog uniforms follow
   for(const m of particleMaterials){ if(m.uniforms.fogColor) m.uniforms.fogColor.value.copy(scene.fog.color); }
+  buildEnvMap();      // the sky drives the reflections, so re-bake it when the sky changes
 }
 
 /* ---------------------------------------------------------------------------
@@ -4537,6 +4578,7 @@ function updateCamera(dt){
    --------------------------------------------------------------------------- */
 seedClouds(0,0);
 updateDepthTex(0,0);
+buildEnvMap();        // reflections available before the first frame
 prewarmFX();          // compile lit shaders with the final light count before gameplay starts
 updateTerrain(0,0);
 document.getElementById('loading').style.display='none';
