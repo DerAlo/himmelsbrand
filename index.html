@@ -1395,33 +1395,47 @@ addEventListener('resize', resize); resize();
 
 /* ---- Post-FX: bloom + film grade (graceful fallback to plain render if the CDN lib is missing) ---- */
 const GradeShader = {
-  uniforms:{ tDiffuse:{value:null}, uTime:{value:0.0}, uSat:{value:1.20}, uVig:{value:0.34},
-    uAber:{value:0.0017}, uGrain:{value:0.55}, uExp:{value:1.06}, uLift:{value:new THREE.Color(0x101a2c)}, uWarm:{value:new THREE.Color(0x2a1c10)} },
+  uniforms:{ tDiffuse:{value:null}, uTime:{value:0.0}, uSat:{value:1.16}, uVig:{value:0.13},
+    uAber:{value:0.0}, uGrain:{value:0.0}, uExp:{value:1.02}, uKnee:{value:0.86},
+    uLift:{value:new THREE.Color(0x0b1220)}, uWarm:{value:new THREE.Color(0x231708)} },
   vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
   fragmentShader:`varying vec2 vUv; uniform sampler2D tDiffuse; uniform float uTime; uniform float uSat; uniform float uVig;
-    uniform float uAber; uniform float uGrain; uniform vec3 uLift; uniform vec3 uWarm; uniform float uExp;
-    // ACES filmic approximation (Narkowicz): filmic contrast + highlight roll-off, kills the milky wash
-    vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }
-    void main(){ vec2 uv=vUv;
-      float r=texture2D(tDiffuse, uv+vec2(uAber,0.0)).r;                         // chromatic aberration toward edges
-      float g=texture2D(tDiffuse, uv).g;
-      float b=texture2D(tDiffuse, uv-vec2(uAber,0.0)).b;
-      vec3 col=vec3(r,g,b);
-      col=pow(aces(max(col,0.0)*uExp), vec3(1.0/2.2));                          // tonemap in linear, then encode sRGB (this pass gets no auto-encode)                                                          // r128 applies sRGB output encoding on the final on-screen pass
-      float l=dot(col, vec3(0.2126,0.7152,0.0722));
-      col=mix(vec3(l),col,uSat);                                                 // punch
-      col=clamp(col*col*(3.0-2.0*col)*0.30 + col*0.70, 0.0, 1.0);                // gentle S-curve contrast
-      col+= uLift*pow(1.0-l,2.0)*0.16 + uWarm*pow(l,2.0)*0.10;                   // teal shadows / warm highlights
-      vec2 q=uv-0.5; col *= clamp(1.0-dot(q,q)*uVig*2.2, 0.0, 1.0);              // vignette
-      float gr=fract(sin(dot(uv*vec2(1234.5,4321.7)+uTime*37.0, vec2(12.9898,78.233)))*43758.5453);
-      col += (gr-0.5)*uGrain*0.03;                                               // film grain
-      gl_FragColor=vec4(col,1.0);}`
+    uniform float uAber; uniform float uGrain; uniform vec3 uLift; uniform vec3 uWarm; uniform float uExp; uniform float uKnee;
+    const vec3 LUM = vec3(0.2126, 0.7152, 0.0722);
+    void main(){
+      // Input is ALREADY display-referred: RenderPass writes sRGB-encoded pixels into the
+      // composer target (verified by measurement — adding a transfer curve here bleached
+      // the image and raised its mean by 22 luminance points). So: no encode, no decode.
+      vec3 col = texture2D(tDiffuse, vUv).rgb * uExp;
+      // Soft shoulder on LUMINANCE only, so highlights roll off without losing chroma.
+      float l = dot(col, LUM);
+      if(l > uKnee){
+        float ls = uKnee + (l - uKnee) / (1.0 + (l - uKnee) * 2.2);
+        col *= ls / max(l, 1e-5);
+      }
+      float g = dot(col, LUM);
+      col = mix(vec3(g), col, uSat);                                       // punch
+      col = clamp(col*col*(3.0-2.0*col)*0.22 + col*0.78, 0.0, 1.0);        // filmic S-curve: deepens shadows
+      col += uLift*pow(1.0-g, 3.0)*0.07 + uWarm*pow(g, 3.0)*0.05;         // subtle cool shadows / warm highs
+      vec2 q = vUv - 0.5;
+      col *= 1.0 - dot(q, q) * uVig;
+      gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);}`
 };
 if (typeof THREE.EffectComposer==='function' && typeof THREE.RenderPass==='function' &&
     typeof THREE.ShaderPass==='function' && typeof THREE.UnrealBloomPass==='function'){
-  composer=new THREE.EffectComposer(renderer);
+  // MSAA target: the composer's own targets default to samples=0, which silently throws
+  // away the renderer's antialias:true. WebGL2 + r128 gives us a multisampled target;
+  // its clone() keeps .samples, so renderTarget2 is multisampled too.
+  let _ct;
+  if(renderer.capabilities.isWebGL2){
+    const _sz=renderer.getDrawingBufferSize(new THREE.Vector2());
+    _ct=new THREE.WebGLMultisampleRenderTarget(_sz.x, _sz.y,
+      { minFilter:THREE.LinearFilter, magFilter:THREE.LinearFilter, format:THREE.RGBAFormat });
+    _ct.samples=Math.min(4, renderer.getContext().getParameter(renderer.getContext().MAX_SAMPLES)||4);
+  }
+  composer = _ct ? new THREE.EffectComposer(renderer, _ct) : new THREE.EffectComposer(renderer);
   composer.addPass(new THREE.RenderPass(scene,camera));
-  bloomPass=new THREE.UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 0.42, 0.55, 0.95);   // threshold sits ABOVE sky luminance: only sun/fire/tracers bloom
+  bloomPass=new THREE.UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 0.30, 0.50, 0.92);   // threshold above sky luminance: only sun/fire/tracers bloom
   composer.addPass(bloomPass);
   gradePass=new THREE.ShaderPass(GradeShader);
   gradePass.renderToScreen=true;
@@ -4519,7 +4533,7 @@ function loop(now){
   updateCamera(dt);
   drawHUD();
    // post-FX: bloom breathes with combat (boss stabs / solid hits), graded via ShaderPass
-  if(composer){ gradePass.uniforms.uTime.value+=rawDt; bloomPass.strength=0.42+(boss?0.12:0)+(hitMarkT>0?0.18:0); composer.render(); }
+  if(composer){ gradePass.uniforms.uTime.value+=rawDt; bloomPass.strength=0.30+(boss?0.10:0)+(hitMarkT>0?0.14:0); composer.render(); }
   else renderer.render(scene, camera);
 }
 requestAnimationFrame(loop);
