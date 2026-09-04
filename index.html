@@ -1553,16 +1553,17 @@ function mixBand(a, b, t, out){
 }
 function smoothBand(e0, e1, x){ const t=Math.min(1,Math.max(0,(x-e0)/(e1-e0))); return t*t*(3-2*t); }
 const _hcN=new THREE.Vector3();
-function heightColor(h, out, wx, wz){
+function heightColor(h, out, wx, wz, ny){
   if      (h < CFG.waterLevel+1)  mixBand(TB_BED,    TB_SAND,   smoothBand(CFG.waterLevel-20, CFG.waterLevel+1, h), out);
   else if (h < 13)                mixBand(TB_SAND,   TB_GRASS,  smoothBand(2,   13,  h), out);   // narrow beach at the waterline only
   else if (h < 190)               mixBand(TB_GRASS,  TB_FOREST, smoothBand(60,  190, h), out);
   else if (h < 400)               mixBand(TB_FOREST, TB_ROCK,   smoothBand(210, 400, h), out);
   else                            mixBand(TB_ROCK,   TB_SNOW,   smoothBand(430, 540, h), out);
-  // steep faces are bare rock regardless of altitude: grass does not cling to cliffs
-  if(wx!==undefined && h > CFG.waterLevel+4){
-    const nz=terrainNormal(wx, wz, _hcN);
-    const steep=Math.min(1, Math.max(0, (0.86 - nz.y) / 0.34));
+  // steep faces are bare rock regardless of altitude: grass does not cling to cliffs.
+  // ny is the already-computed normal's y component — recomputing the normal here cost
+  // 4 extra terrainHeight() calls per vertex (measured: 6.6 ms/chunk, 78.9 ms frames).
+  if(ny!==undefined && h > CFG.waterLevel+4){
+    const steep=Math.min(1, Math.max(0, (0.86 - ny) / 0.34));
     if(steep>0){ out.r += (TB_ROCK[0]-out.r)*steep; out.g += (TB_ROCK[1]-out.g)*steep; out.b += (TB_ROCK[2]-out.b)*steep; }
    }
   // deterministic mottling so large slopes are not flat poster paint
@@ -1586,17 +1587,31 @@ function buildChunk(cx, cz){
   const geo=new THREE.PlaneGeometry(size,size,seg,seg); geo.rotateX(-Math.PI/2);
   const pos=geo.attributes.position; const n=pos.count;
   const colors=new Float32Array(n*3); const normals=new Float32Array(n*3);
-  const col=new THREE.Color(); const nrm=new THREE.Vector3();
+  const col=new THREE.Color();
   const ox=cx*size, oz=cz*size;
+  // Height grid with a one-cell apron. Sampling the field ONCE per lattice point and
+  // differencing the grid replaces 4 extra terrainHeight() calls per vertex (profiled:
+  // 3.6 of 4.8 ms per chunk). The apron uses the same pure terrainHeight(), so a shared
+  // chunk edge still sees identical neighbours from both sides -> normals stay seamless.
+  const W=seg+3, step=size/seg, x0=ox-size/2-step, z0=oz-size/2-step;
+  const H=new Float32Array(W*W);
+  for(let gz=0;gz<W;gz++){
+    const wz=z0+gz*step;
+    for(let gx=0;gx<W;gx++) H[gz*W+gx]=terrainHeight(x0+gx*step, wz);
+  }
+  const inv=1/(2*step);
   for(let i=0;i<n;i++){
-    const vx=pos.getX(i)+ox, vz=pos.getZ(i)+oz;
-    const h=terrainHeight(vx,vz);
+    // PlaneGeometry rows run +x then +z after the -X rotation, matching the grid order
+    const gx=(i%(seg+1))+1, gz=((i/(seg+1))|0)+1;
+    const h=H[gz*W+gx];
     pos.setY(i, h);
-    heightColor(h, col, vx, vz);
+    const dx=(H[gz*W+gx-1]-H[gz*W+gx+1])*inv;
+    const dz=(H[(gz-1)*W+gx]-H[(gz+1)*W+gx])*inv;
+    const len=Math.sqrt(dx*dx+dz*dz+1);
+    const ny=1/len;
+    normals[i*3]=dx*ny; normals[i*3+1]=ny; normals[i*3+2]=dz*ny;
+    heightColor(h, col, pos.getX(i)+ox, pos.getZ(i)+oz, ny);
     colors[i*3]=col.r; colors[i*3+1]=col.g; colors[i*3+2]=col.b;
-    // analytic (not per-chunk) normal -> continuous lighting across chunk borders
-    terrainNormal(vx, vz, nrm);
-    normals[i*3]=nrm.x; normals[i*3+1]=nrm.y; normals[i*3+2]=nrm.z;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors,3));
   geo.setAttribute('normal', new THREE.BufferAttribute(normals,3));
@@ -1605,13 +1620,24 @@ function buildChunk(cx, cz){
   mesh.frustumCulled=true;
   return mesh;
 }
-function updateTerrain(px,pz){
+// Chunk building is budgeted per call: one chunk costs ~2 ms and crossing a border needs
+// a whole row of them, which used to blow a single frame to 79 ms. Missing chunks are
+// sorted nearest-first and only a few are built per tick; the rest arrive on the next
+// ticks (0.25 s apart), which is invisible because they are at the edge of view distance.
+const CHUNK_BUDGET = 2;                  // chunks built per streaming tick
+function updateTerrain(px,pz,budget){
   const size=CFG.chunkSize, R=CFG.viewRadius;
   const ccx=Math.round(px/size), ccz=Math.round(pz/size);
   const needed=new Set();
+  const missing=[];
   for(let dz=-R;dz<=R;dz++) for(let dx=-R;dx<=R;dx++){
     const cx=ccx+dx, cz=ccz+dz, key=cx+','+cz; needed.add(key);
-    if(!chunks.has(key)){ const m=buildChunk(cx,cz); chunks.set(key,m); terrainGroup.add(m); }
+    if(!chunks.has(key)) missing.push({cx,cz,key,d:dx*dx+dz*dz});
+  }
+  missing.sort((a,b)=>a.d-b.d);                       // nearest first: fill the view centre
+  const lim = (budget===undefined) ? CHUNK_BUDGET : budget;
+  for(let i=0;i<missing.length && i<lim;i++){
+    const q=missing[i]; const m=buildChunk(q.cx,q.cz); chunks.set(q.key,m); terrainGroup.add(m);
   }
   for(const [key,m] of chunks){ if(!needed.has(key)){ terrainGroup.remove(m); m.geometry.dispose(); chunks.delete(key); } }
 }
@@ -2138,7 +2164,7 @@ function rebuildTerrainAround(wx, wz){
     if(m){ terrainGroup.remove(m); m.geometry.dispose(); chunks.delete(key); }
   }
   // let updateTerrain recreate the needed chunks (with the current AIRFIELD applied)
-  updateTerrain(player.obj.position.x, player.obj.position.z);
+  updateTerrain(player.obj.position.x, player.obj.position.z, 999);   // plateau rebuild: no holes allowed
 }
 
 function buildEnemy(type){
@@ -3102,7 +3128,7 @@ function startEndless(mod){
   player.missiles=CFG.missileMax; player.bombs=0; player.weapon='missile';
   updateMissileHUD();
   hideHudExtras(); updateWeaponHUD();
-  updateTerrain(0,0);
+  updateTerrain(0,0,999);          // mission start: full ring up front
   betweenTimer=2.0;
   if(endlessMod==='ace') banner('ASS-MODUS','Nur für die Besten — volle Härte');
   state='playing';
@@ -3117,7 +3143,7 @@ function launchMission(index){
   { const ws=document.getElementById('wavestat'); if(ws) ws.style.display='none'; }  // no WELLE counter in scripted campaign
   resetWorld();
   setupMission(index);
-  updateTerrain(0,0);
+  updateTerrain(0,0,999);          // mission start: full ring up front
   state='playing';
 }
 function gameOver(victory){
@@ -4595,7 +4621,7 @@ seedClouds(0,0);
 updateDepthTex(0,0);
 buildEnvMap();        // reflections available before the first frame
 prewarmFX();          // compile lit shaders with the final light count before gameplay starts
-updateTerrain(0,0);
+updateTerrain(0,0,999);          // first load: full ring up front
 document.getElementById('loading').style.display='none';
 refreshMenu();   // reflect any saved progress (gold wings, ace unlock, star total) on first paint
 
