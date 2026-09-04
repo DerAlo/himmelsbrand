@@ -1457,7 +1457,7 @@ if (typeof THREE.EffectComposer==='function' && typeof THREE.RenderPass==='funct
       // stencilBuffer:true makes r128 allocate DEPTH24_STENCIL8 instead of a 16-bit depth
       // buffer. Without it the runway decals z-fought away entirely under post-FX.
       { minFilter:THREE.LinearFilter, magFilter:THREE.LinearFilter, format:THREE.RGBAFormat, stencilBuffer:true });
-    _ct.samples=Math.min(4, renderer.getContext().getParameter(renderer.getContext().MAX_SAMPLES)||4);
+    _ct.samples=Math.min(8, renderer.getContext().getParameter(renderer.getContext().MAX_SAMPLES)||4);   // the shoreline is a thin high-contrast silhouette: 8 samples measurably calm it
   }
   composer = _ct ? new THREE.EffectComposer(renderer, _ct) : new THREE.EffectComposer(renderer);
   composer.addPass(new THREE.RenderPass(scene,camera));
@@ -1564,15 +1564,16 @@ function hash2(x, z){
 // Terrain bands with SMOOTH transitions. Hard if/else thresholds drew sharp contour
 // lines that read as terraces; blending over a band width removes them.
 const TB_SAND=[0.62,0.56,0.40], TB_GRASS=[0.24,0.38,0.19], TB_FOREST=[0.15,0.26,0.13],
-      TB_ROCK=[0.36,0.33,0.29], TB_SNOW=[0.92,0.94,0.99], TB_BED=[0.14,0.13,0.11];
+      TB_ROCK=[0.36,0.33,0.29], TB_SNOW=[0.92,0.94,0.99], TB_BED=[0.14,0.13,0.11], TB_WET=[0.34,0.32,0.26];
 function mixBand(a, b, t, out){
   out.setRGB(a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t);
 }
 function smoothBand(e0, e1, x){ const t=Math.min(1,Math.max(0,(x-e0)/(e1-e0))); return t*t*(3-2*t); }
 const _hcN=new THREE.Vector3();
 function heightColor(h, out, wx, wz, ny){
-  if      (h < CFG.waterLevel+1)  mixBand(TB_BED,    TB_SAND,   smoothBand(CFG.waterLevel-46, CFG.waterLevel+1, h), out);
-  else if (h < 13)                mixBand(TB_SAND,   TB_GRASS,  smoothBand(2,   13,  h), out);   // narrow beach at the waterline only
+  if      (h < CFG.waterLevel+1)  mixBand(TB_BED,    TB_WET,    smoothBand(CFG.waterLevel-46, CFG.waterLevel+1, h), out);
+  else if (h < 6)                 mixBand(TB_WET,    TB_SAND,   smoothBand(1,    6,  h), out);   // wet sand right at the waterline
+  else if (h < 15)                mixBand(TB_SAND,   TB_GRASS,  smoothBand(6,   15,  h), out);   // dry beach
   else if (h < 190)               mixBand(TB_GRASS,  TB_FOREST, smoothBand(60,  190, h), out);
   else if (h < 400)               mixBand(TB_FOREST, TB_ROCK,   smoothBand(210, 400, h), out);
   else                            mixBand(TB_ROCK,   TB_SNOW,   smoothBand(430, 540, h), out);
@@ -1670,7 +1671,7 @@ const waterMat = new THREE.MeshStandardMaterial({ color:0x0e2f4f, transparent:tr
 // tints toward sand, which reads as a beach instead of a sliced edge; deep water stays
 // dark and opaque. The texture is regenerated only when the terrain streams (0.25 s), not
 // per frame.
-const DEPTH_N = 128;                       // heightfield resolution across the water plane
+const DEPTH_N = 384;                       // 31 units/texel: a narrow surf band must span several texels or its contour crawls when the camera moves
 const depthData = new Uint8Array(DEPTH_N*DEPTH_N*4);
 const depthTex = new THREE.DataTexture(depthData, DEPTH_N, DEPTH_N, THREE.RGBAFormat);
 depthTex.minFilter=depthTex.magFilter=THREE.LinearFilter;
@@ -1678,11 +1679,16 @@ depthTex.wrapS=depthTex.wrapT=THREE.ClampToEdgeWrapping;
 const DEPTH_SPAN = CFG.chunkSize*(CFG.viewRadius*2+2);
 const depthCenter = new THREE.Vector2(0,0);
 const DEPTH_RANGE = 90;                    // metres of depth mapped into 0..1
-function updateDepthTex(cx, cz){
-  depthCenter.set(cx, cz);
-  let i=0;
-  for(let y=0;y<DEPTH_N;y++){
+// Filling the whole map at once costs ~24 ms at 384² (147k height samples) and blew a
+// frame on every streaming tick. Fill it in horizontal slices instead: the shoreline band
+// only needs to track the aircraft, and a slice is ~1.5 ms.
+let depthRow = 0, depthPendingCx = 0, depthPendingCz = 0;
+const DEPTH_ROWS_PER_TICK = 48;
+function fillDepthRows(cx, cz, rows){
+  const end = Math.min(DEPTH_N, depthRow + rows);
+  for(let y=depthRow; y<end; y++){
     const wz = cz + (y/(DEPTH_N-1) - 0.5)*DEPTH_SPAN;
+    let i = y*DEPTH_N*4;
     for(let x=0;x<DEPTH_N;x++){
       const wx = cx + (x/(DEPTH_N-1) - 0.5)*DEPTH_SPAN;
       const d = CFG.waterLevel - terrainHeight(wx, wz);      // >0 = under water
@@ -1691,7 +1697,19 @@ function updateDepthTex(cx, cz){
       i+=4;
     }
   }
+  depthRow = end;
   depthTex.needsUpdate=true;
+  if(depthRow>=DEPTH_N){ depthRow=0; depthCenter.set(cx, cz); return true; }
+  return false;
+}
+function updateDepthTex(cx, cz, immediate){
+  if(immediate){                       // mission start: no half-filled map on screen
+    depthRow=0;
+    while(!fillDepthRows(cx, cz, DEPTH_N)){}
+    return;
+  }
+  if(depthRow===0){ depthPendingCx=cx; depthPendingCz=cz; }   // lock the centre for this pass
+  fillDepthRows(depthPendingCx, depthPendingCz, DEPTH_ROWS_PER_TICK);
 }
 waterMat.onBeforeCompile=function(sh){
   sh.uniforms.uDepthTex={ value: depthTex };
@@ -1718,13 +1736,16 @@ waterMat.onBeforeCompile=function(sh){
       '#include <dithering_fragment>\n' +
       '  vec2 duv = (vWPos.xz - uDepthCenter)/uDepthSpan + 0.5;\n' +
       '  float depth01 = texture2D(uDepthTex, duv).r;\n' +
-      '  float shore = smoothstep(0.0, 0.030, depth01);        // 0 at the waterline, 1 a few metres out\n' +
-      '  float mid   = smoothstep(0.012, 0.16, depth01);\n' +
+      '  float shore = smoothstep(0.0, 0.30, depth01);         // spans the whole shelf: no contour for the eye to latch onto\n' +
+      '  float mid   = smoothstep(0.10, 0.55, depth01);\n' +
       '  // shallow water: translucent + turquoise, sand showing through; deep: opaque\n' +
       '  gl_FragColor.rgb = mix(mix(uSand, uShallow, shore)*uLightLevel, gl_FragColor.rgb, mid);\n' +
-      '  gl_FragColor.a = mix(0.0, 1.0, shore);            // deep water fully opaque; only shallows show the bed\n' +
+      '  // Soft alpha ramp across the contact zone. The water/terrain intersection cannot be\n' +
+      '  // antialiased by MSAA, so it must not be a hard edge: over the last few metres the\n' +
+      '  // surface fades out entirely and the terrain beneath shows through unbroken.\n' +
+      '  gl_FragColor.a = smoothstep(0.0, 0.33, depth01);\n' +
       '  // bright foam-ish rim exactly at the contact line hides the polygonal cut\n' +
-      '  float foam = (1.0-smoothstep(0.0, 0.012, depth01)) * smoothstep(0.0, 0.003, depth01);\n' +
+      '  float foam = (1.0-smoothstep(0.12, 0.34, depth01)) * smoothstep(0.10, 0.22, depth01);\n' +
       '  gl_FragColor.rgb += vec3(0.42,0.50,0.52)*foam*0.42*uLightLevel;\n' +
       '  gl_FragColor.a = max(gl_FragColor.a, foam*0.55);');
 };
@@ -2184,6 +2205,7 @@ function rebuildTerrainAround(wx, wz){
   }
   // let updateTerrain recreate the needed chunks (with the current AIRFIELD applied)
   updateTerrain(player.obj.position.x, player.obj.position.z, 999);   // plateau rebuild: no holes allowed
+  updateDepthTex(player.obj.position.x, player.obj.position.z, true);
 }
 
 function buildEnemy(type){
@@ -3155,6 +3177,7 @@ function startEndless(mod){
   updateMissileHUD();
   hideHudExtras(); updateWeaponHUD();
   updateTerrain(0,0,999);          // mission start: full ring up front
+  updateDepthTex(0,0,true);        // and a matching shoreline depth map, filled in one go
   betweenTimer=2.0;
   if(endlessMod==='ace') banner('ASS-MODUS','Nur für die Besten — volle Härte');
   state='playing';
@@ -3170,6 +3193,7 @@ function launchMission(index){
   resetWorld();
   setupMission(index);
   updateTerrain(0,0,999);          // mission start: full ring up front
+  updateDepthTex(0,0,true);        // and a matching shoreline depth map, filled in one go
   state='playing';
 }
 function gameOver(victory){
@@ -4644,7 +4668,7 @@ function updateCamera(dt){
    18. MAIN LOOP
    --------------------------------------------------------------------------- */
 seedClouds(0,0);
-updateDepthTex(0,0);
+updateDepthTex(0,0,true);
 buildEnvMap();        // reflections available before the first frame
 prewarmFX();          // compile lit shaders with the final light count before gameplay starts
 updateTerrain(0,0,999);          // first load: full ring up front
