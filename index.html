@@ -1763,7 +1763,16 @@ function ringTexture(){
 }
 const ringTex=ringTexture();
 const rings=[], flashes=[];
-for(let i=0;i<4;i++){ const L=new THREE.PointLight(0xffa040,0,260); L.visible=false; scene.add(L); flashes.push({L,t:0,life:1,peak:0}); }
+for(let i=0;i<4;i++){ const L=new THREE.PointLight(0xffa040,0,260); L.visible=true; scene.add(L); flashes.push({L,t:0,life:1,peak:0}); }
+// Warm-up: the flash lights are created VISIBLE (intensity 0) so the lit shaders compile with the
+// final light count during loading. prewarmFX() renders one frame and then hides them, so the
+// first explosion never pays a mid-combat recompile hitch.
+function prewarmFX(){
+  spawnShockwave(0,-99999,0,1); spawnFlare(0,-99999,0,1,0xffffff,0.01);
+  renderer.compile(scene, camera);
+  renderer.render(scene, camera);
+  for(const f of flashes){ f.L.intensity=0; }     // stay VISIBLE: a constant light count = no recompiles
+}
 function spawnShockwave(x,y,z,scale,color){
   const s=new THREE.Sprite(new THREE.SpriteMaterial({ map:ringTex, color:color||0xffd9a0, transparent:true, opacity:0.75, depthWrite:false, blending:THREE.AdditiveBlending, fog:false }));
   s.position.set(x,y,z); s.scale.set(6,6,1); scene.add(s);
@@ -1779,7 +1788,7 @@ function spawnFlare(x,y,z,size,color,life){
 }
 function flashLight(x,y,z,color,peak,dist,life){
   const f=flashes[(flashLight._i=(flashLight._i||0)+1)%flashes.length];
-  f.L.position.set(x,y,z); f.L.color.setHex(color); f.L.distance=dist||260; f.peak=peak; f.life=life||0.5; f.t=0; f.L.visible=true;
+  f.L.position.set(x,y,z); f.L.color.setHex(color); f.L.distance=dist||260; f.peak=peak; f.life=life||0.5; f.t=0; f.active=true;
 }
 function updateFX(dt){
   for(let i=rings.length-1;i>=0;i--){
@@ -1792,8 +1801,8 @@ function updateFX(dt){
     if(k>=1){ scene.remove(f.spr); f.spr.material.dispose(); flares.splice(i,1); continue; }
     const sz=f.s0+(f.s1-f.s0)*k; f.spr.scale.set(sz,sz,1); f.spr.material.opacity=Math.pow(1-k,1.6);
    }
-  for(const f of flashes){ if(!f.L.visible) continue; f.t+=dt; const k=f.t/f.life;
-    if(k>=1){ f.L.intensity=0; f.L.visible=false; } else f.L.intensity=f.peak*Math.pow(1-k,2.2); }
+  for(const f of flashes){ if(!f.active) continue; f.t+=dt; const k=f.t/f.life;
+    if(k>=1){ f.L.intensity=0; f.active=false; } else f.L.intensity=f.peak*Math.pow(1-k,2.2); }
 }
 function muzzle(x,y,z,dx,dy,dz){
   for(let i=0;i<4;i++) fireP.spawn(x,y,z, dx*300+(Math.random()-0.5)*60, dy*300+(Math.random()-0.5)*60, dz*300+(Math.random()-0.5)*60,
@@ -4422,6 +4431,7 @@ function updateCamera(dt){
    18. MAIN LOOP
    --------------------------------------------------------------------------- */
 seedClouds(0,0);
+prewarmFX();          // compile lit shaders with the final light count before gameplay starts
 updateTerrain(0,0);
 document.getElementById('loading').style.display='none';
 refreshMenu();   // reflect any saved progress (gold wings, ace unlock, star total) on first paint
