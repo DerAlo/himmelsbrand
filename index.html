@@ -1564,14 +1564,14 @@ function hash2(x, z){
 // Terrain bands with SMOOTH transitions. Hard if/else thresholds drew sharp contour
 // lines that read as terraces; blending over a band width removes them.
 const TB_SAND=[0.62,0.56,0.40], TB_GRASS=[0.24,0.38,0.19], TB_FOREST=[0.15,0.26,0.13],
-      TB_ROCK=[0.36,0.33,0.29], TB_SNOW=[0.92,0.94,0.99], TB_BED=[0.30,0.28,0.20];
+      TB_ROCK=[0.36,0.33,0.29], TB_SNOW=[0.92,0.94,0.99], TB_BED=[0.14,0.13,0.11];
 function mixBand(a, b, t, out){
   out.setRGB(a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t);
 }
 function smoothBand(e0, e1, x){ const t=Math.min(1,Math.max(0,(x-e0)/(e1-e0))); return t*t*(3-2*t); }
 const _hcN=new THREE.Vector3();
 function heightColor(h, out, wx, wz, ny){
-  if      (h < CFG.waterLevel+1)  mixBand(TB_BED,    TB_SAND,   smoothBand(CFG.waterLevel-20, CFG.waterLevel+1, h), out);
+  if      (h < CFG.waterLevel+1)  mixBand(TB_BED,    TB_SAND,   smoothBand(CFG.waterLevel-46, CFG.waterLevel+1, h), out);
   else if (h < 13)                mixBand(TB_SAND,   TB_GRASS,  smoothBand(2,   13,  h), out);   // narrow beach at the waterline only
   else if (h < 190)               mixBand(TB_GRASS,  TB_FOREST, smoothBand(60,  190, h), out);
   else if (h < 400)               mixBand(TB_FOREST, TB_ROCK,   smoothBand(210, 400, h), out);
@@ -1660,7 +1660,8 @@ function updateTerrain(px,pz,budget){
 }
 
 // Water plane (follows player)
-const waterMat = new THREE.MeshStandardMaterial({ color:0x0a2440, transparent:true, opacity:0.92, roughness:0.20, metalness:0.02, envMapIntensity:0.75 });   // dielectric: F0 ~0.02, reflection comes from the env map + Fresnel
+const waterMat = new THREE.MeshStandardMaterial({ color:0x0e2f4f, transparent:true, opacity:1.0, roughness:0.07, metalness:0.02, envMapIntensity:1.15 });
+   // dielectric (F0 ~0.02), smooth: reflection + Fresnel do the work
 // DEPTH-AWARE SHORELINE.
 // The flat y=0 plane used to cut a hard polygonal staircase wherever a slope crossed sea
 // level, and because the terrain continues below the surface that cut showed every
@@ -1696,7 +1697,7 @@ waterMat.onBeforeCompile=function(sh){
   sh.uniforms.uDepthTex={ value: depthTex };
   sh.uniforms.uDepthCenter={ value: depthCenter };
   sh.uniforms.uDepthSpan={ value: DEPTH_SPAN };
-  sh.uniforms.uShallow={ value: new THREE.Color(0x2c6d78) };   // turquoise shallows
+  sh.uniforms.uShallow={ value: new THREE.Color(0x1d5566) };   // turquoise shallows
   sh.uniforms.uLightLevel={ value: 1.0 };                      // set from applyTimeOfDay: surf must not glow at night
   sh.uniforms.uSand={ value: new THREE.Color(0x9d9a80) };
   waterMat.userData.shader = sh;
@@ -1704,6 +1705,13 @@ waterMat.onBeforeCompile=function(sh){
     .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;')
     .replace('#include <fog_vertex>', '#include <fog_vertex>\n  vWPos=(modelMatrix*vec4(position,1.0)).xyz;');
   sh.fragmentShader = sh.fragmentShader
+    // Water is lit by the SKY and reflects it; it must not pick up the hemisphere light's
+    // olive ground-bounce. Measured: with the full hemi term this flat surface turned
+    // cyan-green (blue from above + olive from below) and swamped the material colour —
+    // replacing the water's own colour with magenta barely moved the pixels. Damp the
+    // diffuse irradiance and let the env-map reflection plus Fresnel define the surface.
+    .replace('vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + reflectedLight.directSpecular + reflectedLight.indirectSpecular + totalEmissiveRadiance;',
+             'vec3 outgoingLight = reflectedLight.directDiffuse*0.30 + reflectedLight.indirectDiffuse*0.16 + reflectedLight.directSpecular + reflectedLight.indirectSpecular + totalEmissiveRadiance;')
     .replace('#include <common>',
       '#include <common>\nvarying vec3 vWPos;\nuniform sampler2D uDepthTex;\nuniform vec2 uDepthCenter;\nuniform float uDepthSpan;\nuniform vec3 uShallow;\nuniform vec3 uSand;\nuniform float uLightLevel;')
     .replace('#include <dithering_fragment>',
@@ -1711,34 +1719,20 @@ waterMat.onBeforeCompile=function(sh){
       '  vec2 duv = (vWPos.xz - uDepthCenter)/uDepthSpan + 0.5;\n' +
       '  float depth01 = texture2D(uDepthTex, duv).r;\n' +
       '  float shore = smoothstep(0.0, 0.030, depth01);        // 0 at the waterline, 1 a few metres out\n' +
-      '  float mid   = smoothstep(0.02, 0.30, depth01);\n' +
+      '  float mid   = smoothstep(0.012, 0.16, depth01);\n' +
       '  // shallow water: translucent + turquoise, sand showing through; deep: opaque\n' +
       '  gl_FragColor.rgb = mix(mix(uSand, uShallow, shore)*uLightLevel, gl_FragColor.rgb, mid);\n' +
-      '  gl_FragColor.a *= mix(0.0, 1.0, shore);\n' +
+      '  gl_FragColor.a = mix(0.0, 1.0, shore);            // deep water fully opaque; only shallows show the bed\n' +
       '  // bright foam-ish rim exactly at the contact line hides the polygonal cut\n' +
       '  float foam = (1.0-smoothstep(0.0, 0.012, depth01)) * smoothstep(0.0, 0.003, depth01);\n' +
       '  gl_FragColor.rgb += vec3(0.42,0.50,0.52)*foam*0.42*uLightLevel;\n' +
       '  gl_FragColor.a = max(gl_FragColor.a, foam*0.55);');
 };
-   // scrolling sparkle normal map (sum of tileable sine ripples) — sun/moon glint lives on the crests
-(function(){
-  const N=128, d=new Uint8Array(N*N*4), TAU=Math.PI*2, sc=0.05;
-  for(let y=0;y<N;y++) for(let x=0;x<N;x++){
-    const u=x/N*TAU, v=y/N*TAU;
-    const du =  3*Math.cos(3*u) + 2.2*Math.cos(4*u+5*v) + 2.45*Math.cos(7*u-3*v);
-    const dv = -2*Math.sin(2*v) + 2.75*Math.cos(4*u+5*v) - 1.05*Math.cos(7*u-3*v);
-    const nx=-du*sc, ny=-dv*sc, inv=1/Math.sqrt(nx*nx+ny*ny+1);
-    const i=(y*N+x)*4;
-    d[i]=(nx*inv*0.5+0.5)*255; d[i+1]=(ny*inv*0.5+0.5)*255; d[i+2]=(inv*0.5+0.5)*255; d[i+3]=255;
-    }
-  const t=new THREE.DataTexture(d,N,N,THREE.RGBAFormat);
-  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(34,34);        // ~350 units/tile: fine enough for ripples, coarse enough that the tiling is not the pattern
-  t.magFilter=THREE.LinearFilter; t.minFilter=THREE.LinearMipmapLinearFilter;
-  t.generateMipmaps=true;                                            // kills the shimmer at grazing angles
-  t.anisotropy=Math.min(8, renderer.capabilities.getMaxAnisotropy());
-  t.needsUpdate=true;
-  waterMat.normalMap=t; waterMat.normalScale=new THREE.Vector2(0.16,0.16);   // lower = less specular fizz (shading aliasing MSAA cannot fix)
-})();
+   // NO normal map on purpose. A tileable ripple texture on a 12,000-unit plane always
+   // reads as a repeating diamond grid rather than as waves, whatever the tile size —
+   // the eye locks onto the repetition. The surface is left smooth and reflective; the
+   // sun/moon glint comes from the environment map plus Fresnel, which is what makes
+   // water convincing from the air anyway.
 const water = new THREE.Mesh(new THREE.PlaneGeometry(CFG.chunkSize*(CFG.viewRadius*2+2), CFG.chunkSize*(CFG.viewRadius*2+2)), waterMat);
 water.rotation.x=-Math.PI/2; water.position.y=CFG.waterLevel; scene.add(water);
 
@@ -4680,7 +4674,6 @@ function loop(now){
   sunSprite.position.copy(camera.position).addScaledVector(sunDir, 7000);
   water.position.x=player.obj.position.x; water.position.z=player.obj.position.z;
   skyMat.uniforms.uTime.value+=rawDt;
-  if(waterMat.normalMap){ waterMat.normalMap.offset.x+=rawDt*0.007; waterMat.normalMap.offset.y+=rawDt*0.005; }
   if(runwayMesh && runwayMesh.userData.beacon) runwayMesh.userData.beacon.material.opacity=(menuTime%1.1<0.45)?0.95:0.08;          // star twinkle clock
 
   if(state==='playing'){
