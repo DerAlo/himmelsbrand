@@ -2053,6 +2053,44 @@ function hullTexture(base, line){
   const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(2,2); return t;
 }
 const HULL_TEX_PLAYER=hullTexture('#9aa4ae','rgba(40,48,58,0.55)');
+// --- Decals drawn on their own canvas and applied as thin overlay planes -------------
+// Sprites/planes with an alpha texture are the cheapest way to get real markings on a
+// primitive-built airframe: no UV unwrapping needed, and each decal can be placed by hand.
+function decalTexture(w, h, draw){
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  const g=c.getContext('2d'); g.clearRect(0,0,w,h); draw(g,w,h);
+  const t=new THREE.CanvasTexture(c); t.anisotropy=4; return t;
+}
+// German Iron Cross (Balkenkreuz) as used on Luftwaffe aircraft
+const TEX_CROSS = decalTexture(128,128,(g,w,h)=>{
+  const cx=w/2, cy=h/2, a=w*0.42, b=w*0.13;
+  g.fillStyle='#1a1a1e';
+  g.fillRect(cx-a, cy-b, a*2, b*2); g.fillRect(cx-b, cy-a, b*2, a*2);
+  g.fillStyle='#e8e8ea';
+  const i=b*0.42, ia=a*0.80;
+  g.fillRect(cx-ia, cy-i, ia*2, i*2); g.fillRect(cx-i, cy-ia, i*2, ia*2);
+});
+// tail badge: squadron marking + aircraft number
+function texTail(txt){
+  return decalTexture(128,128,(g,w,h)=>{
+    g.fillStyle='rgba(20,22,26,0.0)'; g.fillRect(0,0,w,h);
+    g.fillStyle='#dfe4ea'; g.font='bold 54px monospace'; g.textAlign='center'; g.textBaseline='middle';
+    g.fillText(txt, w/2, h/2);
+  });
+}
+const TEX_TAILNUM = texTail('31+07');
+// stencil strip: the small maintenance lettering real aircraft are covered in
+const TEX_STENCIL = decalTexture(256,64,(g,w,h)=>{
+  g.fillStyle='#20242a'; g.font='bold 15px monospace'; g.textBaseline='middle';
+  g.fillText('RESCUE', 6, 14); g.fillText('NO STEP', 6, 34);
+  g.fillStyle='#8a1010'; g.fillText('DANGER  INTAKE', 6, 54);
+});
+function decalPlane(tex, w, h, mat){
+  const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),
+    mat || new THREE.MeshStandardMaterial({ map:tex, transparent:true, roughness:0.5, metalness:0.1,
+      side:THREE.DoubleSide, polygonOffset:true, polygonOffsetFactor:-3, polygonOffsetUnits:-4, depthWrite:false }));
+  return m;
+}
 const HULL_TEX_ENEMY =hullTexture('#3a4048','rgba(8,10,14,0.75)');
 
 // UV-free surface definition: a view-dependent rim term. triGeo() geometry carries no uv
@@ -2078,65 +2116,205 @@ function addRimLight(mat, color, power, strength){
 
 function buildEurofighter(withLight){
   const g=new THREE.Group();
-  // DoubleSide so the thin wings/fins/canards are visible from every camera angle
-  const body=new THREE.MeshStandardMaterial({ map:HULL_TEX_PLAYER, color:0x67707a, metalness:0.22, roughness:0.46, envMapIntensity:0.85, side:THREE.DoubleSide });
-  addRimLight(body, 0xbcd8ff, 3.6, 0.18);
+  // --- MATERIALS -----------------------------------------------------------------
+  // Two-tone air-superiority grey, the way real Eurofighters are painted: a lighter
+  // upper surface and a darker nose/spine, both low-metalness paint that takes its
+  // sheen from the environment map rather than being a mirror.
+  const body=new THREE.MeshStandardMaterial({ map:HULL_TEX_PLAYER, color:0x545f6b, metalness:0.16, roughness:0.52, envMapIntensity:0.7, side:THREE.DoubleSide });
+  addRimLight(body, 0xbcd8ff, 3.6, 0.16);
+  const bodyDark=new THREE.MeshStandardMaterial({ map:HULL_TEX_PLAYER, color:0x39424e, metalness:0.18, roughness:0.50, envMapIntensity:0.7, side:THREE.DoubleSide });
+  addRimLight(bodyDark, 0xa8c8ee, 3.6, 0.14);
   const dark=new THREE.MeshStandardMaterial({ color:0x23282e, metalness:0.45, roughness:0.34, envMapIntensity:0.9, side:THREE.DoubleSide });
-  // Fuselage
-  const fus=new THREE.Mesh(new THREE.CylinderGeometry(0.9,1.3,12,12), body); fus.rotation.x=Math.PI/2; g.add(fus);
-  // Nose cone
-  const nose=new THREE.Mesh(new THREE.ConeGeometry(0.9,5,12), body); nose.rotation.x=-Math.PI/2; nose.position.z=-8.4; g.add(nose);
-  // Canopy
-  const can=new THREE.Mesh(new THREE.SphereGeometry(0.95,12,10,0,Math.PI*2,0,Math.PI/2), new THREE.MeshStandardMaterial({color:0x0d2635, metalness:1.0, roughness:0.04, envMapIntensity:2.0, transparent:true, opacity:0.62}));
-  can.scale.set(1,0.8,2.2); can.position.set(0,0.7,-3.5); g.add(can);
-  // Delta wings
-  const wingGeo=triGeo([ 0,0,-1,  6.5,0,5,  0,0,5.5,   0,0,-1, 0,0,5.5, -6.5,0,5 ]);
-  const wings=new THREE.Mesh(wingGeo, body); wings.position.z=1; g.add(wings);
-  // Canards
-  const canGeo=triGeo([ 0,0,0, 2.4,0,1.6, 0,0,2.0,  0,0,0, 0,0,2.0, -2.4,0,1.6 ]);
-  const canards=new THREE.Mesh(canGeo, body); canards.position.set(0,0.1,-4.5); g.add(canards);
-  // Tail fin
-  const finGeo=triGeo([ 0,0,3.2, 0,3.2,5.4, 0,0,5.6 ]);
-  const fin=new THREE.Mesh(finGeo, dark); g.add(fin);
-  // Engine nozzles
-  const noz=new THREE.Mesh(new THREE.CylinderGeometry(0.8,0.6,1.4,10), dark); noz.rotation.x=Math.PI/2; noz.position.z=6.4; g.add(noz);
-  // twin exhaust cans: the afterburner cones start at their lip (z=7.4) so nothing clips into the hull
-  for(const s of [-1,1]){ const can=new THREE.Mesh(new THREE.CylinderGeometry(0.62,0.66,2.0,10,1,true), dark);
-    can.rotation.x=Math.PI/2; can.position.set(s*0.55,0.15,6.9); g.add(can); }
-  // German flag stripes on tail
-  const stripes=[0x000000,0xd00000,0xffce00];
-  for(let i=0;i<3;i++){ const s=new THREE.Mesh(new THREE.PlaneGeometry(0.05,0.9), new THREE.MeshBasicMaterial({color:stripes[i], side:THREE.DoubleSide}));
-    s.position.set(0.01,1.4,4.4+i*0.28); g.add(s); }
-  // afterburner glow anchor
+  const rubber=new THREE.MeshStandardMaterial({ color:0x14161a, metalness:0.05, roughness:0.85 });
+  const metalRaw=new THREE.MeshStandardMaterial({ color:0x9aa1a8, metalness:0.85, roughness:0.30, envMapIntensity:1.3 });   // bare titanium: nozzles, pylons
+  const glass=new THREE.MeshStandardMaterial({ color:0x14283a, metalness:1.0, roughness:0.03, envMapIntensity:2.4, transparent:true, opacity:0.55, side:THREE.DoubleSide });
+
+  // --- FUSELAGE ------------------------------------------------------------------
+  // Built from three sections so the silhouette tapers like an actual airframe instead
+  // of being one straight tube.
+  const fusMid=new THREE.Mesh(new THREE.CylinderGeometry(1.05,1.15,7.5,16), body); fusMid.rotation.x=Math.PI/2; fusMid.position.z=0.6; g.add(fusMid);
+  const fusAft=new THREE.Mesh(new THREE.CylinderGeometry(1.15,0.95,4.6,16), body); fusAft.rotation.x=Math.PI/2; fusAft.position.z=6.4; g.add(fusAft);
+  const fusFwd=new THREE.Mesh(new THREE.CylinderGeometry(0.80,1.05,4.4,16), bodyDark); fusFwd.rotation.x=Math.PI/2; fusFwd.position.z=-5.3; g.add(fusFwd);
+  // radome: a rounded ogive, not a sharp cone
+  const nose=new THREE.Mesh(new THREE.SphereGeometry(0.80,16,12), bodyDark);
+  nose.scale.set(1,0.92,3.1); nose.position.z=-9.0; g.add(nose);
+  // dorsal spine housing (runs from behind the canopy to the fin)
+  const spine=new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.30,7.0,10), body);
+  spine.rotation.x=Math.PI/2; spine.position.set(0,0.86,2.4); g.add(spine);
+
+  // --- COCKPIT -------------------------------------------------------------------
+  // Canopy in two parts (windscreen + bubble) with a visible frame, plus a seat and a
+  // pilot helmet so the cockpit is not an empty glass dome up close.
+  const canopy=new THREE.Mesh(new THREE.SphereGeometry(0.92,20,14,0,Math.PI*2,0,Math.PI/2), glass);
+  canopy.scale.set(1.0,0.95,2.05); canopy.position.set(0,0.62,-3.6); g.add(canopy);
+  const wsc=new THREE.Mesh(new THREE.ConeGeometry(0.84,1.5,12,1,true), glass);
+  wsc.rotation.x=-Math.PI/2; wsc.position.set(0,0.60,-5.5); g.add(wsc);
+  const frame=new THREE.Mesh(new THREE.TorusGeometry(0.86,0.055,6,20), dark);
+  frame.rotation.y=Math.PI/2; frame.scale.set(0.95,1,1); frame.position.set(0,0.58,-4.7); g.add(frame);
+  const seat=new THREE.Mesh(new THREE.BoxGeometry(0.62,0.85,0.55), new THREE.MeshStandardMaterial({color:0x1c2028, roughness:0.8, metalness:0.1}));
+  seat.position.set(0,0.42,-3.5); g.add(seat);
+  const helm=new THREE.Mesh(new THREE.SphereGeometry(0.24,10,8), new THREE.MeshStandardMaterial({color:0xd8dade, roughness:0.35, metalness:0.2, envMapIntensity:1.1}));
+  helm.position.set(0,0.80,-3.75); g.add(helm);
+
+  // --- AIR INTAKES ---------------------------------------------------------------
+  // The chin intake with its splitter plate is the Eurofighter's most recognisable
+  // feature and was missing entirely.
+  const intakeLip=new THREE.Mesh(new THREE.BoxGeometry(2.5,0.95,2.2), bodyDark);
+  intakeLip.position.set(0,-0.95,-4.3); g.add(intakeLip);
+  const intakeMouth=new THREE.Mesh(new THREE.BoxGeometry(2.15,0.62,0.25), new THREE.MeshStandardMaterial({color:0x07090c, roughness:0.95, metalness:0.0}));
+  intakeMouth.position.set(0,-0.95,-5.42); g.add(intakeMouth);
+  for(const sx of [-1,1]){                                   // intake side walls sweeping back into the belly
+    const duct=new THREE.Mesh(new THREE.BoxGeometry(0.16,0.85,3.4), bodyDark);
+    duct.position.set(sx*1.22,-0.85,-2.6); g.add(duct);
+   }
+
+  // --- WINGS ---------------------------------------------------------------------
+  // Delta wing given thickness (a solid, not a paper triangle) plus leading-edge flaps.
+  function wingHalf(sx){
+    const grp=new THREE.Group();
+    const geo=triGeo([ 0,0,-1.2,  sx*6.6,0,4.6,  0,0,5.8,
+                       0,0,-1.2,  0,0,5.8,  sx*6.6,0,4.6 ]);
+    const w=new THREE.Mesh(geo, body); grp.add(w);
+    const w2=new THREE.Mesh(geo, body); w2.position.y=-0.16; grp.add(w2);      // underside: gives the wing depth
+    const edge=new THREE.Mesh(new THREE.BoxGeometry(0.10,0.19,6.2), bodyDark);  // leading edge flap
+    edge.position.set(sx*3.3,-0.08,1.4); edge.rotation.y=sx*0.62; grp.add(edge);
+    const tip=new THREE.Mesh(new THREE.BoxGeometry(0.12,0.30,1.5), dark);       // wingtip rail
+    tip.position.set(sx*6.5,0,4.2); grp.add(tip);
+    return grp;
+  }
+  const wingL=wingHalf(1), wingR=wingHalf(-1);
+  wingL.position.z=1; wingR.position.z=1; g.add(wingL); g.add(wingR);
+
+  // --- CANARDS (foreplanes) ------------------------------------------------------
+  for(const sx of [-1,1]){
+    const cGeo=triGeo([ 0,0,0, sx*2.6,0,1.5, sx*2.35,0,2.3,   0,0,0, sx*2.35,0,2.3, 0,0,2.1 ]);
+    const c=new THREE.Mesh(cGeo, body); c.position.set(sx*0.95,0.28,-4.6); c.rotation.z=sx*0.06; g.add(c);
+    const c2=new THREE.Mesh(cGeo, body); c2.position.set(sx*0.95,0.16,-4.6); c2.rotation.z=sx*0.06; g.add(c2);
+   }
+
+  // --- TAIL FIN ------------------------------------------------------------------
+  const finGeo=triGeo([ 0,0,2.6, 0,3.4,5.2, 0,0,5.9,  0,0,2.6, 0,0,5.9, 0,3.4,5.2 ]);
+  const fin=new THREE.Mesh(finGeo, body); g.add(fin);
+  const fin2=new THREE.Mesh(finGeo, body); fin2.position.x=-0.10; g.add(fin2);   // thickness
+  const rudder=new THREE.Mesh(new THREE.BoxGeometry(0.12,2.2,0.7), bodyDark);
+  rudder.position.set(-0.05,1.5,5.6); rudder.rotation.x=-0.22; g.add(rudder);
+  // fin-tip ESM pod
+  const esm=new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.10,1.1,8), dark);
+  esm.rotation.x=Math.PI/2; esm.position.set(-0.05,3.35,4.9); g.add(esm);
+
+  // --- ENGINES -------------------------------------------------------------------
+  for(const sx of [-1,1]){
+    const can=new THREE.Mesh(new THREE.CylinderGeometry(0.60,0.68,2.4,14,1,true), metalRaw);
+    can.rotation.x=Math.PI/2; can.position.set(sx*0.58,0.10,7.4); g.add(can);
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(0.63,0.07,6,16), dark);   // nozzle petals
+    ring.position.set(sx*0.58,0.10,8.5); g.add(ring);
+    const inner=new THREE.Mesh(new THREE.CylinderGeometry(0.50,0.50,0.3,12), new THREE.MeshStandardMaterial({color:0x120c08, roughness:0.9, emissive:0x2a0d00, emissiveIntensity:0.4}));
+    inner.rotation.x=Math.PI/2; inner.position.set(sx*0.58,0.10,8.4); g.add(inner);
+   }
+
+  // --- WEAPONS + PYLONS ----------------------------------------------------------
+  // Under-wing stores: the jet visibly carries what the HUD says it carries.
+  function missileOnPylon(sx, x, z, len){
+    const p=new THREE.Group();
+    const pyl=new THREE.Mesh(new THREE.BoxGeometry(0.18,0.55,1.1), bodyDark); pyl.position.y=-0.30; p.add(pyl);
+    const bodyM=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,len,10), new THREE.MeshStandardMaterial({color:0xd4d6d8, roughness:0.45, metalness:0.25, envMapIntensity:1.0}));
+    bodyM.rotation.x=Math.PI/2; bodyM.position.y=-0.72; p.add(bodyM);
+    const tip=new THREE.Mesh(new THREE.ConeGeometry(0.16,0.7,10), new THREE.MeshStandardMaterial({color:0x3a3f45, roughness:0.5, metalness:0.3}));
+    tip.rotation.x=-Math.PI/2; tip.position.set(0,-0.72,-len/2-0.35); p.add(tip);
+    for(let f=0;f<4;f++){                                   // cruciform tail fins
+      const fin=new THREE.Mesh(new THREE.BoxGeometry(0.028,0.30,0.40), dark);
+      fin.position.set(0,0,len/2-0.22);
+      const holder=new THREE.Group(); holder.add(fin);
+      holder.rotation.z=f*Math.PI/2; holder.position.y=-0.72; p.add(holder);
+     }
+    p.position.set(sx*x, -0.28, z); return p;
+  }
+  g.add(missileOnPylon(1, 2.6, 2.4, 2.6));  g.add(missileOnPylon(-1, 2.6, 2.4, 2.6));
+  g.add(missileOnPylon(1, 4.4, 3.2, 2.2));  g.add(missileOnPylon(-1, 4.4, 3.2, 2.2));
+  // centreline fuel tank
+  const tank=new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.30,4.2,12), body);
+  tank.rotation.x=Math.PI/2; tank.position.set(0,-1.35,1.6); g.add(tank);
+  const tankNose=new THREE.Mesh(new THREE.SphereGeometry(0.34,10,8), body);
+  tankNose.scale.set(1,1,1.6); tankNose.position.set(0,-1.35,-0.6); g.add(tankNose);
+
+  // --- MARKINGS ------------------------------------------------------------------
+  // Iron cross on both wings and both flanks, tail number, stencils, formation lights.
+  for(const sx of [-1,1]){
+    const cw=decalPlane(TEX_CROSS,1.25,1.25); cw.rotation.x=-Math.PI/2; cw.position.set(sx*3.6,0.03,3.6); g.add(cw);
+    const cwU=decalPlane(TEX_CROSS,1.25,1.25); cwU.rotation.x=Math.PI/2; cwU.position.set(sx*3.6,-0.19,3.6); g.add(cwU);
+    const cf=decalPlane(TEX_CROSS,0.85,0.85); cf.rotation.y=sx*Math.PI/2; cf.position.set(sx*1.14,0.10,2.6); g.add(cf);
+    const st=decalPlane(TEX_STENCIL,1.5,0.38); st.rotation.y=sx*Math.PI/2; st.position.set(sx*1.12,0.62,-2.4); g.add(st);
+   }
+  // The two sides need MIRRORED textures: a plane turned to face the other way shows its
+  // texture reversed, which had the tail number reading backwards from port.
+  const texNumFlip=TEX_TAILNUM.clone(); texNumFlip.needsUpdate=true;
+  texNumFlip.wrapS=THREE.RepeatWrapping; texNumFlip.repeat.x=-1; texNumFlip.offset.x=1;
+  const tailNum=decalPlane(texNumFlip,1.15,1.15); tailNum.rotation.y=-Math.PI/2;
+  tailNum.position.set(-0.13,1.55,4.75); g.add(tailNum);
+  const tailNum2=decalPlane(TEX_TAILNUM,1.15,1.15); tailNum2.rotation.y=Math.PI/2;
+  tailNum2.position.set(0.03,1.55,4.75); g.add(tailNum2);
+  // German flag flash on the fin
+  const stripes=[0x14140f,0xc81414,0xf0c000];
+  for(let i=0;i<3;i++){
+    const st=new THREE.Mesh(new THREE.PlaneGeometry(0.11,1.0), new THREE.MeshStandardMaterial({color:stripes[i], side:THREE.DoubleSide, roughness:0.6, metalness:0.05,
+      polygonOffset:true, polygonOffsetFactor:-3, polygonOffsetUnits:-4}));
+    st.rotation.y=Math.PI/2; st.position.set(-0.12,2.35,3.55+i*0.32); g.add(st);
+    const st2=st.clone(); st2.position.x=0.02; g.add(st2);
+   }
+  // navigation lights: red port, green starboard, white tail (unlit basic materials so
+  // they read as lights at any time of day)
+  const navL=new THREE.Mesh(new THREE.SphereGeometry(0.11,8,6), new THREE.MeshBasicMaterial({color:0xff2020}));
+  navL.position.set(6.5,0.02,5.2); g.add(navL);
+  const navR=new THREE.Mesh(new THREE.SphereGeometry(0.11,8,6), new THREE.MeshBasicMaterial({color:0x20ff40}));
+  navR.position.set(-6.5,0.02,5.2); g.add(navR);
+  const navT=new THREE.Mesh(new THREE.SphereGeometry(0.10,8,6), new THREE.MeshBasicMaterial({color:0xffffff}));
+  navT.position.set(-0.05,3.3,5.6); g.add(navT);
+  // pitot boom on the nose
+  const pitot=new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.03,1.6,6), dark);
+  pitot.rotation.x=Math.PI/2; pitot.position.set(0,0,-11.4); g.add(pitot);
+
+  // --- AFTERBURNER ---------------------------------------------------------------
   // Only the player's jet carries the afterburner PointLight: adding/removing lights changes the
   // scene light count, which recompiles EVERY lit shader in r128 (a visible hitch). Allies rely on
   // the additive flame cones instead.
   if(withLight){ const ab=new THREE.PointLight(0x66aaff,0,40); ab.position.z=7; g.add(ab); g.userData.ab=ab; }
-    // afterburner cones: twin outer flame + hot core, additively blended, length driven by updatePlayer
   const flMat=new THREE.MeshBasicMaterial({color:0x1b46e0, transparent:true, opacity:0.8, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide});
   const flCoreMat=new THREE.MeshBasicMaterial({color:0xffa030, transparent:true, opacity:0.95, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide});
   const flames=[];
-  for(const s of [-1,1]){
-    const outer=new THREE.Mesh(new THREE.ConeGeometry(0.60,4.4,10,1,true), flMat); outer.rotation.x=-Math.PI/2; outer.position.set(s*0.55,0.15,10.1); flames.push(outer); g.add(outer);
-    const core=new THREE.Mesh(new THREE.ConeGeometry(0.30,2.6,10,1,true), flCoreMat); core.rotation.x=-Math.PI/2; core.position.set(s*0.55,0.15,9.2); flames.push(core); g.add(core);
+  for(const sx of [-1,1]){
+    const outer=new THREE.Mesh(new THREE.ConeGeometry(0.58,4.4,12,1,true), flMat); outer.rotation.x=-Math.PI/2; outer.position.set(sx*0.58,0.10,10.9); flames.push(outer); g.add(outer);
+    const core=new THREE.Mesh(new THREE.ConeGeometry(0.30,2.6,12,1,true), flCoreMat); core.rotation.x=-Math.PI/2; core.position.set(sx*0.58,0.10,10.0); flames.push(core); g.add(core);
    }
   g.userData.flames=flames;
-  // Retractable landing gear (three struts + wheels), toggled via player.gearDown
-  const gearMat=new THREE.MeshStandardMaterial({color:0x22262b, metalness:0.6, roughness:0.5});
-  const wheelMat=new THREE.MeshStandardMaterial({color:0x0e0f12, metalness:0.3, roughness:0.8});
+
+  // --- LANDING GEAR --------------------------------------------------------------
+  const gearMat=new THREE.MeshStandardMaterial({color:0xb9bfc6, metalness:0.75, roughness:0.35, envMapIntensity:1.2});
   const gear=new THREE.Group();
-  function strut(x,z){ const s=new THREE.Group();
-    const leg=new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.14,1.7,6), gearMat); leg.position.y=-0.85; s.add(leg);
-    const w=new THREE.Mesh(new THREE.CylinderGeometry(0.55,0.55,0.4,12), wheelMat); w.rotation.z=Math.PI/2; w.position.y=-1.7; s.add(w);
-    s.position.set(x,-0.9,z); return s; }
-  gear.add(strut(0,-3.2));      // nose gear
-  gear.add(strut(-2.2,2.2));    // left main
-  gear.add(strut(2.2,2.2));     // right main
+  function strut(x,z,big){
+    const st=new THREE.Group();
+    const leg=new THREE.Mesh(new THREE.CylinderGeometry(0.11,0.13,1.7,8), gearMat); leg.position.y=-0.85; st.add(leg);
+    const oleo=new THREE.Mesh(new THREE.CylinderGeometry(0.09,0.09,0.6,8), metalRaw); oleo.position.y=-1.35; st.add(oleo);
+    const brace=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,1.1,6), gearMat);
+    brace.position.set(0,-0.75,0.28); brace.rotation.x=0.45; st.add(brace);
+    const r=big?0.52:0.40;
+    for(const wx of (big?[-0.20,0.20]:[0])){                 // main gear has twin wheels
+      const w=new THREE.Mesh(new THREE.CylinderGeometry(r,r,0.30,16), rubber);
+      w.rotation.z=Math.PI/2; w.position.set(wx,-1.72,0); st.add(w);
+      const hub=new THREE.Mesh(new THREE.CylinderGeometry(r*0.45,r*0.45,0.33,10), metalRaw);
+      hub.rotation.z=Math.PI/2; hub.position.set(wx,-1.72,0); st.add(hub);
+     }
+    st.position.set(x,-0.95,z); return st;
+  }
+  gear.add(strut(0,-4.2,false));     // nose gear, under the intake
+  gear.add(strut(-2.3,2.0,true));    // left main
+  gear.add(strut(2.3,2.0,true));     // right main
   g.add(gear); g.userData.gear=gear;
-  g.userData.nozzleZ=7; g.userData.wingSpan=6.5;
-  g.scale.set(1.6,1.6,1.6);
+
+  g.userData.nozzleZ=7; g.userData.wingSpan=6.6;
+  g.scale.set(2.15,2.15,2.15);       // the jet is on screen the whole time: give it presence
   return g;
 }
+
 
 // ---- Runway / airbase strip (a landing surface the player can roll on) ----
 let runwayMesh=null;
@@ -4634,14 +4812,17 @@ function updateCamera(dt){
   const planeUp=tmpV.set(sp*sh, cp, sp*ch);          // up perpendicular to nose, in the vertical plane
   const back=camBack.copy(fwdLook).multiplyScalar(-1);
   // camera sits behind & above the plane along its own up axis (so it trails through loops)
-  camTarget.copy(player.obj.position).addScaledVector(back, 34).addScaledVector(planeUp, 9);
-  camPos.lerp(camTarget, Math.min(1, dt*4.5));
+  camTarget.copy(player.obj.position).addScaledVector(back, 52).addScaledVector(planeUp, 12);   // ~35% of screen width: big enough to show the detail, small enough to see past
+  // Follow rate must scale with airspeed: a fixed lerp lets the jet outrun the camera at
+  // speed (measured 136 units of trail at full boost against a 26-unit target), which
+  // shrank the aircraft to 8.6% of screen width.
+  camPos.lerp(camTarget, Math.min(1, dt*(4.5 + player.speed*0.03)));
   if(state==='playing'||state==='paused'){
     if(shake>0){ shake=Math.max(0,shake-dt*2.2);
       camPos.x+=(Math.random()-0.5)*shake*10; camPos.y+=(Math.random()-0.5)*shake*10; camPos.z+=(Math.random()-0.5)*shake*10; }
   }
   camera.position.copy(camPos);
-  camLook.copy(player.obj.position).addScaledVector(fwdLook, 60).addScaledVector(planeUp, 4);
+  camLook.copy(player.obj.position).addScaledVector(fwdLook, 74).addScaledVector(planeUp, 4);   // look further ahead so the nose does not fill the frame
   // camera up = plane up with a subtle bank lean around the view axis.
   // The lean uses the horizontal RIGHT vector, whose direction is undefined when
   // the nose points straight up/down (rl = |cos pitch| → 0) and FLIPS 180° as it
@@ -4660,7 +4841,7 @@ function updateCamera(dt){
   camera.lookAt(camLook);
   // FOV with speed
   const sp01=(player.speed-CFG.minSpeed)/(CFG.boostSpeed-CFG.minSpeed);
-  const tf=60+sp01*16+(player.boost?6:0);
+  const tf=58+sp01*10+(player.boost?4:0);      // less FOV bloom at speed: it was cancelling the closer camera
   curFov+=(tf-curFov)*Math.min(1,dt*3); camera.fov=curFov; camera.updateProjectionMatrix();
 }
 
