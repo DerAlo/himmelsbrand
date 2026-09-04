@@ -1504,7 +1504,7 @@ sunSprite.scale.set(900,900,1); scene.add(sunSprite);
    it with PMREMGenerator, and assign scene.environment. r128 applies scene.environment
    to every MeshStandardMaterial automatically. Cost is paid only at load and whenever
    the time of day changes. */
-let envRT=null, envPMREM=null, envScene=null, envCam=null;
+let envRT=null, envPMREM=null, envScene=null, envCam=null, envTargetRT=null;
 function buildEnvMap(){
   if(!envScene){
     // A dedicated mini-scene holding ONLY the sky shell and a sun disc: reflecting the
@@ -1525,10 +1525,13 @@ function buildEnvMap(){
   const prevFog=envScene.fog; envScene.fog=null;
   envCam.update(renderer, envScene);
   envScene.fog=prevFog;
-  const prev=scene.environment;
-  const t=envPMREM.fromCubemap(envRT.texture);
-  scene.environment=t.texture;
-  if(prev && prev.dispose) prev.dispose();
+  const prevRT=envTargetRT;                       // keep the TARGET, not just its texture
+  envTargetRT=envPMREM.fromCubemap(envRT.texture);
+  scene.environment=envTargetRT.texture;
+  // Disposing prev.texture would leak: deallocateTexture() early-returns for
+  // render-target textures (no __webglInit), only dispose() on the TARGET frees the
+  // GL texture + framebuffers. Measured: 2.36 MB leaked per time-of-day change.
+  if(prevRT) prevRT.dispose();
 }
 
 /* ---------------------------------------------------------------------------
@@ -1643,7 +1646,7 @@ function updateTerrain(px,pz,budget){
 }
 
 // Water plane (follows player)
-const waterMat = new THREE.MeshStandardMaterial({ color:0x1a4f8a, transparent:true, opacity:0.88, roughness:0.14, metalness:0.62, envMapIntensity:1.35 });
+const waterMat = new THREE.MeshStandardMaterial({ color:0x0d2f52, transparent:true, opacity:0.90, roughness:0.18, metalness:0.02, envMapIntensity:0.85 });   // dielectric: F0 ~0.02, reflection comes from the env map + Fresnel
 // DEPTH-AWARE SHORELINE.
 // The flat y=0 plane used to cut a hard polygonal staircase wherever a slope crossed sea
 // level, and because the terrain continues below the surface that cut showed every
@@ -1679,7 +1682,7 @@ waterMat.onBeforeCompile=function(sh){
   sh.uniforms.uDepthTex={ value: depthTex };
   sh.uniforms.uDepthCenter={ value: depthCenter };
   sh.uniforms.uDepthSpan={ value: DEPTH_SPAN };
-  sh.uniforms.uShallow={ value: new THREE.Color(0x74c6c0) };   // turquoise shallows
+  sh.uniforms.uShallow={ value: new THREE.Color(0x3f8f96) };   // turquoise shallows
   sh.uniforms.uLightLevel={ value: 1.0 };                      // set from applyTimeOfDay: surf must not glow at night
   sh.uniforms.uSand={ value: new THREE.Color(0x9d9a80) };
   waterMat.userData.shader = sh;
@@ -1715,8 +1718,11 @@ waterMat.onBeforeCompile=function(sh){
     d[i]=(nx*inv*0.5+0.5)*255; d[i+1]=(ny*inv*0.5+0.5)*255; d[i+2]=(inv*0.5+0.5)*255; d[i+3]=255;
     }
   const t=new THREE.DataTexture(d,N,N,THREE.RGBAFormat);
-  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(12,12);
-  t.magFilter=THREE.LinearFilter; t.minFilter=THREE.LinearFilter; t.needsUpdate=true;
+  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(90,90);        // ~130 units/tile: ripples read as water, not corrugated sheet
+  t.magFilter=THREE.LinearFilter; t.minFilter=THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps=true;                                            // kills the shimmer at grazing angles
+  t.anisotropy=Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  t.needsUpdate=true;
   waterMat.normalMap=t; waterMat.normalScale=new THREE.Vector2(0.30,0.30);   // lower = less specular fizz (shading aliasing MSAA cannot fix)
 })();
 const water = new THREE.Mesh(new THREE.PlaneGeometry(CFG.chunkSize*(CFG.viewRadius*2+2), CFG.chunkSize*(CFG.viewRadius*2+2)), waterMat);
@@ -2024,6 +2030,11 @@ const HULL_TEX_ENEMY =hullTexture('#3a4048','rgba(8,10,14,0.75)');
 // attribute, so this (not a texture) is what gives the hand-built wings/fins their edge.
 function addRimLight(mat, color, power, strength){
   const c=new THREE.Color(color);
+  // Distinct cache key per variant: without this every rim-lit material shares one
+  // program (onBeforeCompile.toString() is identical across calls) and the first
+  // material's colour/strength wins for all of them.
+  const _rimKey='rim:'+color+':'+power+':'+strength;
+  mat.customProgramCacheKey=function(){ return _rimKey; };
   mat.onBeforeCompile=function(sh){
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vRimN; varying vec3 vRimV;')
@@ -2040,7 +2051,7 @@ function buildEurofighter(withLight){
   const g=new THREE.Group();
   // DoubleSide so the thin wings/fins/canards are visible from every camera angle
   const body=new THREE.MeshStandardMaterial({ map:HULL_TEX_PLAYER, color:0x67707a, metalness:0.22, roughness:0.46, envMapIntensity:0.85, side:THREE.DoubleSide });
-  addRimLight(body, 0xbcd8ff, 3.0, 0.30);
+  addRimLight(body, 0xbcd8ff, 3.6, 0.18);
   const dark=new THREE.MeshStandardMaterial({ color:0x23282e, metalness:0.45, roughness:0.34, envMapIntensity:0.9, side:THREE.DoubleSide });
   // Fuselage
   const fus=new THREE.Mesh(new THREE.CylinderGeometry(0.9,1.3,12,12), body); fus.rotation.x=Math.PI/2; g.add(fus);
@@ -2174,7 +2185,7 @@ function buildEnemy(type){
   // DoubleSide so thin wings/tailplanes/fins render from all angles
   const body=new THREE.MeshStandardMaterial({ map:HULL_TEX_ENEMY, color:colors[type]||0x3a4048, metalness:0.30, roughness:0.40, envMapIntensity:0.55, side:THREE.DoubleSide,
     emissive:0x110000, emissiveIntensity:0.5 });
-  addRimLight(body, 0xff5535, 3.2, 0.50);       // hostile drones get a red edge glow
+  addRimLight(body, 0xff5535, 4.2, 0.22);       // hostile drones get a red edge glow (tight falloff: rim only, not the whole hull)
   const dark=new THREE.MeshStandardMaterial({ color:0x15181c, metalness:0.6, roughness:0.4, side:THREE.DoubleSide });
   const len = type==='f22'?14:(type==='f18'?11:10);
   const fus=new THREE.Mesh(new THREE.CylinderGeometry(type==='f22'?1.3:1.0, 1.2, len, 12), body); fus.rotation.x=Math.PI/2; g.add(fus);
