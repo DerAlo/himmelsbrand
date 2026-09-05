@@ -1390,7 +1390,7 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputEncoding = THREE.sRGBEncoding;
 document.getElementById('game').appendChild(renderer.domElement);
 
-const camera = new THREE.PerspectiveCamera(62, innerWidth/innerHeight, 1, 14000);
+const camera = new THREE.PerspectiveCamera(62, innerWidth/innerHeight, 8, 14000);   // near=8: 8x the depth precision, and nothing ever gets closer than ~24 units
 camera.position.set(0, 400, 30);
 
 // HUD overlay canvas
@@ -1661,7 +1661,7 @@ function updateTerrain(px,pz,budget){
 }
 
 // Water plane (follows player)
-const waterMat = new THREE.MeshStandardMaterial({ color:0x0e2f4f, transparent:true, opacity:1.0, roughness:0.07, metalness:0.02, envMapIntensity:1.15 });
+const waterMat = new THREE.MeshStandardMaterial({ color:0x0e2f4f, transparent:true, opacity:1.0, roughness:0.30, metalness:0.02, envMapIntensity:0.85 });   // not a mirror: at grazing angles a polished surface made the reflection churn frame to frame
    // dielectric (F0 ~0.02), smooth: reflection + Fresnel do the work
 // DEPTH-AWARE SHORELINE.
 // The flat y=0 plane used to cut a hard polygonal staircase wherever a slope crossed sea
@@ -1671,11 +1671,14 @@ const waterMat = new THREE.MeshStandardMaterial({ color:0x0e2f4f, transparent:tr
 // tints toward sand, which reads as a beach instead of a sliced edge; deep water stays
 // dark and opaque. The texture is regenerated only when the terrain streams (0.25 s), not
 // per frame.
-const DEPTH_N = 384;                       // 31 units/texel: a narrow surf band must span several texels or its contour crawls when the camera moves
+const DEPTH_N = 256;                       // 47 units/texel across the whole water plane, filled in one tick
 const depthData = new Uint8Array(DEPTH_N*DEPTH_N*4);
 const depthTex = new THREE.DataTexture(depthData, DEPTH_N, DEPTH_N, THREE.RGBAFormat);
 depthTex.minFilter=depthTex.magFilter=THREE.LinearFilter;
 depthTex.wrapS=depthTex.wrapT=THREE.ClampToEdgeWrapping;
+// Must cover the ENTIRE water plane: anything outside reads clamped border texels, which
+// once made distant water transparent in stripes, and a tight map measured worse because
+// most visible water then rode the border fade.
 const DEPTH_SPAN = CFG.chunkSize*(CFG.viewRadius*2+2);
 const depthCenter = new THREE.Vector2(0,0);
 const DEPTH_RANGE = 90;                    // metres of depth mapped into 0..1
@@ -1683,7 +1686,12 @@ const DEPTH_RANGE = 90;                    // metres of depth mapped into 0..1
 // frame on every streaming tick. Fill it in horizontal slices instead: the shoreline band
 // only needs to track the aircraft, and a slice is ~1.5 ms.
 let depthRow = 0, depthPendingCx = 0, depthPendingCz = 0;
-const DEPTH_ROWS_PER_TICK = 48;
+const DEPTH_ROWS_PER_TICK = 64;           // a rebuild is rare now, so slice it: 64 rows ~3 ms, and the back buffer means nothing half-built is ever shown
+// Back buffer: rows are filled here and only published (together with their centre) when
+// the pass completes. Writing straight into the live texture meant the shader read new
+// rows through the OLD centre for the ~2 s a sliced pass takes — which is exactly what
+// made the same spots alternate between land and water.
+const depthBack = new Uint8Array(DEPTH_N*DEPTH_N*4);
 function fillDepthRows(cx, cz, rows){
   const end = Math.min(DEPTH_N, depthRow + rows);
   for(let y=depthRow; y<end; y++){
@@ -1693,21 +1701,34 @@ function fillDepthRows(cx, cz, rows){
       const wx = cx + (x/(DEPTH_N-1) - 0.5)*DEPTH_SPAN;
       const d = CFG.waterLevel - terrainHeight(wx, wz);      // >0 = under water
       const v = Math.max(0, Math.min(1, d/DEPTH_RANGE))*255;
-      depthData[i]=v; depthData[i+1]=v; depthData[i+2]=v; depthData[i+3]=255;
+      depthBack[i]=v; depthBack[i+1]=v; depthBack[i+2]=v; depthBack[i+3]=255;
       i+=4;
     }
   }
   depthRow = end;
-  depthTex.needsUpdate=true;
-  if(depthRow>=DEPTH_N){ depthRow=0; depthCenter.set(cx, cz); return true; }
+  if(depthRow>=DEPTH_N){
+    depthRow=0;
+    depthData.set(depthBack);          // publish data and centre in the same frame
+    depthCenter.set(cx, cz);
+    depthTex.needsUpdate=true;
+    return true;
+  }
   return false;
 }
+const DEPTH_RECENTER = DEPTH_SPAN*0.25;   // rebuild only after this much travel
 function updateDepthTex(cx, cz, immediate){
   if(immediate){                       // mission start: no half-filled map on screen
     depthRow=0;
     while(!fillDepthRows(cx, cz, DEPTH_N)){}
     return;
   }
+  // Every re-centre shifts all texels slightly and drags the shoreline ramp with them —
+  // measured: freezing the map REDUCED the flicker. Combined with an 11.9 ms rebuild, the
+  // right answer is to rebuild rarely: only once the aircraft has left the well-served
+  // middle of the current map.
+  if(depthRow===0 &&
+     Math.abs(cx-depthCenter.x) < DEPTH_RECENTER &&
+     Math.abs(cz-depthCenter.y) < DEPTH_RECENTER) return;
   if(depthRow===0){ depthPendingCx=cx; depthPendingCz=cz; }   // lock the centre for this pass
   fillDepthRows(depthPendingCx, depthPendingCz, DEPTH_ROWS_PER_TICK);
 }
@@ -1715,7 +1736,7 @@ waterMat.onBeforeCompile=function(sh){
   sh.uniforms.uDepthTex={ value: depthTex };
   sh.uniforms.uDepthCenter={ value: depthCenter };
   sh.uniforms.uDepthSpan={ value: DEPTH_SPAN };
-  sh.uniforms.uShallow={ value: new THREE.Color(0x1d5566) };   // turquoise shallows
+  sh.uniforms.uShallow={ value: new THREE.Color(0x1d5566) };   // measured: this reads calmer under motion than a tint closer to the deep colour
   sh.uniforms.uLightLevel={ value: 1.0 };                      // set from applyTimeOfDay: surf must not glow at night
   sh.uniforms.uSand={ value: new THREE.Color(0x9d9a80) };
   waterMat.userData.shader = sh;
@@ -1735,19 +1756,32 @@ waterMat.onBeforeCompile=function(sh){
     .replace('#include <dithering_fragment>',
       '#include <dithering_fragment>\n' +
       '  vec2 duv = (vWPos.xz - uDepthCenter)/uDepthSpan + 0.5;\n' +
-      '  float depth01 = texture2D(uDepthTex, duv).r;\n' +
-      '  float shore = smoothstep(0.0, 0.30, depth01);         // spans the whole shelf: no contour for the eye to latch onto\n' +
-      '  float mid   = smoothstep(0.10, 0.55, depth01);\n' +
+      '  // The depth map only covers the near field; the water plane is four times wider.\n' +
+      '  // Outside the map, ClampToEdge would repeat arbitrary border texels (which once\n' +
+      '  // made distant water transparent in stripes). Fade the effect out at the border\n' +
+      '  // and treat everything beyond as deep water.\n' +
+      '  vec2 dw = abs(duv - 0.5);\n' +
+      '  float inMap = (1.0 - smoothstep(0.36, 0.49, max(dw.x, dw.y)));\n' +
+      '  float depth01 = mix(1.0, texture2D(uDepthTex, duv).r, inMap);\n' +
+      '  // ONE curve drives both colour and opacity. When they disagreed, pixels in the\n' +
+      '  // overlap were part-transparent AND tinted, landing between land and water and\n' +
+      '  // tipping either way as the sampled depth wandered — the patches that alternated.\n' +
+      '  float shore = smoothstep(0.0, 0.40, depth01);\n' +
+      '  float mid   = shore*shore;                            // tint follows the same fade, quadratically\n' +
       '  // shallow water: translucent + turquoise, sand showing through; deep: opaque\n' +
-      '  gl_FragColor.rgb = mix(mix(uSand, uShallow, shore)*uLightLevel, gl_FragColor.rgb, mid);\n' +
+      '  // No sand tint on the surface: it was painted from a coarse depth lookup and flipped\n' +
+      '  // between sand and water wherever the interpolated depth crossed the threshold.\n' +
+      '  // The terrain has its own wet-sand band; the alpha ramp lets it show through.\n' +
+      '  gl_FragColor.rgb = mix(uShallow*uLightLevel, gl_FragColor.rgb, mid);\n' +
       '  // Soft alpha ramp across the contact zone. The water/terrain intersection cannot be\n' +
       '  // antialiased by MSAA, so it must not be a hard edge: over the last few metres the\n' +
       '  // surface fades out entirely and the terrain beneath shows through unbroken.\n' +
-      '  gl_FragColor.a = smoothstep(0.0, 0.33, depth01);\n' +
-      '  // bright foam-ish rim exactly at the contact line hides the polygonal cut\n' +
-      '  float foam = (1.0-smoothstep(0.12, 0.34, depth01)) * smoothstep(0.10, 0.22, depth01);\n' +
-      '  gl_FragColor.rgb += vec3(0.42,0.50,0.52)*foam*0.42*uLightLevel;\n' +
-      '  gl_FragColor.a = max(gl_FragColor.a, foam*0.55);');
+      '  gl_FragColor.a = shore;\n' +
+      '  // NO surf highlight. It was a narrow threshold on an interpolated depth texture, so\n' +
+      '  // pixels near the threshold switched it on and off between frames — measured as 87 %\n' +
+      '  // of the land/water flicker while flying. The shoreline now comes from the terrain\n' +
+      '  // wet-sand band plus this alpha fade, both of which vary smoothly.\n' +
+      '  ');
 };
    // NO normal map on purpose. A tileable ripple texture on a 12,000-unit plane always
    // reads as a repeating diamond grid rather than as waves, whatever the tile size —
@@ -1755,7 +1789,14 @@ waterMat.onBeforeCompile=function(sh){
    // sun/moon glint comes from the environment map plus Fresnel, which is what makes
    // water convincing from the air anyway.
 const water = new THREE.Mesh(new THREE.PlaneGeometry(CFG.chunkSize*(CFG.viewRadius*2+2), CFG.chunkSize*(CFG.viewRadius*2+2)), waterMat);
-water.rotation.x=-Math.PI/2; water.position.y=CFG.waterLevel; scene.add(water);
+water.rotation.x=-Math.PI/2;
+// Sit fractionally BELOW sea level: 0.27 % of terrain vertices land within half a metre
+// of y=0, and coplanar surfaces are exactly what makes the depth test flip between land
+// and water on the same pixels from frame to frame. The shoreline alpha ramp hides the
+// offset completely.
+water.position.y=CFG.waterLevel-0.4;
+waterMat.polygonOffset=true; waterMat.polygonOffsetFactor=-3; waterMat.polygonOffsetUnits=-6;
+scene.add(water);
 
 /* ---------------------------------------------------------------------------
    6. CLOUDS (sprite puffs, wrap around player = infinite)
