@@ -186,7 +186,7 @@
 
   .weapon-tab { position:fixed; left:22px; bottom:70px; z-index:6; font-size:13px; letter-spacing:1px; }
   .weapon-tab .wsel { color:var(--gold); font-weight:800; }
-  .bosswrap { position:fixed; left:50%; top:70px; transform:translateX(-50%); z-index:6; width:min(560px,80vw); display:none; }
+  .bosswrap { position:fixed; left:50%; top:84px; transform:translateX(-50%); z-index:6; width:min(560px,80vw); display:none; }
   .bosswrap.show{ display:block; }
   .bosswrap .bname { font-family:var(--font-display); text-align:center; color:#ff8a8a; letter-spacing:3px; font-weight:700; font-size:15px; text-shadow:0 0 8px rgba(0,0,0,.9); }
   .bossbar { height:12px; border:1px solid rgba(255,90,90,.7); background:rgba(30,0,0,.5); overflow:hidden; margin-top:3px; clip-path:polygon(6px 0,100% 0,100% 100%,0 100%,0 6px); }
@@ -3139,67 +3139,151 @@ function hudText(txt, x, y, fill){
   hctx.strokeText(txt, x, y);
   hctx.fillStyle=fill; hctx.fillText(txt, x, y);
 }
-// ---- Heading tape: pre-rendered offscreen strip, sliced per frame (no per-frame text layout cost) ----
-// Compass degree = -player.heading (heading decreases when turning right, see steer at ~L4370;
-// negating gives a tape that counts UP while turning right, matching a normal compass).
-const HDG_MINDEG=-40, HDG_MAXDEG=400, HDG_PPD=6;
-let hdgTapeCanvas=null;
-function hdgLabel(nd){ if(nd===0)return'N'; if(nd===90)return'O'; if(nd===180)return'S'; if(nd===270)return'W'; return String(Math.round(nd/10)).padStart(2,'0'); }
+// ---- HUD typography + palette: canvas side of the CSS design tokens ----
+const HUD_FF="'Space Grotesk','Segoe UI',system-ui,sans-serif";
+const HF10='600 10px '+HUD_FF, HF11='600 11px '+HUD_FF, HF12='600 12px '+HUD_FF, HF13B='700 13px '+HUD_FF,
+      HF15B='700 15px '+HUD_FF, HF16B='700 16px '+HUD_FF, HF18B='700 18px '+HUD_FF, HF22B='700 22px '+HUD_FF, HF26B='700 26px '+HUD_FF, HF9='600 9px '+HUD_FF;
+const HUD_G='rgba(125,255,176,0.92)', HUD_RED='rgba(255,70,60,0.96)';
+const _hudP=new THREE.Vector3();   // scratch for HUD projections (no per-frame allocations)
+
+// ---- Heading tape: strip pre-rendered once at 2x (ticks/labels/outlines baked in); per frame one
+// slice into a small scratch canvas, edge-faded with a cached destination-in gradient, then blitted.
+// Compass degree = -player.heading (heading grows counter-clockwise: fwd = (-sin h, 0, -cos h)).
+const HDG_PPD=7, HDG_S=2, HDG_MIN=-60, HDG_MAX=420, HDG_TH=30;
+let hdgTape=null, hdgScr=null, hdgScrCtx=null, hdgMask=null, hdgScrW=0, hdgScrD=0;
+const HDG_NUM=[]; for(let d=0; d<360; d++) HDG_NUM[d]=String(d).padStart(3,'0');
+const HDG_CARD={0:'N',90:'O',180:'S',270:'W',45:'NO',135:'SO',225:'SW',315:'NW'};
 function buildHeadingTape(){
-  const wpx=(HDG_MAXDEG-HDG_MINDEG)*HDG_PPD, hpx=34;
-  const c=document.createElement('canvas'); c.width=wpx; c.height=hpx;
-  const g=c.getContext('2d');
-  g.font="600 12px 'Space Grotesk', monospace"; g.textAlign='center'; g.textBaseline='top';
-  for(let d=HDG_MINDEG; d<=HDG_MAXDEG; d+=10){
-    const nd=((d%360)+360)%360, x=(d-HDG_MINDEG)*HDG_PPD, major=(nd%30===0);
-    g.strokeStyle=major?'rgba(125,255,176,0.9)':'rgba(125,255,176,0.45)';
-    g.lineWidth=major?2:1;
-    g.beginPath(); g.moveTo(x,0); g.lineTo(x, major?14:8); g.stroke();
-    if(major){ g.fillStyle='rgba(125,255,176,0.9)'; g.fillText(hdgLabel(nd), x, 17); }
+  const c=document.createElement('canvas');
+  c.width=(HDG_MAX-HDG_MIN)*HDG_PPD*HDG_S; c.height=HDG_TH*HDG_S;
+  const g=c.getContext('2d'); g.scale(HDG_S,HDG_S); g.textAlign='center'; g.textBaseline='alphabetic'; g.lineJoin='round';
+  for(let d=HDG_MIN; d<=HDG_MAX; d+=5){
+    const nd=((d%360)+360)%360, x=(d-HDG_MIN)*HDG_PPD, ten=nd%10===0, card=nd%90===0;
+    const tl=card?11:(ten?8:4), y0=HDG_TH-1;
+    g.strokeStyle='rgba(0,0,0,0.5)'; g.lineWidth=ten?3.4:2.6;
+    g.beginPath(); g.moveTo(x,y0); g.lineTo(x,y0-tl); g.stroke();
+    g.strokeStyle=ten?'rgba(125,255,176,0.95)':'rgba(125,255,176,0.55)'; g.lineWidth=ten?1.6:1;
+    g.beginPath(); g.moveTo(x,y0); g.lineTo(x,y0-tl); g.stroke();
+    const lbl = HDG_CARD[nd] || (ten ? String(nd/10).padStart(2,'0') : null);
+    if(lbl){
+      const big=card, inter=!card && nd%45===0;
+      g.font = big ? '700 13px '+HUD_FF : (inter ? '600 10px '+HUD_FF : '600 11px '+HUD_FF);
+      g.lineWidth=3; g.strokeStyle='rgba(0,0,0,0.6)'; g.strokeText(lbl, x, 13);
+      g.fillStyle = big ? 'rgba(255,214,140,0.98)' : (inter ? 'rgba(125,255,176,0.6)' : 'rgba(125,255,176,0.92)');
+      g.fillText(lbl, x, 13);
+    }
   }
-  hdgTapeCanvas=c;
+  hdgTape=c;
 }
 function drawHeadingTape(cx,w){
-  if(!hdgTapeCanvas) buildHeadingTape();
-  const viewDeg=54, tapeW=Math.min(360,w*0.26), tapeH=30, ty=8;
-  const compassDeg=((-player.heading*180/Math.PI)%360+360)%360;
-  const srcCx=(compassDeg-HDG_MINDEG)*HDG_PPD, srcW=viewDeg*HDG_PPD;
-  hctx.save();
-  hctx.fillStyle='rgba(3,10,20,0.45)'; hctx.fillRect(cx-tapeW/2-8, ty-4, tapeW+16, tapeH+8);
-  hctx.beginPath(); hctx.rect(cx-tapeW/2, ty, tapeW, tapeH); hctx.clip();
-  hctx.drawImage(hdgTapeCanvas, srcCx-srcW/2, 0, srcW, hdgTapeCanvas.height, cx-tapeW/2, ty, tapeW, tapeH);
-  hctx.restore();
-  hctx.strokeStyle='rgba(140,220,190,0.35)'; hctx.lineWidth=1; hctx.strokeRect(cx-tapeW/2-8, ty-4, tapeW+16, tapeH+8);
-  hctx.fillStyle='rgba(125,255,176,0.95)'; hctx.beginPath();
-  hctx.moveTo(cx,ty+tapeH+6); hctx.lineTo(cx-5,ty+tapeH+13); hctx.lineTo(cx+5,ty+tapeH+13); hctx.closePath(); hctx.fill();
-  hctx.font="700 13px 'Space Grotesk', monospace"; hctx.textAlign='center'; hctx.textBaseline='alphabetic';
-  hudText(String(Math.round(compassDeg)).padStart(3,'0')+'°', cx, ty+tapeH+30, 'rgba(125,255,176,0.95)');
-  hctx.textAlign='left';
-}
-// ---- Pitch ladder: roll-free camera, so rungs are pure horizontal lines shifted vertically
-// by (playerPitch - rungAngle) * pxPerDegree; no rotation math needed (see camera notes ~L5086).
-function drawPitchLadder(cx,cy,h){
-  const ppd=h/Math.max(1,camera.fov);
-  const P=player.pitch*180/Math.PI;
-  hctx.save(); hctx.font="600 11px 'Space Grotesk', monospace"; hctx.textBaseline='middle';
-  for(let th=-80; th<=80; th+=10){
-    const y=cy+(P-th)*ppd;
-    if(y< -20 || y>h+20) continue;
-    if(th===0 && Math.abs(y-cy)<2) continue;   // the center reticle already marks true level when near it
-    const climb=th>0, isHorizon=(th===0);
-    const rw=isHorizon?58:(th%30===0?42:26);
-    const col=isHorizon?'rgba(125,255,176,0.95)':(climb?'rgba(125,255,176,0.8)':'rgba(255,200,110,0.75)');
-    hctx.strokeStyle=col; hctx.lineWidth=isHorizon?2:1.3;
-    if(!isHorizon && th<0) hctx.setLineDash([5,4]); else hctx.setLineDash([]);
-    const gap=isHorizon?22:14;
-    hctx.beginPath(); hctx.moveTo(cx-rw,y); hctx.lineTo(cx-gap,y); hctx.moveTo(cx+gap,y); hctx.lineTo(cx+rw,y); hctx.stroke();
-    // end ticks bend toward the horizon so climb/dive are readable at a glance
-    const tick=climb?5:-5;
-    hctx.beginPath(); hctx.moveTo(cx-rw,y); hctx.lineTo(cx-rw,y+tick); hctx.moveTo(cx+rw,y); hctx.lineTo(cx+rw,y+tick); hctx.stroke();
-    if(th%30===0 && th!==0){ hctx.setLineDash([]); hctx.fillStyle=col; hctx.textAlign='right'; hctx.fillText(String(Math.abs(th)), cx-rw-6, y);
-      hctx.textAlign='left'; hctx.fillText(String(Math.abs(th)), cx+rw+6, y); }
+  if(!hdgTape) buildHeadingTape();
+  const tw=Math.round(Math.max(300,Math.min(460,w*0.3))), ty=10, dpr=Math.min(devicePixelRatio||1,2);
+  if(!hdgScr || hdgScrW!==tw || hdgScrD!==dpr){
+    hdgScr=document.createElement('canvas'); hdgScr.width=Math.round(tw*dpr); hdgScr.height=Math.round(HDG_TH*dpr);
+    hdgScrCtx=hdgScr.getContext('2d');
+    hdgMask=hdgScrCtx.createLinearGradient(0,0,hdgScr.width,0);
+    hdgMask.addColorStop(0,'rgba(0,0,0,0)'); hdgMask.addColorStop(0.2,'#000'); hdgMask.addColorStop(0.8,'#000'); hdgMask.addColorStop(1,'rgba(0,0,0,0)');
+    hdgScrW=tw; hdgScrD=dpr;
   }
-  hctx.setLineDash([]); hctx.restore();
+  const deg=((-player.heading*180/Math.PI)%360+360)%360, view=tw/HDG_PPD;
+  const g=hdgScrCtx, W=hdgScr.width, H=hdgScr.height;
+  g.globalCompositeOperation='source-over'; g.clearRect(0,0,W,H);
+  g.fillStyle='rgba(2,10,20,0.34)'; g.fillRect(0,0,W,H);
+  g.drawImage(hdgTape, (deg-HDG_MIN-view/2)*HDG_PPD*HDG_S, 0, tw*HDG_S, hdgTape.height, 0, 0, W, H);
+  g.globalCompositeOperation='destination-in'; g.fillStyle=hdgMask; g.fillRect(0,0,W,H);
+  g.globalCompositeOperation='source-over';
+  hctx.drawImage(hdgScr, cx-tw/2, ty, tw, HDG_TH);
+  // caret + boxed digital readout
+  hctx.fillStyle=HUD_G; hctx.beginPath();
+  hctx.moveTo(cx,ty+HDG_TH+1); hctx.lineTo(cx-6,ty+HDG_TH+9); hctx.lineTo(cx+6,ty+HDG_TH+9); hctx.closePath(); hctx.fill();
+  const bw=48, bh=19, by=ty+HDG_TH+10;
+  hctx.fillStyle='rgba(2,10,20,0.6)'; hctx.fillRect(cx-bw/2,by,bw,bh);
+  hctx.strokeStyle=HUD_G; hctx.lineWidth=1.2; hctx.strokeRect(cx-bw/2+0.5,by+0.5,bw-1,bh-1);
+  hctx.font=HF13B; hctx.textAlign='center'; hctx.textBaseline='middle'; hctx.fillStyle=HUD_G;
+  hctx.fillText(HDG_NUM[Math.round(deg)%360], cx, by+bh/2+1);
+  hctx.textAlign='left'; hctx.textBaseline='alphabetic';
+}
+
+// ---- Pitch ladder, locked to the REAL camera: rung angle θ sits at tan(θ - camPitch)·f from the
+// screen centre, rotated by the camera's on-screen horizon tilt (the chase cam leans into turns).
+// Only a central window is drawn (edge-faded) so it never collides with tape, radar or subtitles.
+const LAD_LBL=[]; for(let i=0;i<=9;i++) LAD_LBL[i]=String(i*10);
+function drawPitchLadder(cx,cy,w,h){
+  camera.updateMatrixWorld();   // current frame (render would do it later) — keeps all HUD projections in sync
+  const e=camera.matrixWorld.elements;
+  const dx=-e[8], dy=-e[9], dz=-e[10];                 // view direction
+  const hx=-dz, hz=dx, hl=Math.hypot(hx,hz);            // world-horizontal right = dir × up
+  if(hl<0.1) return;                                    // looking straight up/down: horizon undefined
+  const sr=(hx*e[0]+hz*e[2])/hl, su=(hx*e[4]+hz*e[6])/hl;
+  const tilt=Math.atan2(-su, sr);
+  const camPitch=Math.asin(Math.max(-1,Math.min(1,dy)))*180/Math.PI;
+  const f=(h/2)/Math.tan(camera.fov*Math.PI/360), lim=h*0.3;
+  hctx.save(); hctx.translate(cx,cy); hctx.rotate(tilt);
+  hctx.font=HF11; hctx.textBaseline='middle'; hctx.lineCap='butt';
+  for(let th=-90; th<=90; th+=10){
+    const d=th-camPitch; if(d>70 || d<-70) continue;
+    const y=-Math.tan(d*Math.PI/180)*f, ay=Math.abs(y);
+    if(ay>lim) continue;
+    hctx.globalAlpha = ay<lim*0.55 ? 0.72 : 0.72*(1-(ay-lim*0.55)/(lim*0.45));
+    if(th===0){
+      // horizon bar: long, gapped around the reticle, small down-ticks at the inner ends
+      const L=Math.min(210,w*0.16);
+      hctx.strokeStyle='rgba(0,0,0,0.35)'; hctx.lineWidth=4; hctx.setLineDash([]);
+      hctx.beginPath(); hctx.moveTo(-L,y); hctx.lineTo(-44,y); hctx.moveTo(44,y); hctx.lineTo(L,y); hctx.stroke();
+      hctx.strokeStyle=HUD_G; hctx.lineWidth=1.8;
+      hctx.beginPath(); hctx.moveTo(-L,y); hctx.lineTo(-44,y); hctx.lineTo(-44,y+7); hctx.moveTo(44,y+7); hctx.lineTo(44,y); hctx.lineTo(L,y); hctx.stroke();
+      continue;
+    }
+    const climb=th>0, r0=30, r1=climb?78:74, tk=climb?7:-7;
+    hctx.strokeStyle=HUD_G; hctx.lineWidth=1.4;
+    if(!climb) hctx.setLineDash([7,5]); else hctx.setLineDash([]);
+    hctx.beginPath(); hctx.moveTo(-r1,y); hctx.lineTo(-r0,y); hctx.moveTo(r0,y); hctx.lineTo(r1,y); hctx.stroke();
+    hctx.setLineDash([]);
+    hctx.beginPath(); hctx.moveTo(-r1,y); hctx.lineTo(-r1,y+tk); hctx.moveTo(r1,y); hctx.lineTo(r1,y+tk); hctx.stroke();
+    const lb=LAD_LBL[Math.abs(th)/10];
+    hctx.fillStyle=HUD_G; hctx.textAlign='right'; hctx.fillText(lb, -r1-6, y); hctx.textAlign='left'; hctx.fillText(lb, r1+6, y);
+  }
+  hctx.setLineDash([]); hctx.globalAlpha=1; hctx.restore();
+  hctx.textAlign='left'; hctx.textBaseline='alphabetic';
+}
+
+// ---- Missile threat (RWR): red chevrons toward every inbound missile, boxed warning with range,
+// pulsing edge vignette when one is close. Replaces the old blinking text.
+function drawMissileThreats(cx,cy,w,h){
+  const n=enemyMissiles.length;
+  if(!n && rwrT<=0) return;
+  const pp=player.obj.position; let near=1e9;
+  const r=Math.min(w,h)*0.36, pulse=0.5+0.5*Math.sin(menuTime*14);
+  hctx.lineWidth=2;
+  for(let i=0;i<n;i++){
+    const mp=enemyMissiles[i].mesh.position, d=mp.distanceTo(pp); if(d<near) near=d;
+    _hudP.copy(mp).project(camera);
+    let ax=_hudP.x, ay=_hudP.y; const behind=_hudP.z>1; if(behind){ ax=-ax; ay=-ay; }
+    if(!behind && ax>-1 && ax<1 && ay>-1 && ay<1){
+      const sx=(ax*0.5+0.5)*w, sy=(-ay*0.5+0.5)*h;
+      hctx.strokeStyle=HUD_RED; hctx.beginPath();
+      hctx.moveTo(sx,sy-11); hctx.lineTo(sx+11,sy); hctx.lineTo(sx,sy+11); hctx.lineTo(sx-11,sy); hctx.closePath(); hctx.stroke();
+      hctx.beginPath(); hctx.arc(sx,sy,17+4*pulse,0,Math.PI*2); hctx.stroke();
+    } else {
+      const ang=Math.atan2(-ay, ax), ex=cx+Math.cos(ang)*r, ey=cy+Math.sin(ang)*r;
+      hctx.save(); hctx.translate(ex,ey); hctx.rotate(ang); hctx.fillStyle=HUD_RED; hctx.globalAlpha=0.65+0.35*pulse;
+      hctx.beginPath(); hctx.moveTo(18,0); hctx.lineTo(-6,-11); hctx.lineTo(0,0); hctx.lineTo(-6,11); hctx.closePath(); hctx.fill();
+      hctx.restore();
+    }
+  }
+  // boxed warning under the reticle (steady frame, blinking text)
+  const bw=196, bh=24, bx=cx-bw/2, by=cy-100;   // above the gun cue: the jet itself sits below centre
+  hctx.fillStyle='rgba(40,4,4,0.55)'; hctx.fillRect(bx,by,bw,bh);
+  hctx.strokeStyle=HUD_RED; hctx.lineWidth=1.5; hctx.strokeRect(bx+0.5,by+0.5,bw-1,bh-1);
+  hctx.textAlign='center'; hctx.textBaseline='middle'; hctx.font=HF13B;
+  if(Math.sin(menuTime*20)>-0.3){ hctx.fillStyle=HUD_RED; hctx.fillText(near<1e8 ? '⚠ RAKETE  '+(near/1000).toFixed(1)+' km' : '⚠ RAKETENSTART', cx, by+bh/2+1); }
+  hctx.textAlign='left'; hctx.textBaseline='alphabetic';
+  // edge vignette when a missile is close (<1.8 km): cheap thick translucent frame
+  if(near<1800){
+    hctx.globalAlpha=(0.10+0.16*pulse)*(1-near/1800);
+    hctx.strokeStyle='#ff2a1a'; hctx.lineWidth=36; hctx.strokeRect(0,0,w,h);
+    hctx.globalAlpha=1; hctx.lineWidth=1;
+  }
 }
 function drawHUD(){
   const w=innerWidth, h=innerHeight; hctx.clearRect(0,0,w,h);   // CSS units: hctx carries the dpr transform
@@ -3208,7 +3292,7 @@ function drawHUD(){
   if(damageFlash>0){ hctx.fillStyle='rgba(210,25,20,'+Math.min(0.5,damageFlash*0.85)+')'; hctx.fillRect(0,0,w,h); }
   if(state!=='playing' && state!=='paused') return;
   const cx=w/2, cy=h/2;
-  drawPitchLadder(cx,cy,h);
+  drawPitchLadder(cx,cy,w,h);
   drawHeadingTape(cx,w);
   // center reticle
   const lockAhead = currentLock!=null;
@@ -3236,40 +3320,42 @@ function drawHUD(){
   } else hitMarkKill=false;
 
   // RWR launch-warning blink (enemy missile inbound)
-  if(rwrT>0 && Math.sin(menuTime*30)>0){
-    hctx.fillStyle='rgba(255,60,60,0.95)'; hctx.font='bold 15px monospace'; hctx.textAlign='center';
-    hctx.fillText('⚠ RAKETE', cx, cy+52); hctx.textAlign='left';
-  }
+  drawMissileThreats(cx,cy,w,h);
 
-  // target boxes for each enemy
-  const proj=new THREE.Vector3();
+  // target boxes for each enemy: corner brackets (full box only when locked), range in m / km
+  const proj=_hudP;
   for(const e of enemies){
     proj.copy(e.obj.position).project(camera);
     const onScreen = proj.z<1 && proj.x>=-1 && proj.x<=1 && proj.y>=-1 && proj.y<=1;
     const sx=(proj.x*0.5+0.5)*w, sy=(-proj.y*0.5+0.5)*h;
     const dist=e.obj.position.distanceTo(player.obj.position);
     if(onScreen){
-      const size=Math.max(18, 2600/dist*20);
+      const size=Math.min(110, Math.max(20, 2600/dist*20)), s2=size/2, c=Math.max(5,size*0.28);
       const isLock=(e===currentLock);
-      hctx.strokeStyle = e.isAce?'rgba(255,80,255,0.95)':(isLock?'rgba(255,60,60,0.95)':'rgba(255,190,60,0.85)');
-      hctx.lineWidth=isLock?2.5:1.5;
-      hctx.strokeRect(sx-size/2, sy-size/2, size, size);
-      // corner ticks
-      hctx.fillStyle=hctx.strokeStyle;
-      hctx.font='11px monospace'; hctx.fillText(Math.round(dist)+'m', sx-size/2, sy-size/2-4);
-      if(e.isAce){ hctx.fillStyle='rgba(255,80,255,0.95)'; hctx.font='bold 11px monospace'; hctx.fillText('★ '+e.aceName, sx-size/2, sy+size/2+26); }
-      if(isLock){
-        hctx.fillText('LOCK', sx-size/2, sy+size/2+14);
-        // rotating lock brackets
-        hctx.strokeStyle='rgba(255,60,60,0.9)';
-        const b=size*0.7;
+      const col = e.isAce?'rgba(255,90,255,0.95)':(isLock?HUD_RED:'rgba(255,196,80,0.9)');
+      hctx.strokeStyle='rgba(0,0,0,0.45)'; hctx.lineWidth=isLock?4.5:3.5;
+      for(let pass=0; pass<2; pass++){
         hctx.beginPath();
-        hctx.moveTo(sx-b,sy-b+8); hctx.lineTo(sx-b,sy-b); hctx.lineTo(sx-b+8,sy-b);
-        hctx.moveTo(sx+b,sy-b+8); hctx.lineTo(sx+b,sy-b); hctx.lineTo(sx+b-8,sy-b);
-        hctx.moveTo(sx-b,sy+b-8); hctx.lineTo(sx-b,sy+b); hctx.lineTo(sx-b+8,sy+b);
-        hctx.moveTo(sx+b,sy+b-8); hctx.lineTo(sx+b,sy+b); hctx.lineTo(sx+b-8,sy+b);
+        hctx.moveTo(sx-s2,sy-s2+c); hctx.lineTo(sx-s2,sy-s2); hctx.lineTo(sx-s2+c,sy-s2);
+        hctx.moveTo(sx+s2-c,sy-s2); hctx.lineTo(sx+s2,sy-s2); hctx.lineTo(sx+s2,sy-s2+c);
+        hctx.moveTo(sx-s2,sy+s2-c); hctx.lineTo(sx-s2,sy+s2); hctx.lineTo(sx-s2+c,sy+s2);
+        hctx.moveTo(sx+s2-c,sy+s2); hctx.lineTo(sx+s2,sy+s2); hctx.lineTo(sx+s2,sy+s2-c);
         hctx.stroke();
+        hctx.strokeStyle=col; hctx.lineWidth=isLock?2.2:1.6;
       }
+      hctx.font=HF11; hctx.textAlign='center';
+      hudText(dist<1000 ? Math.round(dist)+' m' : (dist/1000).toFixed(1)+' km', sx, sy-s2-6, col);
+      if(e.isAce){ hctx.font=HF12; hudText('★ '+e.aceName, sx, sy+s2+(isLock?30:16), 'rgba(255,90,255,0.95)'); }
+      if(isLock){
+        hctx.strokeRect(sx-s2, sy-s2, size, size);
+        hctx.font=HF12; hudText('◆ LOCK', sx, sy+s2+15, HUD_RED);
+        // outer lock diamond, slowly rotating
+        const b=size*0.62+10, ra=menuTime*1.6;
+        hctx.save(); hctx.translate(sx,sy); hctx.rotate(ra); hctx.strokeStyle=HUD_RED; hctx.lineWidth=1.6;
+        hctx.beginPath(); hctx.moveTo(0,-b); hctx.lineTo(b,0); hctx.lineTo(0,b); hctx.lineTo(-b,0); hctx.closePath(); hctx.stroke();
+        hctx.restore();
+      }
+      hctx.textAlign='left';
     } else {
       // off-screen arrow toward enemy
       let ax=proj.x, ay=proj.y; if(proj.z>1){ ax=-ax; ay=-ay; }
@@ -3303,16 +3389,16 @@ function drawHUD(){
       hctx.beginPath(); hctx.moveTo(px-19,py); hctx.lineTo(px-9,py); hctx.moveTo(px+9,py); hctx.lineTo(px+19,py);
       hctx.moveTo(px,py-19); hctx.lineTo(px,py-9); hctx.moveTo(px,py+9); hctx.lineTo(px,py+19); hctx.stroke();
       // range readout next to the pipper
-      hctx.font='11px monospace'; hctx.textAlign='left'; hctx.fillStyle=col;
+      hctx.font=HF11; hctx.textAlign='left'; hctx.fillStyle=col;
       hctx.fillText(Math.round(gunSolution.dist)+' m', px+22, py-6);
       const clo=Math.max(-2000,Math.min(2000,Math.round(gunSolution.closure*3.6)));   // closure km/h, clamped
       hctx.fillStyle='rgba(200,220,240,0.75)';
       hctx.fillText((clo>=0?'▲':'▼')+Math.abs(clo)+' km/h', px+22, py+9);
       // big status cue under the center reticle
-      hctx.textAlign='center'; hctx.font='bold 16px monospace';
+      hctx.textAlign='center'; hctx.font=HF16B;
       if(onTgt){ hctx.fillStyle='rgba(120,255,120,0.98)'; hctx.fillText('◄ FEUER · GUNS ►', cx, cy-44); }
-      else if(near){ hctx.font='bold 13px monospace'; hudText('IN REICHWEITE — auf Zielpunkt halten', cx, cy-44, 'rgba(255,120,120,0.95)'); }
-      else { hctx.font='12px monospace'; hudText('außer Reichweite ('+Math.round(gunSolution.dist)+' m)', cx, cy-44, 'rgba(255,210,110,0.9)'); }
+      else if(near){ hctx.font=HF13B; hudText('IN REICHWEITE — auf Zielpunkt halten', cx, cy-44, 'rgba(255,120,120,0.95)'); }
+      else { hctx.font=HF12; hudText('außer Reichweite ('+Math.round(gunSolution.dist)+' m)', cx, cy-44, 'rgba(255,210,110,0.9)'); }
       hctx.textAlign='left';
     }
   }
@@ -3321,10 +3407,10 @@ function drawHUD(){
   if(combo>=2){
     const a=Math.min(1,comboT/1.0);
     hctx.save(); hctx.globalAlpha=a; hctx.textAlign='center';
-    hctx.fillStyle='#ffcc33'; hctx.font='bold 26px system-ui, sans-serif';
-    hctx.fillText('KILL-SERIE ×'+Math.min(combo,5), cx, 92);
+    hctx.fillStyle='#ffcc33'; hctx.font=HF26B;
+    hctx.fillText('KILL-SERIE ×'+Math.min(combo,5), cx, 146);   // below heading tape + boss bar
     // shrinking timer bar
-    hctx.fillStyle='rgba(255,204,51,0.85)'; hctx.fillRect(cx-70, 100, 140*(comboT/4.0), 4);
+    hctx.fillStyle='rgba(255,204,51,0.85)'; hctx.fillRect(cx-70, 154, 140*(comboT/4.0), 4);
     hctx.restore(); hctx.textAlign='left';
   }
 
@@ -3343,7 +3429,7 @@ function drawHUD(){
       // health pip — only for destroyable targets (the crate is a fly-over objective, not a kill)
       if(!gt.invuln){ const hpw=Math.max(0,gt.hp/gt.maxhp);
         hctx.fillStyle='rgba(255,90,60,0.8)'; hctx.fillRect(gx-12,gy+12,24*hpw,3); }
-      if(GT_LABELS[gt.tag]){ hctx.fillStyle=hctx.strokeStyle; hctx.font='10px monospace'; hctx.textAlign='center'; hctx.fillText(GT_LABELS[gt.tag], gx, gy-13); hctx.textAlign='left'; }
+      if(GT_LABELS[gt.tag]){ hctx.fillStyle=hctx.strokeStyle; hctx.font=HF10; hctx.textAlign='center'; hctx.fillText(GT_LABELS[gt.tag], gx, gy-13); hctx.textAlign='left'; }
       if(isAgmLock){  // green AGM lock brackets + label
         const b=16; hctx.strokeStyle='rgba(90,255,120,0.95)';
         hctx.beginPath();
@@ -3352,7 +3438,7 @@ function drawHUD(){
         hctx.moveTo(gx-b,gy+b-7); hctx.lineTo(gx-b,gy+b); hctx.lineTo(gx-b+7,gy+b);
         hctx.moveTo(gx+b,gy+b-7); hctx.lineTo(gx+b,gy+b); hctx.lineTo(gx+b-7,gy+b);
         hctx.stroke();
-        hctx.fillStyle='rgba(90,255,120,0.95)'; hctx.font='bold 10px monospace'; hctx.textAlign='center'; hctx.fillText('LB-LOCK', gx, gy+27); hctx.textAlign='left';
+        hctx.fillStyle='rgba(90,255,120,0.95)'; hctx.font=HF10; hctx.textAlign='center'; hctx.fillText('LB-LOCK', gx, gy+27); hctx.textAlign='left';
       }
     }
   }
@@ -3364,7 +3450,7 @@ function drawHUD(){
       if(on){ const axp=(ap.x*0.5+0.5)*w, ayp=(-ap.y*0.5+0.5)*h;
         hctx.strokeStyle='rgba(90,200,255,0.95)'; hctx.lineWidth=2;
         hctx.strokeRect(axp-13,ayp-13,26,26);
-        hctx.fillStyle='rgba(90,200,255,0.95)'; hctx.font='10px monospace'; hctx.textAlign='center';
+        hctx.fillStyle='rgba(90,200,255,0.95)'; hctx.font=HF10; hctx.textAlign='center';
         hctx.fillText(ally.name||'LÄRCHE', axp, ayp-17);
         const hw=Math.max(0,ally.hp/ally.maxhp);
         hctx.fillStyle='rgba(40,40,50,0.7)'; hctx.fillRect(axp-16,ayp+16,32,4);
@@ -3399,14 +3485,14 @@ function drawHUD(){
         hctx.moveTo(ix-18,iy); hctx.lineTo(ix-12,iy); hctx.moveTo(ix+12,iy); hctx.lineTo(ix+18,iy); hctx.stroke();
         // line from aircraft-nadir to impact
         hctx.strokeStyle='rgba(120,255,176,0.35)'; hctx.setLineDash([5,5]); hctx.beginPath(); hctx.moveTo(cx,cy); hctx.lineTo(ix,iy); hctx.stroke(); hctx.setLineDash([]);
-        hctx.fillStyle='rgba(120,255,176,0.9)'; hctx.font='bold 11px monospace'; hctx.textAlign='center'; hctx.fillText('CCIP', ix, iy+30); hctx.textAlign='left';
+        hctx.fillStyle='rgba(120,255,176,0.9)'; hctx.font=HF11; hctx.textAlign='center'; hctx.fillText('CCIP', ix, iy+30); hctx.textAlign='left';
       }
     }
   }
   // SAM launch warning
   if(samWarnActive && state==='playing'){
     hctx.fillStyle='rgba(255,60,60,'+(0.55+0.35*Math.sin(menuTime*12))+')';
-    hctx.font='bold 22px system-ui, sans-serif'; hctx.textAlign='center';
+    hctx.font=HF22B; hctx.textAlign='center';
     hctx.fillText('⚠ SAM — RAKETENWARNUNG', cx, h-150); hctx.textAlign='left';
   }
 
@@ -3416,17 +3502,17 @@ function drawHUD(){
       if(player.grantlActive){                       // berserk vignette + banner
         const p=0.22+0.18*Math.sin(menuTime*18);
         hctx.strokeStyle='rgba(255,45,20,'+p+')'; hctx.lineWidth=26; hctx.strokeRect(13,13,w-26,h-26); hctx.lineWidth=1;
-        hctx.fillStyle='rgba(255,90,50,0.95)'; hctx.font='bold 15px system-ui,sans-serif'; hctx.textAlign='center';
-        hctx.fillText('🔥 GRANTL-MODUS!', cx, 42); hctx.textAlign='left';
+        hctx.fillStyle='rgba(255,90,50,0.95)'; hctx.font=HF15B; hctx.textAlign='center';
+        hctx.fillText('🔥 GRANTL-MODUS!', cx, 182); hctx.textAlign='left';
       }
       const bw=170, bx=cx-bw/2, by=h-64;             // rage bar
       hctx.fillStyle='rgba(4,12,20,0.55)'; hctx.fillRect(bx-2,by-2,bw+4,12);
       hctx.fillStyle=player.grantlActive?'#ff5a2a':'#c23a1a'; hctx.fillRect(bx,by,bw*Math.max(0,Math.min(1,player.grantl)),8);
-      hctx.fillStyle='rgba(255,185,155,0.9)'; hctx.font='9px monospace'; hctx.textAlign='center'; hctx.fillText('GRANTL', cx, by-4); hctx.textAlign='left';
+      hctx.fillStyle='rgba(255,185,155,0.9)'; hctx.font=HF9; hctx.textAlign='center'; hctx.fillText('GRANTL', cx, by-4); hctx.textAlign='left';
     } else if(player.hero==='wiggerl'){
       const fl=Math.max(0,Math.min(1,player.duselFlash/0.6));
       hctx.globalAlpha=0.45+0.55*fl;
-      hctx.fillStyle=fl>0.05?'#7dff9a':'rgba(150,210,165,0.85)'; hctx.font='bold 16px system-ui,sans-serif'; hctx.textAlign='center';
+      hctx.fillStyle=fl>0.05?'#7dff9a':'rgba(150,210,165,0.85)'; hctx.font=HF16B; hctx.textAlign='center';
       hctx.fillText('🍀 DUSEL', cx, h-56); hctx.textAlign='left'; hctx.globalAlpha=1;
     }
   }
