@@ -120,6 +120,18 @@
   .mcard .mtype { display:inline-block; font-size:11px; letter-spacing:2px; padding:2px 8px; margin-bottom:8px; }
   .mtype.air{ background:rgba(80,150,255,.2); color:#9fc8ff;} .mtype.ground{ background:rgba(120,200,120,.2); color:#a8e6a0;}
   .mtype.boss{ background:rgba(255,80,80,.22); color:#ff9a9a;} .mtype.mixed{ background:rgba(200,150,255,.2); color:#d0b0ff;}
+  .mtype.tutorial{ background:rgba(230,220,190,.14); color:#eee4c4;} .mtype.escort{ background:rgba(90,200,255,.18); color:#9fe4ff;}
+  /* type accent bar, time-of-day chip, story-frontier badge */
+  .mcard::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--acc,#7fb0e8); opacity:.9; }
+  .mcard.t-air{--acc:#6fa8ff;} .mcard.t-ground{--acc:#8fd88a;} .mcard.t-boss{--acc:#ff6a5a;} .mcard.t-mixed{--acc:#c49bff;} .mcard.t-tutorial{--acc:#e8dcb0;} .mcard.t-escort{--acc:#6fe0ff;}
+  .mcard:hover { background:linear-gradient(160deg,rgba(30,56,92,.8),rgba(12,24,42,.8)); }
+  .mcard .mtod { display:inline-block; font-family:var(--font-display); font-size:11px; letter-spacing:1.5px; padding:2px 8px; margin:0 0 8px 6px; background:rgba(255,255,255,.07); color:#d4e0ee; }
+  .mcard .mtod.dusk { background:rgba(255,150,80,.13); color:#ffc08a; } .mcard .mtod.night { background:rgba(120,130,255,.15); color:#b8beff; }
+  .mcard .mnew { position:absolute; top:14px; right:16px; font-family:var(--font-display); font-size:11px; font-weight:700; letter-spacing:2px; color:#04140b;
+    background:var(--hud); padding:2px 9px; animation:newPulse 1.4s ease-in-out infinite alternate; }
+  @keyframes newPulse { from{ box-shadow:0 0 0 rgba(125,255,176,0); } to{ box-shadow:0 0 14px rgba(125,255,176,.75); } }
+  .mcard.fresh { border-color:rgba(125,255,176,.55); background:linear-gradient(160deg,rgba(16,54,58,.78),rgba(8,20,30,.78)); }
+  .mcard.unreached { opacity:.72; } .mcard.unreached:hover { opacity:1; }
   .mcard .mdesc { font-size:13px; color:#bcd4ee; line-height:1.5; opacity:.9; }
   .mcard.locked { opacity:.45; cursor:not-allowed; filter:grayscale(.6); }
   .mcard.locked:hover { transform:none; border-color:rgba(140,190,255,.25); box-shadow:none; }
@@ -3854,6 +3866,7 @@ function togglePause(){ if(state==='playing') pauseGame(); else if(state==='paus
 
 /* ===== Menu wiring ===== */
 const TYPE_NAME={air:'LUFTKAMPF',ground:'BODENANGRIFF',mixed:'KOMBINIERT',boss:'BOSS',tutorial:'FLUGSCHULE',escort:'ESKORTE'};
+const TOD_NAME={day:'☀ TAG',dusk:'◐ DÄMMERUNG',night:'☾ NACHT'};
 function buildMissionList(){
   const wrap=document.getElementById('missionlist'); wrap.innerHTML='';
   activeCampaign.forEach((m,i)=>{
@@ -3861,10 +3874,13 @@ function buildMissionList(){
     const reached = i < unlockedCount();      // reached in the story so far
     const done = !!(rec && rec.cleared);
     const card=document.createElement('div');
-    card.className='mcard'+(done?' done':'');
+    const fresh = reached && !done && i===unlockedCount()-1;   // the story frontier
+    card.className='mcard panel-cut t-'+m.type+(done?' done':'')+(fresh?' fresh':'')+(reached?'':' unreached');
     card.innerHTML = `<div class="mnum">MISSION ${i+1}</div>`+
+      (fresh?'<div class="mnew">NEU</div>':'')+
       `<div class="mname">${m.name}</div>`+
       `<span class="mtype ${m.type}">${TYPE_NAME[m.type]||m.type}</span>`+
+      `<span class="mtod ${m.tod||'day'}">${TOD_NAME[m.tod]||TOD_NAME.day}</span>`+
       `<div class="mdesc">${m.objectives.filter(o=>o.primary).map(o=>o.label).join(' · ')}</div>`+
       `<div class="mstars">`+[0,1,2].map(k=>`<span class="${rec&&k<rec.stars?'on':''}">${rec&&k<rec.stars?'★':'☆'}</span>`).join('')+
         (rec?`<span class="mbest">BEST ${rec.bestScore} · ${fmtTime(rec.bestTime)}</span>`:'')+`</div>`+
