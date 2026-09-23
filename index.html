@@ -318,6 +318,7 @@
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/BufferGeometryUtils.js"></script>
 <script src="voice_clips.js"></script>
 <script>
 "use strict";
@@ -1992,7 +1993,8 @@ function spawnDebris(x,y,z,n,scale,hot){
   scale=scale||1;
   for(let i=0;i<n;i++){
     if(debris.length>=DEBRIS_MAX){ const old=debris.shift(); scene.remove(old.mesh); }
-    const mat=(hot && Math.random()<0.4)?DEBRIS_MAT_HOT:DEBRIS_MAT_METAL;
+    const isHot=!!(hot && Math.random()<0.4);
+    const mat=isHot?DEBRIS_MAT_HOT:DEBRIS_MAT_METAL;
     const mesh=new THREE.Mesh(DEBRIS_GEO, mat);
     const s=(1.5+Math.random()*2.5)*scale;
     mesh.scale.set(s*(0.6+Math.random()*0.8), s*(0.6+Math.random()*0.8), s*(0.6+Math.random()*0.8));
@@ -2001,7 +2003,7 @@ function spawnDebris(x,y,z,n,scale,hot){
     const vel=new THREE.Vector3(Math.sin(ph)*Math.cos(th)*sp, Math.abs(Math.cos(ph)*sp)+40, Math.sin(ph)*Math.sin(th)*sp);
     const av=new THREE.Vector3((Math.random()-0.5)*24,(Math.random()-0.5)*24,(Math.random()-0.5)*24);
     scene.add(mesh);
-    debris.push({ mesh, vel, av, life:1.4+Math.random()*1.2 });
+    debris.push({ mesh, vel, av, life:1.4+Math.random()*1.2, hot:isHot, settled:false, trailCd:0 });
   }
 }
 function updateDebris(dt){
@@ -2011,8 +2013,21 @@ function updateDebris(dt){
     d.vel.y-=DEBRIS_GRAV*dt;
     d.mesh.position.addScaledVector(d.vel, dt);
     d.mesh.rotation.x+=d.av.x*dt; d.mesh.rotation.y+=d.av.y*dt; d.mesh.rotation.z+=d.av.z*dt;
+    if(d.hot && !d.settled){    // burning wreckage: a thin ember+smoke streak on the way down
+      d.trailCd-=dt;
+      if(d.trailCd<=0){ d.trailCd=0.035;
+        smokeP.spawn(d.mesh.position.x,d.mesh.position.y,d.mesh.position.z,0,6,0, 0.5,3,14,C_SOOT,C_SMOKE,0.9,-2);
+        if(Math.random()<0.5) fireP.spawn(d.mesh.position.x,d.mesh.position.y,d.mesh.position.z,(Math.random()-0.5)*8,4,(Math.random()-0.5)*8,0.2,3,1,C_ORANGE,C_RED,0.85,0);
+       }
+     }
     const gy=Math.max(terrainHeight(d.mesh.position.x,d.mesh.position.z),CFG.waterLevel)+1;
-    if(d.mesh.position.y<=gy){ d.mesh.position.y=gy; d.vel.set(0,0,0); d.av.multiplyScalar(Math.pow(0.02,dt)); }
+    if(d.mesh.position.y<=gy){
+      if(d.hot && !d.settled){    // impact puff: the burning chunk hits the ground and flares once
+        fireP.spawn(d.mesh.position.x,gy,d.mesh.position.z,0,30,0,0.25,10,2,C_YELLOW,C_ORANGE,0.9,0);
+        smokeP.spawn(d.mesh.position.x,gy,d.mesh.position.z,0,20,0,1.2,8,50,C_SOOT,C_DARK,0.93,-4);
+       }
+      d.mesh.position.y=gy; d.vel.set(0,0,0); d.av.multiplyScalar(Math.pow(0.02,dt)); d.settled=true;
+    }
     if(d.life<0.5) d.mesh.scale.multiplyScalar(Math.pow(0.02,dt));
   }
 }
@@ -2132,6 +2147,33 @@ function triGeo(verts){ const g=new THREE.BufferGeometry(); g.setAttribute('posi
   g.setAttribute('uv', new THREE.BufferAttribute(uv,2));
   g.computeVertexNormals(); return g; }
 
+// --- static-part merging: collapses many small primitive meshes sharing one material into a
+// single draw call. Build a throwaway Object3D tree with normal position/rotation/scale (nested
+// groups are fine — a scratch root never added to the scene still resolves matrixWorld
+// correctly), hand it to collectMerge(), then flushMerge() bakes one Mesh per material into the
+// real group. Used by buildEurofighter/buildEnemy/buildGroundModel; NOT for parts that must stay
+// individually addressable at runtime (gear, afterburner flames/light, decals, sprites, lights).
+function collectMerge(root, bucket){
+  root.updateMatrixWorld(true);
+  root.traverse(o=>{
+    if(!o.isMesh) return;
+    let arr=bucket.get(o.material); if(!arr){ arr=[]; bucket.set(o.material,arr); }
+    let gc=o.geometry.clone(); gc.applyMatrix4(o.matrixWorld);
+    if(gc.index) gc=gc.toNonIndexed();   // primitives (Box/Cylinder/...) are indexed, triGeo() parts are not —
+    arr.push(gc);                        // mergeBufferGeometries refuses to mix the two, so normalize here
+  });
+}
+function flushMerge(bucket, g){
+  for(const [mat,geos] of bucket){
+    let merged=null;
+    if(geos.length>1){
+      try{ merged=THREE.BufferGeometryUtils.mergeBufferGeometries(geos,false); }catch(e){ merged=null; }
+    }
+    if(merged){ g.add(new THREE.Mesh(merged,mat)); }
+    else { for(const gg of geos) g.add(new THREE.Mesh(gg,mat)); }   // fallback: mismatched attrs, add unmerged
+  }
+}
+
 // Procedural hull skin: subtle panel lines + micro-noise. One canvas, reused by every airframe.
 function hullTexture(base, line){
   const N=256, c=document.createElement('canvas'); c.width=c.height=N; const g=c.getContext('2d');
@@ -2210,8 +2252,24 @@ function addRimLight(mat, color, power, strength){
    };
 }
 
+// Afterburner nozzle glow: a canvas alpha map giving the flame cones banded shock-diamond
+// rings instead of flat color, along the cone's length (v-coordinate). Shared by all jets.
+function afterburnerTexture(){
+  const w=16,h=128,c=document.createElement('canvas'); c.width=w; c.height=h; const g=c.getContext('2d');
+  for(let y=0;y<h;y++){
+    const v=y/h;
+    const band=0.55+0.45*Math.abs(Math.sin(v*Math.PI*5.2));
+    const fall=Math.pow(1-v,0.55);
+    const a=Math.min(1,band*fall*1.25);
+    g.fillStyle='rgba(255,255,255,'+a.toFixed(3)+')'; g.fillRect(0,y,w,1);
+  }
+  const t=new THREE.CanvasTexture(c); t.wrapS=THREE.RepeatWrapping; return t;
+}
+const AB_TEX=afterburnerTexture();
+
 function buildEurofighter(withLight){
   const g=new THREE.Group();
+  const mrg=new Map();   // material -> [transformed BufferGeometry]; flushed into merged draw calls below
   // --- MATERIALS -----------------------------------------------------------------
   // Two-tone air-superiority grey, the way real Eurofighters are painted: a lighter
   // upper surface and a darker nose/spine, both low-metalness paint that takes its
@@ -2224,44 +2282,49 @@ function buildEurofighter(withLight){
   const rubber=new THREE.MeshStandardMaterial({ color:0x14161a, metalness:0.05, roughness:0.85 });
   const metalRaw=new THREE.MeshStandardMaterial({ color:0x9aa1a8, metalness:0.85, roughness:0.30, envMapIntensity:1.3 });   // bare titanium: nozzles, pylons
   const glass=new THREE.MeshStandardMaterial({ color:0x14283a, metalness:1.0, roughness:0.03, envMapIntensity:2.4, transparent:true, opacity:0.55, side:THREE.DoubleSide });
+  const nozzleGlowMat=new THREE.MeshStandardMaterial({color:0x120c08, roughness:0.9, emissive:0x2a0d00, emissiveIntensity:0.4});
+  const storeMat=new THREE.MeshStandardMaterial({color:0xd4d6d8, roughness:0.45, metalness:0.25, envMapIntensity:1.0});      // missile bodies on the pylons
+  const storeTipMat=new THREE.MeshStandardMaterial({color:0x3a3f45, roughness:0.5, metalness:0.3});                        // missile seeker tips
+  const crossMat=new THREE.MeshStandardMaterial({ map:TEX_CROSS, transparent:true, roughness:0.5, metalness:0.1, side:THREE.DoubleSide, polygonOffset:true, polygonOffsetFactor:-3, polygonOffsetUnits:-4 });
+  const stencilMat=new THREE.MeshStandardMaterial({ map:TEX_STENCIL, transparent:true, roughness:0.5, metalness:0.1, side:THREE.DoubleSide, polygonOffset:true, polygonOffsetFactor:-3, polygonOffsetUnits:-4 });
 
   // --- FUSELAGE ------------------------------------------------------------------
   // Built from three sections so the silhouette tapers like an actual airframe instead
   // of being one straight tube.
-  const fusMid=new THREE.Mesh(new THREE.CylinderGeometry(1.05,1.15,7.5,16), body); fusMid.rotation.x=Math.PI/2; fusMid.position.z=0.6; g.add(fusMid);
-  const fusAft=new THREE.Mesh(new THREE.CylinderGeometry(1.15,0.95,4.6,16), body); fusAft.rotation.x=Math.PI/2; fusAft.position.z=6.4; g.add(fusAft);
-  const fusFwd=new THREE.Mesh(new THREE.CylinderGeometry(0.80,1.05,4.4,16), bodyDark); fusFwd.rotation.x=Math.PI/2; fusFwd.position.z=-5.3; g.add(fusFwd);
+  const fusMid=new THREE.Mesh(new THREE.CylinderGeometry(1.05,1.15,7.5,16), body); fusMid.rotation.x=Math.PI/2; fusMid.position.z=0.6; collectMerge(fusMid,mrg);
+  const fusAft=new THREE.Mesh(new THREE.CylinderGeometry(1.15,0.95,4.6,16), body); fusAft.rotation.x=Math.PI/2; fusAft.position.z=6.4; collectMerge(fusAft,mrg);
+  const fusFwd=new THREE.Mesh(new THREE.CylinderGeometry(0.80,1.05,4.4,16), bodyDark); fusFwd.rotation.x=Math.PI/2; fusFwd.position.z=-5.3; collectMerge(fusFwd,mrg);
   // radome: a rounded ogive, not a sharp cone
   const nose=new THREE.Mesh(new THREE.SphereGeometry(0.80,16,12), bodyDark);
-  nose.scale.set(1,0.92,3.1); nose.position.z=-9.0; g.add(nose);
+  nose.scale.set(1,0.92,3.1); nose.position.z=-9.0; collectMerge(nose,mrg);
   // dorsal spine housing (runs from behind the canopy to the fin)
   const spine=new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.30,7.0,10), body);
-  spine.rotation.x=Math.PI/2; spine.position.set(0,0.86,2.4); g.add(spine);
+  spine.rotation.x=Math.PI/2; spine.position.set(0,0.86,2.4); collectMerge(spine,mrg);
 
   // --- COCKPIT -------------------------------------------------------------------
   // Canopy in two parts (windscreen + bubble) with a visible frame, plus a seat and a
   // pilot helmet so the cockpit is not an empty glass dome up close.
   const canopy=new THREE.Mesh(new THREE.SphereGeometry(0.92,20,14,0,Math.PI*2,0,Math.PI/2), glass);
-  canopy.scale.set(1.0,0.95,2.05); canopy.position.set(0,0.62,-3.6); g.add(canopy);
+  canopy.scale.set(1.0,0.95,2.05); canopy.position.set(0,0.62,-3.6); collectMerge(canopy,mrg);
   const wsc=new THREE.Mesh(new THREE.ConeGeometry(0.84,1.5,12,1,true), glass);
-  wsc.rotation.x=-Math.PI/2; wsc.position.set(0,0.60,-5.5); g.add(wsc);
+  wsc.rotation.x=-Math.PI/2; wsc.position.set(0,0.60,-5.5); collectMerge(wsc,mrg);
   const frame=new THREE.Mesh(new THREE.TorusGeometry(0.86,0.055,6,20), dark);
-  frame.rotation.y=Math.PI/2; frame.scale.set(0.95,1,1); frame.position.set(0,0.58,-4.7); g.add(frame);
+  frame.rotation.y=Math.PI/2; frame.scale.set(0.95,1,1); frame.position.set(0,0.58,-4.7); collectMerge(frame,mrg);
   const seat=new THREE.Mesh(new THREE.BoxGeometry(0.62,0.85,0.55), new THREE.MeshStandardMaterial({color:0x1c2028, roughness:0.8, metalness:0.1}));
-  seat.position.set(0,0.42,-3.5); g.add(seat);
+  seat.position.set(0,0.42,-3.5); collectMerge(seat,mrg);
   const helm=new THREE.Mesh(new THREE.SphereGeometry(0.24,10,8), new THREE.MeshStandardMaterial({color:0xd8dade, roughness:0.35, metalness:0.2, envMapIntensity:1.1}));
-  helm.position.set(0,0.80,-3.75); g.add(helm);
+  helm.position.set(0,0.80,-3.75); collectMerge(helm,mrg);
 
   // --- AIR INTAKES ---------------------------------------------------------------
   // The chin intake with its splitter plate is the Eurofighter's most recognisable
   // feature and was missing entirely.
   const intakeLip=new THREE.Mesh(new THREE.BoxGeometry(2.5,0.95,2.2), bodyDark);
-  intakeLip.position.set(0,-0.95,-4.3); g.add(intakeLip);
+  intakeLip.position.set(0,-0.95,-4.3); collectMerge(intakeLip,mrg);
   const intakeMouth=new THREE.Mesh(new THREE.BoxGeometry(2.15,0.62,0.25), new THREE.MeshStandardMaterial({color:0x07090c, roughness:0.95, metalness:0.0}));
-  intakeMouth.position.set(0,-0.95,-5.42); g.add(intakeMouth);
+  intakeMouth.position.set(0,-0.95,-5.42); collectMerge(intakeMouth,mrg);
   for(const sx of [-1,1]){                                   // intake side walls sweeping back into the belly
     const duct=new THREE.Mesh(new THREE.BoxGeometry(0.16,0.85,3.4), bodyDark);
-    duct.position.set(sx*1.22,-0.85,-2.6); g.add(duct);
+    duct.position.set(sx*1.22,-0.85,-2.6); collectMerge(duct,mrg);
    }
 
   // --- WINGS ---------------------------------------------------------------------
@@ -2279,33 +2342,33 @@ function buildEurofighter(withLight){
     return grp;
   }
   const wingL=wingHalf(1), wingR=wingHalf(-1);
-  wingL.position.z=1; wingR.position.z=1; g.add(wingL); g.add(wingR);
+  wingL.position.z=1; wingR.position.z=1; collectMerge(wingL,mrg); collectMerge(wingR,mrg);
 
   // --- CANARDS (foreplanes) ------------------------------------------------------
   for(const sx of [-1,1]){
     const cGeo=triGeo([ 0,0,0, sx*2.6,0,1.5, sx*2.35,0,2.3,   0,0,0, sx*2.35,0,2.3, 0,0,2.1 ]);
-    const c=new THREE.Mesh(cGeo, body); c.position.set(sx*0.95,0.28,-4.6); c.rotation.z=sx*0.06; g.add(c);
-    const c2=new THREE.Mesh(cGeo, body); c2.position.set(sx*0.95,0.16,-4.6); c2.rotation.z=sx*0.06; g.add(c2);
+    const c=new THREE.Mesh(cGeo, body); c.position.set(sx*0.95,0.28,-4.6); c.rotation.z=sx*0.06; collectMerge(c,mrg);
+    const c2=new THREE.Mesh(cGeo, body); c2.position.set(sx*0.95,0.16,-4.6); c2.rotation.z=sx*0.06; collectMerge(c2,mrg);
    }
 
   // --- TAIL FIN ------------------------------------------------------------------
   const finGeo=triGeo([ 0,0,2.6, 0,3.4,5.2, 0,0,5.9,  0,0,2.6, 0,0,5.9, 0,3.4,5.2 ]);
-  const fin=new THREE.Mesh(finGeo, body); g.add(fin);
-  const fin2=new THREE.Mesh(finGeo, body); fin2.position.x=-0.10; g.add(fin2);   // thickness
+  const fin=new THREE.Mesh(finGeo, body); collectMerge(fin,mrg);
+  const fin2=new THREE.Mesh(finGeo, body); fin2.position.x=-0.10; collectMerge(fin2,mrg);   // thickness
   const rudder=new THREE.Mesh(new THREE.BoxGeometry(0.12,2.2,0.7), bodyDark);
-  rudder.position.set(-0.05,1.5,5.6); rudder.rotation.x=-0.22; g.add(rudder);
+  rudder.position.set(-0.05,1.5,5.6); rudder.rotation.x=-0.22; collectMerge(rudder,mrg);
   // fin-tip ESM pod
   const esm=new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.10,1.1,8), dark);
-  esm.rotation.x=Math.PI/2; esm.position.set(-0.05,3.35,4.9); g.add(esm);
+  esm.rotation.x=Math.PI/2; esm.position.set(-0.05,3.35,4.9); collectMerge(esm,mrg);
 
   // --- ENGINES -------------------------------------------------------------------
   for(const sx of [-1,1]){
     const can=new THREE.Mesh(new THREE.CylinderGeometry(0.60,0.68,2.4,14,1,true), metalRaw);
-    can.rotation.x=Math.PI/2; can.position.set(sx*0.58,0.10,7.4); g.add(can);
+    can.rotation.x=Math.PI/2; can.position.set(sx*0.58,0.10,7.4); collectMerge(can,mrg);
     const ring=new THREE.Mesh(new THREE.TorusGeometry(0.63,0.07,6,16), dark);   // nozzle petals
-    ring.position.set(sx*0.58,0.10,8.5); g.add(ring);
-    const inner=new THREE.Mesh(new THREE.CylinderGeometry(0.50,0.50,0.3,12), new THREE.MeshStandardMaterial({color:0x120c08, roughness:0.9, emissive:0x2a0d00, emissiveIntensity:0.4}));
-    inner.rotation.x=Math.PI/2; inner.position.set(sx*0.58,0.10,8.4); g.add(inner);
+    ring.position.set(sx*0.58,0.10,8.5); collectMerge(ring,mrg);
+    const inner=new THREE.Mesh(new THREE.CylinderGeometry(0.50,0.50,0.3,12), nozzleGlowMat);
+    inner.rotation.x=Math.PI/2; inner.position.set(sx*0.58,0.10,8.4); collectMerge(inner,mrg);
    }
 
   // --- WEAPONS + PYLONS ----------------------------------------------------------
@@ -2313,9 +2376,9 @@ function buildEurofighter(withLight){
   function missileOnPylon(sx, x, z, len){
     const p=new THREE.Group();
     const pyl=new THREE.Mesh(new THREE.BoxGeometry(0.18,0.55,1.1), bodyDark); pyl.position.y=-0.30; p.add(pyl);
-    const bodyM=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,len,10), new THREE.MeshStandardMaterial({color:0xd4d6d8, roughness:0.45, metalness:0.25, envMapIntensity:1.0}));
+    const bodyM=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,len,10), storeMat);
     bodyM.rotation.x=Math.PI/2; bodyM.position.y=-0.72; p.add(bodyM);
-    const tip=new THREE.Mesh(new THREE.ConeGeometry(0.16,0.7,10), new THREE.MeshStandardMaterial({color:0x3a3f45, roughness:0.5, metalness:0.3}));
+    const tip=new THREE.Mesh(new THREE.ConeGeometry(0.16,0.7,10), storeTipMat);
     tip.rotation.x=-Math.PI/2; tip.position.set(0,-0.72,-len/2-0.35); p.add(tip);
     for(let f=0;f<4;f++){                                   // cruciform tail fins
       const fin=new THREE.Mesh(new THREE.BoxGeometry(0.028,0.30,0.40), dark);
@@ -2325,37 +2388,37 @@ function buildEurofighter(withLight){
      }
     p.position.set(sx*x, -0.28, z); return p;
   }
-  g.add(missileOnPylon(1, 2.6, 2.4, 2.6));  g.add(missileOnPylon(-1, 2.6, 2.4, 2.6));
-  g.add(missileOnPylon(1, 4.4, 3.2, 2.2));  g.add(missileOnPylon(-1, 4.4, 3.2, 2.2));
+  collectMerge(missileOnPylon(1, 2.6, 2.4, 2.6),mrg);  collectMerge(missileOnPylon(-1, 2.6, 2.4, 2.6),mrg);
+  collectMerge(missileOnPylon(1, 4.4, 3.2, 2.2),mrg);  collectMerge(missileOnPylon(-1, 4.4, 3.2, 2.2),mrg);
   // centreline fuel tank
   const tank=new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.30,4.2,12), body);
-  tank.rotation.x=Math.PI/2; tank.position.set(0,-1.35,1.6); g.add(tank);
+  tank.rotation.x=Math.PI/2; tank.position.set(0,-1.35,1.6); collectMerge(tank,mrg);
   const tankNose=new THREE.Mesh(new THREE.SphereGeometry(0.34,10,8), body);
-  tankNose.scale.set(1,1,1.6); tankNose.position.set(0,-1.35,-0.6); g.add(tankNose);
+  tankNose.scale.set(1,1,1.6); tankNose.position.set(0,-1.35,-0.6); collectMerge(tankNose,mrg);
 
   // --- MARKINGS ------------------------------------------------------------------
   // Iron cross on both wings and both flanks, tail number, stencils, formation lights.
   for(const sx of [-1,1]){
-    const cw=decalPlane(TEX_CROSS,1.25,1.25); cw.rotation.x=-Math.PI/2; cw.position.set(sx*3.6,0.03,3.6); g.add(cw);
-    const cwU=decalPlane(TEX_CROSS,1.25,1.25); cwU.rotation.x=Math.PI/2; cwU.position.set(sx*3.6,-0.19,3.6); g.add(cwU);
-    const cf=decalPlane(TEX_CROSS,0.85,0.85); cf.rotation.y=sx*Math.PI/2; cf.position.set(sx*1.14,0.10,2.6); g.add(cf);
-    const st=decalPlane(TEX_STENCIL,1.5,0.38); st.rotation.y=sx*Math.PI/2; st.position.set(sx*1.12,0.62,-2.4); g.add(st);
+    const cw=decalPlane(TEX_CROSS,1.25,1.25,crossMat); cw.rotation.x=-Math.PI/2; cw.position.set(sx*3.6,0.03,3.6); collectMerge(cw,mrg);
+    const cwU=decalPlane(TEX_CROSS,1.25,1.25,crossMat); cwU.rotation.x=Math.PI/2; cwU.position.set(sx*3.6,-0.19,3.6); collectMerge(cwU,mrg);
+    const cf=decalPlane(TEX_CROSS,0.85,0.85,crossMat); cf.rotation.y=sx*Math.PI/2; cf.position.set(sx*1.14,0.10,2.6); collectMerge(cf,mrg);
+    const st=decalPlane(TEX_STENCIL,1.5,0.38,stencilMat); st.rotation.y=sx*Math.PI/2; st.position.set(sx*1.12,0.62,-2.4); collectMerge(st,mrg);
    }
   // The two sides need MIRRORED textures: a plane turned to face the other way shows its
   // texture reversed, which had the tail number reading backwards from port.
   const texNumFlip=TEX_TAILNUM.clone(); texNumFlip.needsUpdate=true;
   texNumFlip.wrapS=THREE.RepeatWrapping; texNumFlip.repeat.x=-1; texNumFlip.offset.x=1;
   const tailNum=decalPlane(texNumFlip,1.15,1.15); tailNum.rotation.y=-Math.PI/2;
-  tailNum.position.set(-0.13,1.55,4.75); g.add(tailNum);
+  tailNum.position.set(-0.13,1.55,4.75); collectMerge(tailNum,mrg);
   const tailNum2=decalPlane(TEX_TAILNUM,1.15,1.15); tailNum2.rotation.y=Math.PI/2;
-  tailNum2.position.set(0.03,1.55,4.75); g.add(tailNum2);
+  tailNum2.position.set(0.03,1.55,4.75); collectMerge(tailNum2,mrg);
   // German flag flash on the fin
   const stripes=[0x14140f,0xc81414,0xf0c000];
   for(let i=0;i<3;i++){
     const st=new THREE.Mesh(new THREE.PlaneGeometry(0.11,1.0), new THREE.MeshStandardMaterial({color:stripes[i], side:THREE.DoubleSide, roughness:0.6, metalness:0.05,
       polygonOffset:true, polygonOffsetFactor:-3, polygonOffsetUnits:-4}));
-    st.rotation.y=Math.PI/2; st.position.set(-0.12,2.35,3.55+i*0.32); g.add(st);
-    const st2=st.clone(); st2.position.x=0.02; g.add(st2);
+    st.rotation.y=Math.PI/2; st.position.set(-0.12,2.35,3.55+i*0.32); collectMerge(st,mrg);
+    const st2=st.clone(); st2.position.x=0.02; collectMerge(st2,mrg);
    }
   // navigation lights: red port, green starboard, white tail (unlit basic materials so
   // they read as lights at any time of day)
@@ -2365,17 +2428,25 @@ function buildEurofighter(withLight){
   navR.position.set(-6.5,0.02,5.2); g.add(navR);
   const navT=new THREE.Mesh(new THREE.SphereGeometry(0.10,8,6), new THREE.MeshBasicMaterial({color:0xffffff}));
   navT.position.set(-0.05,3.3,5.6); g.add(navT);
+  // strobe: a bright white flash sprite that blinks on both wingtips (period set in the update loop below)
+  const strobeMat=new THREE.SpriteMaterial({ map:glowTex, color:0xf0f8ff, transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending, fog:false });
+  const strobeL=new THREE.Sprite(strobeMat); strobeL.scale.set(2.6,2.6,1); strobeL.position.set(6.5,0.05,5.2); g.add(strobeL);
+  const strobeR=new THREE.Sprite(strobeMat.clone()); strobeR.scale.set(2.6,2.6,1); strobeR.position.set(-6.5,0.05,5.2); g.add(strobeR);
+  g.userData.strobes=[strobeL,strobeR]; g.userData.strobePhase=Math.random()*10;
   // pitot boom on the nose
   const pitot=new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.03,1.6,6), dark);
-  pitot.rotation.x=Math.PI/2; pitot.position.set(0,0,-11.4); g.add(pitot);
+  pitot.rotation.x=Math.PI/2; pitot.position.set(0,0,-11.4); collectMerge(pitot,mrg);
+
+  flushMerge(mrg, g);   // one draw call per material instead of ~35 individual static meshes
 
   // --- AFTERBURNER ---------------------------------------------------------------
   // Only the player's jet carries the afterburner PointLight: adding/removing lights changes the
   // scene light count, which recompiles EVERY lit shader in r128 (a visible hitch). Allies rely on
-  // the additive flame cones instead.
+  // the additive flame cones instead. Flame cones stay individual (unmerged, unmerged materials
+  // cloned so afterBurner texture can tint independently) so the flight code can keep scaling them.
   if(withLight){ const ab=new THREE.PointLight(0x66aaff,0,40); ab.position.z=7; g.add(ab); g.userData.ab=ab; }
-  const flMat=new THREE.MeshBasicMaterial({color:0x1b46e0, transparent:true, opacity:0.8, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide});
-  const flCoreMat=new THREE.MeshBasicMaterial({color:0xffa030, transparent:true, opacity:0.95, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide});
+  const flMat=new THREE.MeshBasicMaterial({map:AB_TEX, color:0x1b46e0, transparent:true, opacity:0.8, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide});
+  const flCoreMat=new THREE.MeshBasicMaterial({map:AB_TEX, color:0xffa030, transparent:true, opacity:0.95, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide});
   const flames=[];
   for(const sx of [-1,1]){
     const outer=new THREE.Mesh(new THREE.ConeGeometry(0.58,4.4,12,1,true), flMat); outer.rotation.x=-Math.PI/2; outer.position.set(sx*0.58,0.10,10.9); flames.push(outer); g.add(outer);
@@ -2410,6 +2481,19 @@ function buildEurofighter(withLight){
   g.scale.set(2.15,2.15,2.15);       // the jet is on screen the whole time: give it presence
   return g;
 }
+
+// Wingtip strobe blink: drives userData.strobes on any buildEurofighter() jet (player + ally).
+// A cheap sprite-opacity toggle, so it runs unconditionally regardless of GFX.level().
+HOOKS.always.push(function(){
+  const t=performance.now()*0.001;
+  const jets=[ (typeof player!=='undefined'&&player)?player.obj:null, (typeof ally!=='undefined'&&ally)?ally.obj:null ];
+  for(const obj of jets){
+    if(!obj || !obj.userData.strobes) continue;
+    const ph=(t*2 + obj.userData.strobePhase)%1;
+    const on = ph<0.06 || (ph>0.12 && ph<0.16);   // double-flash pattern like a real anti-collision strobe
+    for(const s of obj.userData.strobes) s.material.opacity = on?1:0;
+   }
+});
 
 
 // ---- Runway / airbase strip (a landing surface the player can roll on) ----
@@ -2484,6 +2568,7 @@ function rebuildTerrainAround(wx, wz){
 
 function buildEnemy(type){
   const g=new THREE.Group();
+  const mrg=new Map();
   // HELIOS drones: dark carbon hulls with a red sensor glow (rogue-AI identity)
   const colors={ f16:0x3a4048, f18:0x33383f, f22:0x24282e };
   // DoubleSide so thin wings/tailplanes/fins render from all angles
@@ -2491,33 +2576,51 @@ function buildEnemy(type){
     emissive:0x110000, emissiveIntensity:0.5 });
   addRimLight(body, 0xff5535, 4.2, 0.22);       // hostile drones get a red edge glow (tight falloff: rim only, not the whole hull)
   const dark=new THREE.MeshStandardMaterial({ color:0x15181c, metalness:0.6, roughness:0.4, side:THREE.DoubleSide });
+  const stripMat=new THREE.MeshBasicMaterial({color:0xff3020, side:THREE.DoubleSide, transparent:true, opacity:0.8});
   const len = type==='f22'?14:(type==='f18'?11:10);
-  const fus=new THREE.Mesh(new THREE.CylinderGeometry(type==='f22'?1.3:1.0, 1.2, len, 12), body); fus.rotation.x=Math.PI/2; g.add(fus);
-  const nose=new THREE.Mesh(new THREE.ConeGeometry(1.0,4,12), body); nose.rotation.x=-Math.PI/2; nose.position.z=-len/2-1.6; g.add(nose);
+  const fus=new THREE.Mesh(new THREE.CylinderGeometry(type==='f22'?1.3:1.0, 1.2, len, 12), body); fus.rotation.x=Math.PI/2; collectMerge(fus,mrg);
+  const nose=new THREE.Mesh(new THREE.ConeGeometry(1.0,4,12), body); nose.rotation.x=-Math.PI/2; nose.position.z=-len/2-1.6; collectMerge(nose,mrg);
   const can=new THREE.Mesh(new THREE.SphereGeometry(0.9,10,8,0,Math.PI*2,0,Math.PI/2), new THREE.MeshStandardMaterial({color:0x222222, metalness:0.9, roughness:0.15}));
-  can.scale.set(1,0.7,1.8); can.position.set(0,0.6,-len/4); g.add(can);
+  can.scale.set(1,0.7,1.8); can.position.set(0,0.6,-len/4); collectMerge(can,mrg);
   // Swept wings (trapezoid) — distinct from delta
   const sw = type==='f22'?7.5:6;
   const wingGeo=triGeo([ 0,0,0, sw,0,3.5, sw,0,5,  0,0,0, sw,0,5, 0,0,4.5,
                          0,0,0, -sw,0,3.5, -sw,0,5,  0,0,0, -sw,0,5, 0,0,4.5 ]);
-  const wings=new THREE.Mesh(wingGeo, body); wings.position.z=1; g.add(wings);
+  const wings=new THREE.Mesh(wingGeo, body); wings.position.z=1; collectMerge(wings,mrg);
   // twin tail fins for f18/f22, single for f16
-  if(type==='f16'){ const fin=new THREE.Mesh(triGeo([0,0,len/2-1,0,3,len/2+1,0,0,len/2+1.5]), dark); g.add(fin); }
+  if(type==='f16'){ const fin=new THREE.Mesh(triGeo([0,0,len/2-1,0,3,len/2+1,0,0,len/2+1.5]), dark); collectMerge(fin,mrg); }
   else { for(const s of [-1,1]){ const fin=new THREE.Mesh(triGeo([0,0,0,0,2.6,1.4,0,0,2.0]), dark);
-    fin.position.set(s*1.4,0.3,len/2-1); fin.rotation.z=s*0.25; g.add(fin);} }
+    fin.position.set(s*1.4,0.3,len/2-1); fin.rotation.z=s*0.25; collectMerge(fin,mrg);} }
   // tail planes
-  const tp=new THREE.Mesh(triGeo([0,0,0,2.6,0,1.4,0,0,1.8, 0,0,0,-2.6,0,1.4,0,0,1.8]), body); tp.position.z=len/2-1; g.add(tp);
-  // HELIOS sensor eye — glowing red spot on the nose (drone identity + eyecandy)
+  const tp=new THREE.Mesh(triGeo([0,0,0,2.6,0,1.4,0,0,1.8, 0,0,0,-2.6,0,1.4,0,0,1.8]), body); tp.position.z=len/2-1; collectMerge(tp,mrg);
+  // red wing edge strips (shared material -> merges into one draw call together)
+  for(const s of [-1,1]){ const strip=new THREE.Mesh(new THREE.PlaneGeometry(0.4,4), stripMat);
+    strip.rotation.x=-Math.PI/2; strip.position.set(s*sw*0.7,0.06,3); collectMerge(strip,mrg); }
+  flushMerge(mrg, g);
+  // HELIOS sensor eye — glowing red spot on the nose (drone identity + eyecandy). Left unmerged:
+  // eye is a single per-instance MeshBasicMaterial (no dedup benefit) and eyeGlow is a Sprite.
   const eye=new THREE.Mesh(new THREE.SphereGeometry(0.45,10,8), new THREE.MeshBasicMaterial({color:0xff2b1a}));
   eye.position.set(0,0.2,-len/2-2.4); g.add(eye);
   const eyeGlow=new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xff3020, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending }));
   eyeGlow.scale.set(6,6,1); eyeGlow.position.copy(eye.position); g.add(eyeGlow);
-  // red wing edge strips
-  for(const s of [-1,1]){ const strip=new THREE.Mesh(new THREE.PlaneGeometry(0.4,4), new THREE.MeshBasicMaterial({color:0xff3020, side:THREE.DoubleSide, transparent:true, opacity:0.8}));
-    strip.rotation.x=-Math.PI/2; strip.position.set(s*sw*0.7,0.06,3); g.add(strip); }
+  g.userData.eye=eye; g.userData.eyeGlow=eyeGlow;
   const scale= type==='f22'?1.8:1.6;
   g.scale.set(scale,scale,scale);
   return g;
+}
+
+// Ace visual accent: called once right after an enemy is flagged as an ace (spawnAce), so elite
+// pilots read as visually distinct at a glance — a bright magenta sensor eye plus a wash of
+// magenta emissive over the hull, instead of only the HUD label revealing it.
+function tintAceVisual(obj){
+  if(obj.userData.eye){ obj.userData.eye.material=obj.userData.eye.material.clone(); obj.userData.eye.material.color.setHex(0xff30ff); }
+  if(obj.userData.eyeGlow){ obj.userData.eyeGlow.material=obj.userData.eyeGlow.material.clone(); obj.userData.eyeGlow.material.color.setHex(0xff30ff); }
+  obj.traverse(o=>{
+    if(o.isMesh && o.material && o.material.emissive){
+      o.material=o.material.clone();
+      o.material.emissive.setHex(0x2a0018); o.material.emissiveIntensity=Math.max(o.material.emissiveIntensity||0, 0.8);
+    }
+   });
 }
 
 /* ---------------------------------------------------------------------------
@@ -2718,9 +2821,19 @@ function updateBombs(dt){
 }
 function groundExplode(x,y,z,scale){
   explode(x,y,z,scale);
-  // extra ground-hugging dust ring + flash
-  for(let i=0;i<24*scale;i++){ const a=Math.random()*Math.PI*2, sp=(60+Math.random()*160)*scale;
-    smokeP.spawn(x,y,z, Math.cos(a)*sp, 10+Math.random()*40, Math.sin(a)*sp, 1.4+Math.random()*1.2, 30*scale, 130*scale, C_DARK, C_SMOKE, 0.93, -6); }
+  // a strike over open water throws up a pale spray instead of a dust ring — reads completely
+  // differently at a glance, so hits on coastal/naval targets don't look like they hit dry land.
+  const isWater = terrainHeight(x,z) < CFG.waterLevel-1;
+  if(isWater){
+    for(let i=0;i<26*scale;i++){ const a=Math.random()*Math.PI*2, sp=(50+Math.random()*150)*scale;
+      fireP.spawn(x,CFG.waterLevel+1,z, Math.cos(a)*sp, 90+Math.random()*150, Math.sin(a)*sp, 0.6+Math.random()*0.5, 6*scale, 1, 0xe8f4ff, 0xaed4ec, 0.85, 260); }
+    for(let i=0;i<16*scale;i++){ const a=Math.random()*Math.PI*2, sp=(20+Math.random()*70)*scale;
+      smokeP.spawn(x,CFG.waterLevel+1,z, Math.cos(a)*sp, 18+Math.random()*28, Math.sin(a)*sp, 1.0+Math.random()*0.8, 20*scale, 95*scale, 0xf0f8ff, 0xd2e8f2, 0.92, -10); }
+  } else {
+    // extra ground-hugging dust ring + flash
+    for(let i=0;i<24*scale;i++){ const a=Math.random()*Math.PI*2, sp=(60+Math.random()*160)*scale;
+      smokeP.spawn(x,y,z, Math.cos(a)*sp, 10+Math.random()*40, Math.sin(a)*sp, 1.4+Math.random()*1.2, 30*scale, 130*scale, C_DARK, C_SMOKE, 0.93, -6); }
+  }
   shake=Math.max(shake, Math.min(1.2, scale*0.5 * Math.max(0,1-player.obj.position.distanceTo({x,y,z})/2500)));
   Audio.explosion(scale>1.4, screenPanX(_panV.set(x,y,z)));
 }
@@ -2743,9 +2856,11 @@ function buildGroundModel(tag){
     return {g, radius:16, height:26, hp:120};
   }
   if(tag==='truck'){
-    const cab=new THREE.Mesh(new THREE.BoxGeometry(4,4,5), GROUND_MAT_DARK); cab.position.set(0,3,-4); g.add(cab);
-    const tank=new THREE.Mesh(new THREE.CylinderGeometry(3,3,10,10), GROUND_MAT_METAL); tank.rotation.z=Math.PI/2; tank.position.set(0,3.5,3); g.add(tank);
-    for(const zx of [[-2.5,-6],[2.5,-6],[-2.5,4],[2.5,4],[-2.5,0],[2.5,0]]){ const w=new THREE.Mesh(new THREE.CylinderGeometry(1.4,1.4,1,10), GROUND_MAT_DARK); w.rotation.z=Math.PI/2; w.position.set(zx[0],1.4,zx[1]); g.add(w); }
+    const mrg=new Map();
+    const cab=new THREE.Mesh(new THREE.BoxGeometry(4,4,5), GROUND_MAT_DARK); cab.position.set(0,3,-4); collectMerge(cab,mrg);
+    const tank=new THREE.Mesh(new THREE.CylinderGeometry(3,3,10,10), GROUND_MAT_METAL); tank.rotation.z=Math.PI/2; tank.position.set(0,3.5,3); collectMerge(tank,mrg);
+    for(const zx of [[-2.5,-6],[2.5,-6],[-2.5,4],[2.5,4],[-2.5,0],[2.5,0]]){ const w=new THREE.Mesh(new THREE.CylinderGeometry(1.4,1.4,1,10), GROUND_MAT_DARK); w.rotation.z=Math.PI/2; w.position.set(zx[0],1.4,zx[1]); collectMerge(w,mrg); }
+    flushMerge(mrg, g);
     return {g, radius:14, height:9, hp:90};
   }
   if(tag==='sam'){
@@ -2781,16 +2896,21 @@ function buildGroundModel(tag){
     return {g, radius:16, height:14, hp:340};
   }
   if(tag==='depot'){ // fuel/ammo depot — modest HP, but a huge secondary explosion
+    const mrg=new Map();
     const tankMat=new THREE.MeshStandardMaterial({color:0x6a5a2a, metalness:0.5, roughness:0.6});
-    for(const dx of [-6,6]){ const t=new THREE.Mesh(new THREE.CylinderGeometry(5,5,12,14), tankMat); t.position.set(dx,6,0); g.add(t);
-      const cap=new THREE.Mesh(new THREE.SphereGeometry(5,12,6,0,Math.PI*2,0,Math.PI*0.5), tankMat); cap.position.set(dx,12,0); g.add(cap); }
-    const pipe=new THREE.Mesh(new THREE.CylinderGeometry(0.8,0.8,13,8), GROUND_MAT_METAL); pipe.rotation.z=Math.PI/2; pipe.position.set(0,3,0); g.add(pipe);
+    for(const dx of [-6,6]){ const t=new THREE.Mesh(new THREE.CylinderGeometry(5,5,12,14), tankMat); t.position.set(dx,6,0); collectMerge(t,mrg);
+      const cap=new THREE.Mesh(new THREE.SphereGeometry(5,12,6,0,Math.PI*2,0,Math.PI*0.5), tankMat); cap.position.set(dx,12,0); collectMerge(cap,mrg); }
+    const pipe=new THREE.Mesh(new THREE.CylinderGeometry(0.8,0.8,13,8), GROUND_MAT_METAL); pipe.rotation.z=Math.PI/2; pipe.position.set(0,3,0); collectMerge(pipe,mrg);
+    flushMerge(mrg, g);
     return {g, radius:15, height:16, hp:150, depot:true};
   }
   if(tag==='bierkiste'){ // the legendary lost beer crate — a "reach/secure" objective, not a kill target
+    const mrg=new Map();
     const crate=new THREE.Mesh(new THREE.BoxGeometry(9,5,7), new THREE.MeshStandardMaterial({color:0x6b4a1e, metalness:0.2, roughness:0.85}));
-    crate.position.y=2.6; g.add(crate);
-    for(const bx of [-3,-1,1,3]) for(const bz of [-2,0,2]){ const bo=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,2,6), new THREE.MeshStandardMaterial({color:0x1c6b2a, emissive:0x0a2a10, metalness:0.3, roughness:0.4})); bo.position.set(bx,5.3,bz); g.add(bo); }
+    crate.position.y=2.6; collectMerge(crate,mrg);
+    const bottleMat=new THREE.MeshStandardMaterial({color:0x1c6b2a, emissive:0x0a2a10, metalness:0.3, roughness:0.4});
+    for(const bx of [-3,-1,1,3]) for(const bz of [-2,0,2]){ const bo=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,2,6), bottleMat); bo.position.set(bx,5.3,bz); collectMerge(bo,mrg); }
+    flushMerge(mrg, g);
     return {g, radius:9, height:8, hp:99999};
   }
   // default block
@@ -3372,6 +3492,7 @@ function spawnEnemyNear(type, minD, maxD, persona){
 function spawnAce(type, pos){
   const e=spawnEnemy(type, pos, 'ace');
   e.isAce=true; e.aceName=ACE_NAMES[(Math.random()*ACE_NAMES.length)|0];
+  tintAceVisual(e.obj);   // FX: visually distinct ace (magenta eye + emissive hull wash)
   e.missilesLeft=Math.max(1,e.missilesLeft);
   banner('⚠ ACE-DROHNE: '+e.aceName,'Elite-Muster erkannt');
   radio('HELIOS|'+e.aceName+' übernimmt.'); Audio.warnBeep();
@@ -3997,6 +4118,16 @@ function updateAlly(dt){
     // ALONG dir. (Do NOT negate — that flew her tail-first.)
     _lookM.lookAt(_zero, ally.dir, UP);
     ally.obj.quaternion.setFromRotationMatrix(_lookM);
+    // bank into turns: yaw rate -> smoothed roll around the fuselage's own long axis (local Z,
+    // since the nose already points along -Z above), applied on top of the pure look-at orientation
+    // so the wingman visually banks instead of flying like a rigid weather-vane.
+    const yaw=Math.atan2(ally.dir.x,-ally.dir.z);
+    if(ally._yaw===undefined) ally._yaw=yaw;
+    let dyaw=yaw-ally._yaw; while(dyaw>Math.PI) dyaw-=Math.PI*2; while(dyaw<-Math.PI) dyaw+=Math.PI*2;
+    ally._yaw=yaw;
+    const targetRoll=THREE.MathUtils.clamp(-(dyaw/Math.max(dt,1e-4))*0.12, -0.55, 0.55);
+    ally.roll=(ally.roll||0)+(targetRoll-(ally.roll||0))*Math.min(1,dt*4);
+    ally.obj.rotateZ(ally.roll);
   }
   // ---- Lärche shoots at the nearest enemy in front of her ----
   ally.fireCd-=dt;
