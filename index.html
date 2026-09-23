@@ -167,10 +167,11 @@
 
   /* ---- Radio / subtitles — per-speaker identity via [data-spk] ---- */
   #radio { position:fixed; left:50%; bottom:64px; transform:translateX(-50%); z-index:7; width:min(700px,84vw); text-align:center;
-    font-size:17px; color:#cfe6ff; opacity:0; transition:opacity .3s, border-color .3s; text-shadow:0 2px 10px rgba(0,0,0,.9); pointer-events:none;
+    font-size:17px; color:#cfe6ff; opacity:0; transition:opacity .3s, border-color .3s, bottom .35s; text-shadow:0 2px 10px rgba(0,0,0,.9); pointer-events:none;
     background:linear-gradient(0deg, rgba(4,12,26,.76), rgba(4,12,26,.32)); border:1px solid rgba(140,190,255,.18); border-left:3px solid var(--brass); padding:10px 22px; }
   #radio .rspk { font-family:var(--font-display); color:var(--brass); font-weight:700; letter-spacing:.5px; }
   #radio.show { opacity:1; }
+  #radio.lift { bottom:184px; }   /* the takeoff/landing panel occupies h-170..h-74 */
   body.nosubs #radio { visibility:hidden; }   /* Untertitel aus (Einstellungen) */
   /* WAGNER — steady command-post blue-grey */
   #radio[data-spk="WAGNER"] { border-left-color:#9fc4e8; } #radio[data-spk="WAGNER"] .rspk{ color:#9fc4e8; }
@@ -3284,7 +3285,7 @@ function drawMissileThreats(cx,cy,w,h){
     }
   }
   // boxed warning under the reticle (steady frame, blinking text)
-  const bw=196, bh=24, bx=cx-bw/2, by=cy-100;   // above the gun cue: the jet itself sits below centre
+  const bw=196, bh=24, bx=cx-bw/2, by=boss?128:86;   // top centre under the heading readout (below the boss bar when shown): never covers targets, lock box or the jet
   hctx.fillStyle='rgba(40,4,4,0.55)'; hctx.fillRect(bx,by,bw,bh);
   hctx.strokeStyle=HUD_RED; hctx.lineWidth=1.5; hctx.strokeRect(bx+0.5,by+0.5,bw-1,bh-1);
   hctx.textAlign='center'; hctx.textBaseline='middle'; hctx.font=HF13B;
@@ -3570,12 +3571,18 @@ function drawHUD(){
     }
     hctx.restore(); hctx.textAlign='left';
   }
+  // Lift the subtitle box above the takeoff/landing panel while it is shown (class flip only on change)
+  const liftRadio = state==='playing' && (player.onGround || (player.gearDown && nearRunway));
+  if(dom.radio._lift!==liftRadio){ dom.radio._lift=liftRadio; dom.radio.classList.toggle('lift', liftRadio); }
 
-  // Radar (bottom center)
-  const rr=68, rx=cx, ry=h-90;
+  // Radar (bottom right — bottom centre belongs to subtitles + the takeoff/landing panel)
+  const rr=68, rx=w-104, ry=h-106;
   hctx.save();
   hctx.strokeStyle='rgba(125,255,176,0.5)'; hctx.fillStyle='rgba(0,30,15,0.35)';
   hctx.beginPath(); hctx.arc(rx,ry,rr,0,Math.PI*2); hctx.fill(); hctx.stroke();
+  hctx.strokeStyle='rgba(125,255,176,0.2)'; hctx.beginPath(); hctx.arc(rx,ry,rr*0.5,0,Math.PI*2); hctx.stroke();
+  hctx.font=HF9; hctx.fillStyle='rgba(125,255,176,0.6)'; hctx.textAlign='center'; hctx.fillText('RADAR · 6 KM', rx, ry+rr+13); hctx.textAlign='left';
+  hctx.strokeStyle='rgba(125,255,176,0.5)';
   hctx.beginPath(); hctx.moveTo(rx,ry-rr); hctx.lineTo(rx,ry+rr); hctx.moveTo(rx-rr,ry); hctx.lineTo(rx+rr,ry); hctx.stroke();
   // player heading up
   const fwd=_v.set(0,0,-1).applyQuaternion(player.obj.quaternion); const pang=Math.atan2(fwd.x,-fwd.z);
