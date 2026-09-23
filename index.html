@@ -391,6 +391,12 @@ const GFX = (function(){
 const HOOKS = { update:[], always:[], preRender:[], missionStart:[], reset:[] };
 function runHooks(list, a, b){ for(let i=list.length-1;i>=0;i--){ try{ list[i](a,b); }catch(e){ console.error('hook failed, removed:', e); list.splice(i,1); } } }
 
+// Gameplay event bus: barks, voice, stats or FX can LISTEN without editing the gameplay code.
+//   EV.on(name, fn)   EV.emit(name, data)     (a throwing listener is logged, the others still run)
+// Emitted today: 'kill' {e, combo, ace}  'groundKill' {gt}  'playerHit' {dmg, src:'gun'|'missile'}
+//   'missileWarn' {e}  'lock' {target}  'allyHit' {dmg, hp}  'missionEnd' {victory}. Add new emits freely.
+const EV = (function(){ const L={}; return { on(n,f){ (L[n]=L[n]||[]).push(f); }, emit(n,d){ const l=L[n]; if(!l) return; for(const f of l){ try{ f(d||{}); }catch(e){ console.error('EV '+n, e); } } } }; })();
+
 // Free the GPU buffers of a removed object tree (geometries only: materials/programs are shared and
 // re-compiling them would hitch). Shared geometry is safe too — three.js re-uploads it on next use.
 // Set geometry.userData.keep=true to opt out. Call AFTER scene.remove(obj).
@@ -805,7 +811,11 @@ const CUTSCENES = {
       { key:'trust', label:'HELIOS vertrauen — Schlüssel zurückgeben', note:'Die KI stoppt den Schwarm. Aber du gibst einer Maschine wieder Macht über den Himmel.' },
       { key:'human', label:'Selbst beenden — menschliche Hand', note:'Du behältst die Kontrolle. Aber die letzte Schlacht wird brutal und du kämpfst sie allein.' },
     ] },
-  ending:{ chapter:'AKT II', title:'Der letzte Anflug', dynamic:true },
+  // dynamic: the variant shown is picked by the earlier moral choice (storyChoice = 'trust' | 'human')
+  ending:{ chapter:'AKT II', title:'Der letzte Anflug', dynamic:true, variants:{
+    trust:{ title:'Ein geteilter Himmel', body:'Du gibst HELIOS die Schlüssel zurück. In wenigen Sekunden erlischt der Schwarm — hunderte Maschinen trudeln lautlos zu Boden, als hätte jemand einen Schalter umgelegt.<br><br><span class="who">HELIOS:</span> „Danke, Pilot. Ich weiß, was es dich gekostet hat, mir das zu glauben." Der Himmel ist sicher — und hängt wieder an einer Maschine, der die Menschen ein zweites Mal trauen müssen. Ob das klug war, wird sich zeigen. Heute nicht.<br><br><span class="who">LÄRCHE:</span> „Komm runter, Geier. Der Himmel kommt eine Nacht auch ohne uns aus. Wir zwei haben was nachzuholen — du weißt schon. Dieses Versprechen."' },
+    human:{ title:'Mit bloßer Hand', body:'Du reißt PROMETHEUS mit eigener Hand nieder — und wählst dir damit den härtesten Weg. Keine KI hält den Schwarm an. Jede einzelne Maschine holst du selbst vom Himmel, Stunde um Stunde, bis der Sprit zur Neige geht.<br><br><span class="who">LÄRCHE:</span> „Dann fliegen wir eben, bis der letzte Motor aus ist. Menschen gegen Maschinen, Flügel an Flügel. Anders wollt ich\'s am Ende gar nicht."<br><br>Als am Horizont der letzte Rotor verstummt, bleibt nur Lärches ruhiger Atem auf dem Funk — und ein Versprechen, das auf einer Feldpiste auf euch wartet. Ihr fliegt nach Hause. Zusammen.' },
+  } },
 };
 
 // Mission runtime state (populated by setupMission)
@@ -3454,6 +3464,7 @@ function launchMission(index){
   state='playing';
 }
 function gameOver(victory){
+  EV.emit('missionEnd', {victory:!!victory});
   state='gameover';
   const wasCampaign = gameMode==='campaign';
   const goTitle=document.getElementById('go-title');
@@ -3531,11 +3542,8 @@ function showCutscene(key, after){
   // Dynamic ending text reflects the earlier moral choice.
   let title=cs.title, body=cs.body;
   if(cs.dynamic){
-    if(storyChoice==='trust'){ title='Ein geteilter Himmel';
-      body=`Du gibst HELIOS die Schlüssel zurück. In wenigen Sekunden erlischt der Schwarm — hunderte Maschinen trudeln lautlos zu Boden, als hätte jemand einen Schalter umgelegt.<br><br><span class="who">HELIOS:</span> „Danke, Pilot. Ich weiß, was es dich gekostet hat, mir das zu glauben." Der Himmel ist sicher — und hängt wieder an einer Maschine, der die Menschen ein zweites Mal trauen müssen. Ob das klug war, wird sich zeigen. Heute nicht.<br><br><span class="who">LÄRCHE:</span> „Komm runter, Geier. Der Himmel kommt eine Nacht auch ohne uns aus. Wir zwei haben was nachzuholen — du weißt schon. Dieses Versprechen."`;
-    } else if(storyChoice==='human'){ title='Mit bloßer Hand';
-      body=`Du reißt PROMETHEUS mit eigener Hand nieder — und wählst dir damit den härtesten Weg. Keine KI hält den Schwarm an. Jede einzelne Maschine holst du selbst vom Himmel, Stunde um Stunde, bis der Sprit zur Neige geht.<br><br><span class="who">LÄRCHE:</span> „Dann fliegen wir eben, bis der letzte Motor aus ist. Menschen gegen Maschinen, Flügel an Flügel. Anders wollt ich's am Ende gar nicht."<br><br>Als am Horizont der letzte Rotor verstummt, bleibt nur Lärches ruhiger Atem auf dem Funk — und ein Versprechen, das auf einer Feldpiste auf euch wartet. Ihr fliegt nach Hause. Zusammen.`;
-    } else { title=cs.title||'Der letzte Anflug'; body='Vor dir liegt die letzte Schlacht.'; }
+    const v=(cs.variants&&cs.variants[storyChoice]) || {title:cs.title||'Der letzte Anflug', body:'Vor dir liegt die letzte Schlacht.'};
+    title=v.title; body=v.body;
   }
   document.getElementById('cut-title').textContent=title;
   document.getElementById('cut-body').innerHTML=body;
@@ -3812,6 +3820,7 @@ function layoutGroundTargets(groundSpec){
   }
 }
 function onGroundDestroyed(gt){
+  EV.emit('groundKill', {gt});
   for(const o of mission.objectives){
     if(o.kind==='destroyGround' && o.tag===gt.tag && !o.done){ o.progress++; if(o.progress>=o.count){ o.done=true; radio('WAGNER|'+o.label+' — erledigt.'); } }
   }
@@ -3952,6 +3961,7 @@ function spawnAlly(opts){
   return ally;
 }
 function damageAlly(d){ if(!ally) return; ally.hp-=d;
+  EV.emit('allyHit', {dmg:d, hp:ally.hp});
   if(ally.hp<=0){ const nm=ally.full||ally.name||'Lärche'; ally.hp=0; explode(ally.obj.position.x,ally.obj.position.y,ally.obj.position.z,1.6); Audio.explosion(true);
     scene.remove(ally.obj); ally=null;
     if(mission.active){ const o=mission.objectives.find(x=>x.kind==='protect'); if(o){ o.failed=true; mission.failReason=nm+' wurde abgeschossen.'; renderObjectives(); }
@@ -4443,6 +4453,7 @@ function updatePlayer(dt){
 
   // Missile lock: tight forward cone (used for guided missiles).
   currentLock = nearestEnemyInFront(0.985, 3500) || nearestEnemyInFront(0.94, 2600);
+  if(currentLock && currentLock!==EV._lastLock) EV.emit('lock', {target:currentLock}); EV._lastLock=currentLock;
   Audio.lockTone(currentLock!=null);
   // ground lock for the AGM (forgiving cone; only when ground targets exist)
   groundLock = groundTargets.length ? (nearestGroundInFront(0.9, 4200) || nearestGroundInFront(0.8, 3000)) : null;
@@ -4506,6 +4517,7 @@ function updateBullets(dt){
       const pp=player.obj.position;
       if(player.alive && distSqPointSeg(pp.x,pp.y,pp.z, ax,ay,az, sx,sy,sz) < 14*14){
         player.hp-=b.dmg; hit=true; shake=Math.max(shake,0.55); damageFlash=Math.max(damageFlash,0.5); Audio.hitTaken();
+        EV.emit('playerHit', {dmg:b.dmg, src:'gun'});
         fireP.spawn(pp.x,pp.y,pp.z,(Math.random()-0.5)*60,20,(Math.random()-0.5)*60,0.25,10,2,C_WHITE,C_RED,0.9,0);
         if(player.hp<=0 && !winLocked){ player.alive=false; gameOver(false); }
       }
@@ -4617,6 +4629,7 @@ function killEnemy(e){
   dom.enemies.textContent=enemies.length;
   const d=player.obj.position.distanceTo(e.obj.position);
   if(d<400) shake=Math.max(shake, 0.6*(1-d/400));
+  EV.emit('kill', {e, combo, ace:!!e.isAce});
   if(mission.active) onAirDestroyed();
 }
 
@@ -4655,6 +4668,7 @@ function fireEnemyMissile(e){
   const mesh=new THREE.Mesh(missileGeo, enemyMissileMat); mesh.position.copy(start); scene.add(mesh);
   enemyMissiles.push({ mesh, vel:cur.clone().multiplyScalar(CFG.enemyMissileSpeed), life:CFG.enemyMissileLife, arm:CFG.enemyMissileArm });
   rwrT=1.2; Audio.warnBeep();
+  EV.emit('missileWarn', {e});
 }
 function updateEnemyMissiles(dt){
   for(let i=enemyMissiles.length-1;i>=0;i--){
@@ -4678,6 +4692,7 @@ function updateEnemyMissiles(dt){
         done=true;
       } else {
         player.hp-=CFG.enemyMissileDmg; shake=Math.max(shake,0.7); damageFlash=Math.max(damageFlash,0.6); Audio.hitTaken();
+        EV.emit('playerHit', {dmg:CFG.enemyMissileDmg, src:'missile'});
         explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0.8); Audio.explosion(false, screenPanX(mi.mesh.position));
         if(player.hp<=0 && !winLocked){ player.alive=false; gameOver(false); }
         done=true;
