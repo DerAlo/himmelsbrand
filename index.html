@@ -993,7 +993,7 @@ let endlessMod = null;      // null | 'ace' — endless-mode difficulty modifier
    0c. SAVE / PROGRESS (localStorage, id-keyed, degrades safely if blocked)
    --------------------------------------------------------------------------- */
 const SAVE_KEY='himmelsbrand_save', SAVE_VERSION=1;
-const DEFAULT_SAVE = () => ({ v:SAVE_VERSION, campaignUnlocked:1, bteamUnlocked:1, storyChoice:null,
+const DEFAULT_SAVE = () => ({ v:SAVE_VERSION, campaignUnlocked:1, bteamUnlocked:1, storyChoice:null, seenProlog:false,
     missions:{}, endlessBest:0, endlessWaveBest:0, unlocks:{ ace:false, goldWings:false } });
 let SAVE = DEFAULT_SAVE();
 let storageOK = true;
@@ -1521,6 +1521,8 @@ const Voice = (function(){
     HELIOS:  {pitch:0.40,rate:0.78, pref:'m', slot:0},
     STIMME:  {pitch:0.35,rate:0.75, pref:'m', slot:0},
     '?':     {pitch:1.05,rate:1.00, pref:'f', slot:0},
+    KELLER:  {pitch:0.92,rate:1.00, pref:'m', slot:3},
+    KIEBITZ: {pitch:1.08,rate:1.05, pref:'f', slot:1},
   };
   let assigned={};   // speaker -> a concrete SpeechSynthesisVoice (distinct where possible)
   function pickVoices(){
@@ -3059,7 +3061,7 @@ addEventListener('keydown', e=>{
   if(e.code==='KeyH'){ if(state==='playing' && player.agms>0) fireAGM(); }
   if(e.code==='KeyX'){ if(state==='playing') toggleWeapon(); }
   if(e.code==='KeyV'){ const s=Voice.toggle(); banner(s?'🔊 STIMMEN AN':'🔇 STIMMEN AUS', Voice.available()?'':'(keine Sprachausgabe verfügbar)'); }
-  if(e.code==='KeyB'){ if(state==='playing' && !player.onGround){ player.gearDown=!player.gearDown; player.gearRetractT=0; radio('WAGNER|Fahrwerk '+(player.gearDown?'ausgefahren':'eingefahren')+'.'); } }
+  if(e.code==='KeyB'){ if(state==='playing' && !player.onGround){ player.gearDown=!player.gearDown; player.gearRetractT=0; radio(player.gearDown?'WAGNER|Fahrwerk ausgefahren.':'WAGNER|Fahrwerk eingefahren.'); } }
   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
 });
 addEventListener('keyup', e=>{ keys[e.code]=false; });
@@ -3520,7 +3522,7 @@ function spawnAce(type, pos){
   e.isAce=true; e.aceName=ACE_NAMES[(Math.random()*ACE_NAMES.length)|0];
   e.missilesLeft=Math.max(1,e.missilesLeft);
   banner('⚠ ACE-DROHNE: '+e.aceName,'Elite-Muster erkannt');
-  radio('HELIOS|'+e.aceName+' übernimmt.'); Audio.warnBeep();
+  radio('WAGNER|Ass im Anflug. Der fliegt anders als die anderen.|dringend'); Audio.warnBeep();
   return e;
 }
 function nextWaveCheck(dt){
@@ -3660,15 +3662,18 @@ function gameOver(victory){
         `<div style="font-size:19px;color:#cfe6ff;max-width:640px;line-height:1.6;margin-bottom:10px">${winLine}</div>`+
         `<div>Punkte <b>${score}</b> &nbsp;·&nbsp; Zeit <b>${fmtTime(res.elapsed)}</b> &nbsp;·&nbsp; Struktur <b>${Math.round(res.hp/(player.maxHp||CFG.playerHP)*100)}%</b></div>`+
         unlockNote +
-        (hasNext?'':`<div style="margin-top:14px;color:#ffce8a">${campaignId==='bteam'?'B-Team-Kampagne abgeschlossen — o\'zapft is, Bua! 🍺':'Kampagne abgeschlossen — der Himmel gehört wieder den Menschen.'}</div>`);
+        (hasNext?'':`<div style="margin-top:14px;color:#ffce8a">${campaignId==='bteam'?'B-Team-Kampagne abgeschlossen — o\'zapft is, Bua! 🍺':(storyChoice==='trust'?'Kampagne abgeschlossen — ein geteilter Himmel.':storyChoice==='human'?'Kampagne abgeschlossen — der Himmel bleibt in Menschenhand.':'Kampagne abgeschlossen — der Himmel gehört wieder den Menschen.')}</div>`);
       const nextIdx=mission.index+1;
-      const cut=def.cutsceneAfter;   // interstitial to play before the next mission
+      const cut=def.cutsceneAfter;   // interstitial to play before the next mission (or the epilog, when this was the last one)
       // In the B-Team campaign every launch goes through the Brotzeit pick.
       const goNext=()=> campaignId==='bteam' ? openBrotzeit(nextIdx) : launchMission(nextIdx);
       const goAgain=()=> campaignId==='bteam' ? openBrotzeit(mission.index) : launchMission(mission.index);
       if(hasNext){ nextBtn.classList.remove('hidden');
         nextBtn.textContent = cut? 'WEITER ▶' : '▶ NÄCHSTE MISSION';
         nextBtn.onclick=()=>{ if(cut) showCutscene(cut, goNext); else goNext(); }; }
+      else if(cut){ nextBtn.classList.remove('hidden');
+        nextBtn.textContent='EPILOG ▶';
+        nextBtn.onclick=()=>showCutscene(cut, gotoMenu); }
       restartBtn.textContent='↻ WIEDERHOLEN'; restartBtn.onclick=goAgain;
     } else {
       goTitle.textContent='ABGESCHOSSEN'; goTitle.style.color='#ff5a5a';
@@ -3702,20 +3707,22 @@ function showCutscene(key, after){
   }
   document.getElementById('cut-title').textContent=title;
   document.getElementById('cut-body').innerHTML=body;
+  // cs.next chains straight into another cutscene (e.g. the choice -> ending) before the real callback runs.
+  const advance = cs.next ? (()=>showCutscene(cs.next, after)) : after;
   if(cs.isChoice && cs.choices){
     contBtn.classList.add('hidden');
     for(const ch of cs.choices){
       const b=document.createElement('button'); b.className='btn ghost'; b.style.textAlign='left';
       b.innerHTML=`<b>${ch.label}</b><br><span style="font-size:12px;opacity:.7;font-weight:400">${ch.note}</span>`;
-      b.onclick=()=>{ Voice.stop(); storyChoice=ch.key; SAVE.storyChoice=ch.key; persistSave(); after&&after(); };
+      b.onclick=()=>{ Voice.stop(); storyChoice=ch.key; SAVE.storyChoice=ch.key; persistSave(); advance&&advance(); };
       choicesEl.appendChild(b);
     }
   } else {
     contBtn.classList.remove('hidden');
-    contBtn.onclick=()=>{ Voice.stop(); after&&after(); };
+    contBtn.onclick=()=>{ Voice.stop(); advance&&advance(); };
   }
   // Spoken voice-over for this cutscene (narrator + character voices), in reading order.
-  const voId = cs.dynamic ? ('ending_'+(storyChoice||'')) : key;
+  const voId = cs.dynamic ? (key+'_'+(storyChoice||'')) : key;
   Voice.stop(); if(CUTSCENE_VO[voId]) Voice.playKeys(CUTSCENE_VO[voId]);
   showScreen('cutscene');
 }
@@ -3766,10 +3773,14 @@ function openBriefing(i){
   document.getElementById('brief-name').textContent=m.name;
   const tEl=document.getElementById('brief-type');
   tEl.textContent=TYPE_NAME[m.type]||m.type; tEl.className='mtype '+m.type;
-  document.getElementById('brief-story').innerHTML=m.story;
+  document.getElementById('brief-story').innerHTML=(m.storyVariants && m.storyVariants[storyChoice]) || m.story;
   const objs=document.getElementById('brief-objs');
   objs.innerHTML=m.objectives.map(o=>`<div class="o ${o.primary?'prime':'sec'}"><span class="ic">${o.primary?'◆':'◇'}</span>${o.label}${o.primary?'':' <span style="opacity:.6">(optional)</span>'}</div>`).join('');
-  document.getElementById('brief-launch').onclick = (campaignId==='bteam') ? (()=>openBrotzeit(i)) : (()=>launchMission(i));
+  document.getElementById('brief-launch').onclick = (campaignId==='bteam') ? (()=>openBrotzeit(i)) : (()=>{
+    const doLaunch=()=>launchMission(i);
+    if(m.cutsceneBefore && !SAVE.seenProlog){ SAVE.seenProlog=true; persistSave(); showCutscene(m.cutsceneBefore, doLaunch); }
+    else doLaunch();
+  });
   showScreen('briefing');
 }
 function openBrotzeit(i){
@@ -3879,7 +3890,16 @@ function renderObjectives(){
    --------------------------------------------------------------------------- */
 function setupMission(index){
   const def=activeCampaign[index];
-  mission.active=true; mission.def=def; mission.index=index; mission.done=false; mission.outcome=null;
+  // Story-track variant overlay: a mission may offer alternate intro/win/mid/air-spawns depending on
+  // the storyChoice made earlier in the campaign (currently only m13). midVariants APPEND to mid, never replace.
+  const hasVariants = def.introVariants||def.winVariants||def.midVariants||def.spawnsVariants;
+  const effDef = hasVariants ? Object.assign({}, def, {
+    intro: (def.introVariants && def.introVariants[storyChoice]) || def.intro,
+    win: (def.winVariants && def.winVariants[storyChoice]) || def.win,
+    mid: (def.mid||[]).concat((def.midVariants && def.midVariants[storyChoice]) || []),
+    spawns: Object.assign({}, def.spawns, (def.spawnsVariants && def.spawnsVariants[storyChoice]) || {})
+  }) : def;
+  mission.active=true; mission.def=effDef; mission.index=index; mission.done=false; mission.outcome=null;
   mission.radioQueue=[]; mission.reinforceT=0; mission.waveIndex=0; mission.failReason=null;
   mission.spawnDelayT=0; mission.pendingAir=null; mission.landReady=false;
   // progress/rating: wall-clock timing (unaffected by slow-mo) + landing quality
@@ -3918,13 +3938,13 @@ function setupMission(index){
     player.speed=0; player.onGround=true; player.gearDown=true; player.gearRetractT=0;
     tmpE.set(player.pitch,player.heading,player.roll,'YXZ'); player.obj.quaternion.setFromEuler(tmpE);
     // enemies wait until the player is airborne (see updateMission spawnDelay)
-    mission.pendingAir = def.spawns.air ? def.spawns.air.slice() : null;
+    mission.pendingAir = effDef.spawns.air ? effDef.spawns.air.slice() : null;
     mission.pendingAce = def.spawns.ace || null;
   } else {
     // airborne start (default): keep resetPlayer's mid-air position — gear UP, we're already flying
     player.gearDown=false; player.gearRetractT=0;
     if(player.obj.userData.gear){ player.obj.userData.gear.scale.y=0; player.obj.userData.gear.visible=false; }
-    if(def.spawns.air && !def.spawns.waveDelay){ for(const [t,n,persona] of def.spawns.air){ for(let i=0;i<n;i++) spawnEnemyNear(t, 1800, 3600, persona); } }
+    if(effDef.spawns.air && !def.spawns.waveDelay){ for(const [t,n,persona] of effDef.spawns.air){ for(let i=0;i<n;i++) spawnEnemyNear(t, 1800, 3600, persona); } }
     if(def.spawns.ace){ const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion);
       spawnAce(def.spawns.ace, player.obj.position.clone().addScaledVector(fwd, 2600).add(new THREE.Vector3((Math.random()-0.5)*600,100,0))); }
   }
@@ -3954,10 +3974,10 @@ function setupMission(index){
   if(def.spawns.boss){ spawnBoss(def.spawns.boss, !!(def.finale||def.choicePoint)); }
   // gauntlet: staggered waves handled in updateMission
   mission.gauntlet = !!def.spawns.waveDelay;
-  if(mission.gauntlet){ mission.gauntletQueue=def.spawns.air.flatMap(([t,n,persona])=>Array(n).fill({t,persona})); mission.reinforceT=1.5; }
+  if(mission.gauntlet){ mission.gauntletQueue=effDef.spawns.air.flatMap(([t,n,persona])=>Array(n).fill({t,persona})); mission.reinforceT=1.5; }
   dom.enemies.textContent=enemies.length;
   banner(def.name.toUpperCase(), 'MISSION '+(index+1));
-  queueRadio(def.intro, 3.6);
+  queueRadio(effDef.intro, 3.6);
   renderObjectives(); updateWeaponHUD();
   runHooks(HOOKS.missionStart, def, index);
 }
@@ -3977,7 +3997,7 @@ function layoutGroundTargets(groundSpec){
 function onGroundDestroyed(gt){
   EV.emit('groundKill', {gt});
   for(const o of mission.objectives){
-    if(o.kind==='destroyGround' && o.tag===gt.tag && !o.done){ o.progress++; if(o.progress>=o.count){ o.done=true; radio('WAGNER|'+o.label+' — erledigt.'); } }
+    if(o.kind==='destroyGround' && o.tag===gt.tag && !o.done){ o.progress++; if(o.progress>=o.count){ o.done=true; EV.emit('done', {obj:o.id}); } }
   }
   renderObjectives(); checkMissionComplete();
 }
@@ -3999,7 +4019,7 @@ function onLanded(hard){
 function onTakeoff(){
   let changed=false;
   for(const o of mission.objectives){ if(o.kind==='takeoff' && !o.done){ o.done=true; changed=true; } }
-  if(changed){ renderObjectives(); checkMissionComplete(); }
+  if(changed){ EV.emit('takeoff', {}); renderObjectives(); checkMissionComplete(); }
 }
 let victoryTimer=null;
 function clearVictoryTimer(){ if(victoryTimer){ clearTimeout(victoryTimer); victoryTimer=null; } }
@@ -4074,7 +4094,7 @@ function updateMission(dt){
     const others=mission.objectives.filter(o=>o!==landObj && o.primary);
     if(others.length && others.every(o=>o.done)){
       mission.landReady=true;
-      radio('WAGNER|Auftrag erfüllt — bring sie nach Hause. Kurs zur Basis, Fahrwerk mit B, weich aufsetzen.');
+      EV.emit('landReady', {});
     }
   }
   checkMissionFailed();     // a failed primary (escort dead, struct too low) ends the mission
@@ -4299,6 +4319,91 @@ function updateBoss(dt){
     }
   }
 }
+
+/* ---------------------------------------------------------------------------
+   15f. STORY TRIGGERS + BARKS — dispatches CAMPAIGN mid[] tables (see section 0b)
+   on game events, falling back to a context-gated bark when a mission has no
+   scripted line for that moment. Everything below is registered ONCE at load
+   time and reads the live `mission`/`campaignId`/`storyChoice` globals, so it
+   never needs re-registering per mission and never stacks handlers.
+
+   Contract for other tracks (esp. BOSSES): emit these EV events and this
+   section will speak the matching CAMPAIGN mid[] line automatically —
+     EV.emit('bossSpawn', {})            once, when a boss appears
+     EV.emit('bossPart',  {left:N})      each time an armor/weakpoint part dies
+     EV.emit('bossExposed', {open:bool}) each time the core cover opens/closes
+     EV.emit('bossPhase', {phase:N})     each time the boss changes phase
+     EV.emit('bossHp',    {ratio:0..1})  on every boss HP change
+     EV.emit('bossKilled', {})           once, on boss death
+   ('takeoff', 'landReady', 'done', 'allyHit', 'playerHit' already exist and are
+   consumed below too.)
+   --------------------------------------------------------------------------- */
+let missionGen=0;              // bumped on every mission (re)start/reset — invalidates stale delay() timers
+let lastBarkT=-99;             // global cooldown between FLAVOR barks (scripted mid[] lines are exempt)
+const BARK_COOLDOWN=7;
+function barkCtx(){ return campaignId==='bteam' ? 'BT' : (gameMode!=='campaign' ? 'EN' : ((mission.def&&mission.def.act===2)?'H2':'H1')); }
+function canBark(){ return (performance.now()/1000 - lastBarkT) >= BARK_COOLDOWN; }
+let _lastBarkPick=null;
+function pickBark(pool){
+  if(!pool || !pool.length) return null;
+  if(pool.length===1) return pool[0];
+  let pick; do{ pick=pool[(Math.random()*pool.length)|0]; } while(pick===_lastBarkPick);
+  _lastBarkPick=pick; return pick;
+}
+function fireBark(pool){ if(!canBark()) return; const line=pickBark(pool&&(pool[barkCtx()]||pool.EN)); if(line){ radio(line); lastBarkT=performance.now()/1000; } }
+// Fallback pools (bible §9.1 / §9.4) — only used when a mission has no scripted mid[] line for the moment.
+const BARK_LANDREADY={ H1:['KIEBITZ|Tower an Geier: Bahn ist frei, bring sie runter.'],
+  H2:['KIEBITZ|Tower hört mit. Landung, wann immer du bereit bist.'],
+  BT:['KIEBITZ|Bahn frei, Buam. Ozapft wartet schon.'], EN:['KIEBITZ|Bahn frei.'] };
+const BARK_DONE={ H1:['WAGNER|Ziel erfüllt. Weiter.'], H2:['LÄRCHE|Das wäre erledigt. Nächstes.'],
+  BT:['SEPP|Des hätt ma. Weiter.'], EN:['WAGNER|Ziel erfüllt.'] };
+// Find the first not-yet-fired mid[] entry of this on-type matching `pred`; fire it (respecting `delay`
+// via a setTimeout guarded by missionGen so a stale timer from an earlier mission never speaks).
+function findMid(on, pred){
+  const mid=mission.def && mission.def.mid; if(!mid) return null;
+  for(const m of mid){ if(m.on===on && (!pred||pred(m)) && !mission._midFired.has(m)) return m; }
+  return null;
+}
+function fireMid(m){
+  mission._midFired.add(m);
+  if(m.delay){ const gen=missionGen; setTimeout(()=>{ if(gen!==missionGen || !mission.active) return; radio(m.line); }, m.delay*1000); }
+  else radio(m.line);
+}
+function storyActive(on){
+  if(!mission.active) return false;
+  if(winLocked && on!=='bossKilled' && on!=='landReady') return false;   // win already committed — only these two still matter
+  return true;
+}
+function dispatch(on, pred, fallbackPool){
+  if(!storyActive(on)) return;
+  const m=findMid(on, pred);
+  if(m){ fireMid(m); return; }
+  if(fallbackPool) fireBark(fallbackPool);
+}
+// mission lifecycle: fresh fired-set + invalidate stale delayed lines each time a mission (re)starts
+HOOKS.missionStart.push((def)=>{ mission._midFired=new Set(); missionGen++;
+  if(def.start!=='runway') dispatch('airborne'); });
+HOOKS.reset.push(()=>{ missionGen++; });
+// event-triggered mid[] lines
+EV.on('takeoff',   ()=>dispatch('airborne'));
+EV.on('landReady', ()=>dispatch('landReady', null, BARK_LANDREADY));
+EV.on('done',      d=>dispatch('done', m=>m.obj===d.obj, BARK_DONE));
+EV.on('playerHit', ()=>{ const ratio=player.hp/(player.maxHp||CFG.playerHP); dispatch('hpLow', m=>ratio<=m.lt); });
+EV.on('allyHit',   d=>{ if(!ally) return; const ratio=Math.max(0,d.hp)/(ally.maxhp||ALLY_HP); dispatch('allyHp', m=>ratio<=m.lt); });
+EV.on('bossSpawn',  ()=>dispatch('bossSpawn'));
+EV.on('bossPart',   d=>dispatch('bossPart', m=>m.left===d.left));
+EV.on('bossExposed',d=>{ if(d.open) dispatch('bossExposed'); });
+EV.on('bossPhase',  d=>dispatch('bossPhase', m=>m.phase===d.phase));
+EV.on('bossHp',     d=>dispatch('bossHp', m=>d.ratio<=m.lt));
+EV.on('bossKilled', ()=>dispatch('bossKilled'));
+// polled per frame: time-since-start and objective-progress thresholds (many objective kinds
+// increment .progress from scattered combat code, so this is simpler and safer than instrumenting each)
+HOOKS.update.push(()=>{
+  if(!mission.active || !mission.def || !mission.def.mid) return;
+  const t=(performance.now()-mission.startT-(mission.pausedMs||0))/1000;
+  dispatch('time', m=>t>=m.t);
+  for(const o of mission.objectives){ if(o.progress!=null) dispatch('progress', m=>m.obj===o.id && o.progress>=m.n); }
+});
 
 /* ---------------------------------------------------------------------------
    16. UPDATE — physics, AI, weapons
@@ -4813,7 +4918,12 @@ function maybeCoordinate(dt){
   anchor.pinRole='anchor'; flanker.pinRole='flanker';
   anchor.pinT=8; flanker.pinT=8;
   flanker.pinSide = Math.random()<0.5?-1:1;
-  if(!acePincerAnnounced){ acePincerAnnounced=true; radio('HELIOS|Zangenangriff — sie teilen sich auf.'); }
+  if(!acePincerAnnounced){ acePincerAnnounced=true;
+    const ctx=barkCtx();
+    radio(ctx==='BT' ? 'SEPP|Zwoa auf amoi — de wolln uns in d\'Zang nehma!'
+        : ctx==='H2' ? 'LÄRCHE|Zangenangriff — die teilen sich auf, Vorsicht!'
+        : 'WAGNER|Zangenangriff — sie teilen sich auf, Augen auf.');
+  }
 }
 
 function fireEnemyMissile(e){
