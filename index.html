@@ -146,7 +146,7 @@
   .brief .objs .o { display:flex; align-items:center; gap:10px; font-size:15px; margin:7px 0; color:#dbe8f6; }
   .brief .objs .o .ic { width:22px; text-align:center; }
   .brief .prime { color:#fff; } .brief .sec { color:#9fb8d0; }
-  #hud-objectives { position:fixed; left:22px; top:190px; z-index:6; max-width:320px; }
+  #hud-objectives { position:fixed; left:22px; top:238px; z-index:6; max-width:320px; }
   .obj-line { font-size:14px; color:#dbe8f6; margin:4px 0; text-shadow:0 0 6px rgba(0,0,0,.9); letter-spacing:.5px; }
   .obj-line .box { display:inline-block; width:14px; height:14px; border:1.5px solid #7dffb0; margin-right:8px; vertical-align:-2px; text-align:center; line-height:12px; font-size:11px; }
   .obj-line.done .box { background:#7dffb0; color:#04140b; }
@@ -159,6 +159,7 @@
     background:linear-gradient(0deg, rgba(4,12,26,.76), rgba(4,12,26,.32)); border:1px solid rgba(140,190,255,.18); border-left:3px solid var(--brass); padding:10px 22px; }
   #radio .rspk { font-family:var(--font-display); color:var(--brass); font-weight:700; letter-spacing:.5px; }
   #radio.show { opacity:1; }
+  body.nosubs #radio { visibility:hidden; }   /* Untertitel aus (Einstellungen) */
   /* WAGNER — steady command-post blue-grey */
   #radio[data-spk="WAGNER"] { border-left-color:#9fc4e8; } #radio[data-spk="WAGNER"] .rspk{ color:#9fc4e8; }
   /* LÄRCHE — warm amber, a little softer than the default brass */
@@ -3311,7 +3312,7 @@ function drawHUD(){
       hctx.textAlign='center'; hctx.font='bold 16px monospace';
       if(onTgt){ hctx.fillStyle='rgba(120,255,120,0.98)'; hctx.fillText('◄ FEUER · GUNS ►', cx, cy-44); }
       else if(near){ hctx.font='bold 13px monospace'; hudText('IN REICHWEITE — auf Zielpunkt halten', cx, cy-44, 'rgba(255,120,120,0.95)'); }
-      else { hctx.font='12px monospace'; hudText('ausser Reichweite ('+Math.round(gunSolution.dist)+' m)', cx, cy-44, 'rgba(255,210,110,0.9)'); }
+      else { hctx.font='12px monospace'; hudText('außer Reichweite ('+Math.round(gunSolution.dist)+' m)', cx, cy-44, 'rgba(255,210,110,0.9)'); }
       hctx.textAlign='left';
     }
   }
@@ -3845,12 +3846,22 @@ function gfxLabel(l){ return l==='high'?'HOCH': l==='medium'?'MITTEL': l==='low'
 function subsOn(){ try{ return localStorage.getItem(SUBS_KEY)!=='0'; }catch(e){ return true; } }
 function setSubsOn(on){ try{ localStorage.setItem(SUBS_KEY, on?'1':'0'); }catch(e){} }
 function musicVol(){ try{ const v=localStorage.getItem(MUSICVOL_KEY); return v===null?1:Math.max(0,Math.min(1,parseFloat(v))); }catch(e){ return 1; } }
+// Music volume scales the music bus' un-ducked level (0.62). Audio.duckMusic(false) resets the
+// bus to 0.62 on every menu/mission/resume, so wrap the public duckMusic to re-apply the scale.
+let musicDucked=false;
+function applyMusicGain(){
+  const c=Audio.ctx&&Audio.ctx(), mb=Audio.musicBus&&Audio.musicBus();
+  if(!c||!mb||!mb.gain||musicDucked) return;
+  mb.gain.cancelScheduledValues(c.currentTime); mb.gain.setTargetAtTime(0.62*musicVol(), c.currentTime, 0.12);
+}
+if(typeof Audio.duckMusic==='function'){
+  const _duck=Audio.duckMusic;
+  Audio.duckMusic=function(on){ musicDucked=!!on; const r=_duck.apply(this, arguments); if(!on) applyMusicGain(); return r; };
+}
 function setMusicVol(v){
   v=Math.max(0,Math.min(1,v));
   try{ localStorage.setItem(MUSICVOL_KEY, String(v)); }catch(e){}
-  if(typeof Audio!=='undefined' && Audio && typeof Audio.musicBus==='function'){
-    const mb=Audio.musicBus(); if(mb && mb.gain) mb.gain.value=0.62*v;
-  }
+  applyMusicGain();
 }
 function voiceIsOn(){
   if(typeof Voice==='undefined' || !Voice) return false;
@@ -3884,16 +3895,34 @@ function renderSettings(){
   vv.oninput=()=>{ if(hasVol) Voice.setVolume(vv.value/100); };
 
   const st=document.getElementById('set-subs-toggle'); st.classList.toggle('on', subsOn());
-  st.onclick=()=>{ setSubsOn(!subsOn()); renderSettings(); };
+  st.onclick=()=>{ setSubsOn(!subsOn()); applySubsClass(); renderSettings(); };
 
   const mv=document.getElementById('set-music-vol');
   mv.value=Math.round(musicVol()*100);
   mv.oninput=()=>{ setMusicVol(mv.value/100); };
 }
-function openSettings(returnTo){ settingsReturn=returnTo||'menu'; renderSettings(); showScreen('settings'); }
+// From pause the settings panel is a plain overlay swap: showScreen() would drop body.in-game
+// (DOM HUD stays hidden after resume) and Esc would resume with settings still on top.
+const settingsEl=document.getElementById('settings');
+function openSettings(returnTo){
+  settingsReturn=returnTo||'menu'; renderSettings();
+  if(settingsReturn==='pause'){ pauseScreen.classList.add('hidden'); settingsEl.classList.remove('hidden'); }
+  else showScreen('settings');
+}
+function closeSettings(){
+  if(settingsReturn==='pause'){ settingsEl.classList.add('hidden'); if(state==='paused') pauseScreen.classList.remove('hidden'); }
+  else showScreen(settingsReturn);
+}
+// Esc/P inside settings = back (capture phase: runs before the game's pause toggle)
+addEventListener('keydown', e=>{
+  if(settingsEl.classList.contains('hidden') || (e.code!=='Escape' && e.code!=='KeyP')) return;
+  e.stopImmediatePropagation(); closeSettings();
+}, true);
+function applySubsClass(){ document.body.classList.toggle('nosubs', !subsOn()); }
+applySubsClass();
 document.getElementById('btn-settings').onclick=()=>openSettings('menu');
 document.getElementById('pause-settingsbtn').onclick=()=>openSettings('pause');
-document.getElementById('settings-backbtn').onclick=()=>showScreen(settingsReturn);
+document.getElementById('settings-backbtn').onclick=closeSettings;
 // apply persisted music volume once Audio exists (best-effort; harmless if Audio inits later)
 try{ setMusicVol(musicVol()); }catch(e){}
 
