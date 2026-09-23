@@ -126,11 +126,14 @@ def postprocess(src_wav, params, dst_wav):
     import soundfile as sf, librosa
     x, sr = sf.read(src_wav, dtype='float32', always_2d=True)
     x = x.mean(axis=1)
-    if params.get('pitch_semitones'):
-        x = librosa.effects.pitch_shift(x, sr=sr, n_steps=params['pitch_semitones'])
-    speed = params.get('speed', 1.0)
-    if abs(speed - 1.0) > 1e-3:
-        x = librosa.effects.time_stretch(x, rate=speed)
+    # NOTE: librosa.effects.pitch_shift/time_stretch (phase-vocoder DSP) are deliberately NOT used
+    # here anymore. Measured impact on this voice: MOS 3.25 -> 1.3-1.4 for a mere 3% time-stretch or
+    # a 2.5-semitone pitch-shift (see D:/tts-bake/report/bakeoff.md, "Bekannte Grenzen") - WER stays
+    # fine (content survives) but it sounds audibly robotic/phasey, which tanked nearly every clip's
+    # perceived quality in the first full-bake attempt. Voice differentiation (WAGNER/SEPP/KELLER
+    # sharing one reference) now comes only from exaggeration/cfg_weight/temperature at generation
+    # time, never from post-hoc pitch/speed DSP. 'speed' and 'pitch_semitones' in casting.json are
+    # intentionally unused by this function.
     if sr != SR_OUT:
         x = librosa.resample(x, orig_sr=sr, target_sr=SR_OUT)
         sr = SR_OUT

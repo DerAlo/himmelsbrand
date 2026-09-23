@@ -29,14 +29,33 @@
   anderen Track-Ordner (`D:/piper-studio`) abzuhängen.
 - `tools/voice/README.md`: Ein-Kommando-Anleitung, Engine-/Referenz-Lizenzen, Casting-Erklärung.
 
+## Kritischer Bugfix nach dem letzten Commit (wichtig!)
+- Der erste volle Bake-Lauf lieferte für **alle** WAGNER-Zeilen auffällig einheitlich niedrigen
+  MOS (~1.3-1.9), obwohl der Bake-off-Sanity-Check MOS 3.75 für eine ähnliche WAGNER-Zeile zeigte.
+  Root-Cause isoliert über `D:/tts-bake/diag_postprocess.py`: **`librosa.effects.pitch_shift`/
+  `time_stretch` (Phasenvocoder-DSP) ruinieren die wahrgenommene Qualität massiv, schon bei
+  winzigen Werten** (3% Tempo → MOS 3.25→1.39, 2.5 Halbtöne → MOS 1.33). WER/CER bleiben fast
+  unverändert (Inhalt übersteht es), aber es klingt hörbar phasig/robotisch. STFT-Parameter-Tuning
+  rettet es nicht (bestes Ergebnis weiterhin MOS ~1.4).
+- **Fix**: laufenden (verseuchten) Bake gestoppt; `bake.py`s `postprocess()` führt keine Pitch-/
+  Tempo-DSP mehr aus; `casting.json` neu geschrieben ohne `speed`/`pitch_semitones`-Felder,
+  `_note`-Texte korrigiert (Differenzierung von WAGNER/SEPP/KELLER läuft jetzt nur noch über
+  `exaggeration`/`cfg_weight`/`temperature` + Referenzwahl); `report/bakeoff.md` „Bekannte
+  Grenzen" um den Befund ergänzt.
+- **Verifiziert per Smoke-Test durch die echte `bake.py`-Pipeline** (nicht nur das Diagnose-Skript):
+  `--speakers WAGNER --limit 6 --force` → avg MOS 3.43, `--speakers SEPP --limit 4 --force` →
+  avg MOS 2.99 (Dialekt, `lax:true`) — beide im gesunden Bereich, `still-flagged-bad=0`.
+- Cache invalidiert sich für den vollen Re-Bake automatisch (Casting-Hash ändert sich, weil
+  `speed`/`pitch_semitones` aus den Casting-Werten verschwunden sind), zusätzlich mit `--force`
+  gestartet, um wirklich jede Zeile durch die reparierte Pipeline laufen zu lassen.
+
 ## In Arbeit / noch nicht abgeschlossen
-- **Voller Bake aller 158 Basiszeilen läuft** (Hintergrundprozess, gestartet ~23:48, ca.
-  0.9-1.3 min/Zeile bei bis zu 3 Chatterbox-Kandidaten je Zeile → geschätzt 2-3h Gesamtlaufzeit).
-  Bisher 0 Generierungsfehler. Nach Abschluss: Größenbudget (≤12MB) prüfen, In-Game-Laden per
-  hbrun verifizieren (`Object.keys(window.VOICE_CLIPS).length`, `decodeAudioData`-Stichprobe),
-  finalen Sweep/jsgate laufen lassen, dann committen.
-- Dieser Commit ist ein Zwischenstand (Pipeline + Doku fertig, Bake noch nicht fertig) —
-  `voice_clips.js` in diesem Commit ist noch der alte Baseline-Stand (XTTS+Piper aus `54ee9a8`).
+- **Voller Bake aller 158 Basiszeilen läuft (2. Versuch, mit dem Fix), Hintergrundprozess.**
+  Nach Abschluss: Größenbudget (≤12MB) prüfen, In-Game-Laden per hbrun verifizieren
+  (`Object.keys(window.VOICE_CLIPS).length`, `decodeAudioData`-Stichprobe), finalen Sweep/jsgate
+  laufen lassen, dann committen.
+- Dieser Zwischenstand: Pipeline + Doku + Bugfix fertig, Bake noch nicht fertig —
+  `voice_clips.js` im Repo ist noch der alte Baseline-Stand (XTTS+Piper aus `54ee9a8`).
 
 ## Getestet
 - `node tools/jsgate.mjs index.html` → OK (index.html von mir nicht angefasst).
