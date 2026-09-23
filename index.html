@@ -89,9 +89,9 @@
   .btn:active { transform:translateY(1px); }
   .btn:focus-visible { outline:2px solid var(--hud); outline-offset:3px; }
   .controls { margin-top:34px; max-width:640px; display:grid; grid-template-columns:1fr 1fr; gap:9px 34px; font-size:14px; color:#cfe6ff;}
-  .controls .k { display:inline-block; min-width:74px; padding:2px 8px; margin-right:10px; border:1px solid rgba(255,255,255,.35); background:rgba(255,255,255,.06);
+  .controls .k { display:inline-block; flex:none; min-width:74px; padding:2px 8px; margin-right:10px; border:1px solid rgba(255,255,255,.35); background:rgba(255,255,255,.06);
     font-family:var(--font-display); font-weight:600; text-align:center; color:#fff;}
-  .row { display:flex; align-items:center; }
+  .row { display:flex; flex-wrap:wrap; align-items:center; row-gap:6px; }
   #go-title { font-family:var(--font-display); font-size:56px; font-weight:700; letter-spacing:7px; color:#ff5a5a; text-shadow:0 0 30px rgba(255,0,0,.5); }
   #go-stats { font-size:20px; margin:18px 0 30px; color:#dfefff; text-align:center; line-height:1.7;}
   #go-stats b { color:var(--gold); font-family:var(--font-display); font-size:32px;}
@@ -3138,6 +3138,68 @@ function hudText(txt, x, y, fill){
   hctx.strokeText(txt, x, y);
   hctx.fillStyle=fill; hctx.fillText(txt, x, y);
 }
+// ---- Heading tape: pre-rendered offscreen strip, sliced per frame (no per-frame text layout cost) ----
+// Compass degree = -player.heading (heading decreases when turning right, see steer at ~L4370;
+// negating gives a tape that counts UP while turning right, matching a normal compass).
+const HDG_MINDEG=-40, HDG_MAXDEG=400, HDG_PPD=6;
+let hdgTapeCanvas=null;
+function hdgLabel(nd){ if(nd===0)return'N'; if(nd===90)return'O'; if(nd===180)return'S'; if(nd===270)return'W'; return String(Math.round(nd/10)).padStart(2,'0'); }
+function buildHeadingTape(){
+  const wpx=(HDG_MAXDEG-HDG_MINDEG)*HDG_PPD, hpx=34;
+  const c=document.createElement('canvas'); c.width=wpx; c.height=hpx;
+  const g=c.getContext('2d');
+  g.font="600 12px 'Space Grotesk', monospace"; g.textAlign='center'; g.textBaseline='top';
+  for(let d=HDG_MINDEG; d<=HDG_MAXDEG; d+=10){
+    const nd=((d%360)+360)%360, x=(d-HDG_MINDEG)*HDG_PPD, major=(nd%30===0);
+    g.strokeStyle=major?'rgba(125,255,176,0.9)':'rgba(125,255,176,0.45)';
+    g.lineWidth=major?2:1;
+    g.beginPath(); g.moveTo(x,0); g.lineTo(x, major?14:8); g.stroke();
+    if(major){ g.fillStyle='rgba(125,255,176,0.9)'; g.fillText(hdgLabel(nd), x, 17); }
+  }
+  hdgTapeCanvas=c;
+}
+function drawHeadingTape(cx,w){
+  if(!hdgTapeCanvas) buildHeadingTape();
+  const viewDeg=54, tapeW=Math.min(360,w*0.26), tapeH=30, ty=8;
+  const compassDeg=((-player.heading*180/Math.PI)%360+360)%360;
+  const srcCx=(compassDeg-HDG_MINDEG)*HDG_PPD, srcW=viewDeg*HDG_PPD;
+  hctx.save();
+  hctx.fillStyle='rgba(3,10,20,0.45)'; hctx.fillRect(cx-tapeW/2-8, ty-4, tapeW+16, tapeH+8);
+  hctx.beginPath(); hctx.rect(cx-tapeW/2, ty, tapeW, tapeH); hctx.clip();
+  hctx.drawImage(hdgTapeCanvas, srcCx-srcW/2, 0, srcW, hdgTapeCanvas.height, cx-tapeW/2, ty, tapeW, tapeH);
+  hctx.restore();
+  hctx.strokeStyle='rgba(140,220,190,0.35)'; hctx.lineWidth=1; hctx.strokeRect(cx-tapeW/2-8, ty-4, tapeW+16, tapeH+8);
+  hctx.fillStyle='rgba(125,255,176,0.95)'; hctx.beginPath();
+  hctx.moveTo(cx,ty+tapeH+6); hctx.lineTo(cx-5,ty+tapeH+13); hctx.lineTo(cx+5,ty+tapeH+13); hctx.closePath(); hctx.fill();
+  hctx.font="700 13px 'Space Grotesk', monospace"; hctx.textAlign='center'; hctx.textBaseline='alphabetic';
+  hudText(String(Math.round(compassDeg)).padStart(3,'0')+'°', cx, ty+tapeH+30, 'rgba(125,255,176,0.95)');
+  hctx.textAlign='left';
+}
+// ---- Pitch ladder: roll-free camera, so rungs are pure horizontal lines shifted vertically
+// by (playerPitch - rungAngle) * pxPerDegree; no rotation math needed (see camera notes ~L5086).
+function drawPitchLadder(cx,cy,h){
+  const ppd=h/Math.max(1,camera.fov);
+  const P=player.pitch*180/Math.PI;
+  hctx.save(); hctx.font="600 11px 'Space Grotesk', monospace"; hctx.textBaseline='middle';
+  for(let th=-80; th<=80; th+=10){
+    const y=cy+(P-th)*ppd;
+    if(y< -20 || y>h+20) continue;
+    if(th===0 && Math.abs(y-cy)<2) continue;   // the center reticle already marks true level when near it
+    const climb=th>0, isHorizon=(th===0);
+    const rw=isHorizon?58:(th%30===0?42:26);
+    const col=isHorizon?'rgba(125,255,176,0.95)':(climb?'rgba(125,255,176,0.8)':'rgba(255,200,110,0.75)');
+    hctx.strokeStyle=col; hctx.lineWidth=isHorizon?2:1.3;
+    if(!isHorizon && th<0) hctx.setLineDash([5,4]); else hctx.setLineDash([]);
+    const gap=isHorizon?22:14;
+    hctx.beginPath(); hctx.moveTo(cx-rw,y); hctx.lineTo(cx-gap,y); hctx.moveTo(cx+gap,y); hctx.lineTo(cx+rw,y); hctx.stroke();
+    // end ticks bend toward the horizon so climb/dive are readable at a glance
+    const tick=climb?5:-5;
+    hctx.beginPath(); hctx.moveTo(cx-rw,y); hctx.lineTo(cx-rw,y+tick); hctx.moveTo(cx+rw,y); hctx.lineTo(cx+rw,y+tick); hctx.stroke();
+    if(th%30===0 && th!==0){ hctx.setLineDash([]); hctx.fillStyle=col; hctx.textAlign='right'; hctx.fillText(String(Math.abs(th)), cx-rw-6, y);
+      hctx.textAlign='left'; hctx.fillText(String(Math.abs(th)), cx+rw+6, y); }
+  }
+  hctx.setLineDash([]); hctx.restore();
+}
 function drawHUD(){
   const w=innerWidth, h=innerHeight; hctx.clearRect(0,0,w,h);   // CSS units: hctx carries the dpr transform
   // red damage flash — drawn in ALL states so a fatal crash punch is visible
@@ -3145,6 +3207,8 @@ function drawHUD(){
   if(damageFlash>0){ hctx.fillStyle='rgba(210,25,20,'+Math.min(0.5,damageFlash*0.85)+')'; hctx.fillRect(0,0,w,h); }
   if(state!=='playing' && state!=='paused') return;
   const cx=w/2, cy=h/2;
+  drawPitchLadder(cx,cy,h);
+  drawHeadingTape(cx,w);
   // center reticle
   const lockAhead = currentLock!=null;
   hctx.strokeStyle = lockAhead? 'rgba(255,80,80,0.95)':'rgba(125,255,176,0.85)';
@@ -3874,6 +3938,7 @@ let radioHideT=0;
 function radio(line){
   // line: "SPEAKER|text" or "SPEAKER|text|hint" (see parseLine)
   const pl=parseLine(line); const spk=pl.spk, txt=pl.text;
+  dom.radio.dataset.spk = spk || '';   // UI: drives #radio[data-spk] per-speaker styling
   dom.radio.querySelector('.rspk').textContent = spk?('» '+spk+':'):'';
   dom.radio.querySelector('.rtext').textContent = txt;
   dom.radio.classList.add('show'); radioHideT=4.2;
