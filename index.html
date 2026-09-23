@@ -2703,31 +2703,77 @@ function buildEnemy(type){
     emissive:0x110000, emissiveIntensity:0.5 });
   addRimLight(body, 0xff5535, 4.2, 0.22);       // hostile drones get a red edge glow (tight falloff: rim only, not the whole hull)
   const dark=new THREE.MeshStandardMaterial({ color:0x15181c, metalness:0.6, roughness:0.4, side:THREE.DoubleSide });
-  const stripMat=new THREE.MeshBasicMaterial({color:0xff3020, side:THREE.DoubleSide, transparent:true, opacity:0.8});
-  const len = type==='f22'?14:(type==='f18'?11:10);
-  const fus=new THREE.Mesh(new THREE.CylinderGeometry(type==='f22'?1.3:1.0, 1.2, len, 12), body); fus.rotation.x=Math.PI/2; collectMerge(fus,mrg);
-  const nose=new THREE.Mesh(new THREE.ConeGeometry(1.0,4,12), body); nose.rotation.x=-Math.PI/2; nose.position.z=-len/2-1.6; collectMerge(nose,mrg);
-  const can=new THREE.Mesh(new THREE.SphereGeometry(0.9,10,8,0,Math.PI*2,0,Math.PI/2), new THREE.MeshStandardMaterial({color:0x222222, metalness:0.9, roughness:0.15}));
-  can.scale.set(1,0.7,1.8); can.position.set(0,0.6,-len/4); collectMerge(can,mrg);
-  // Swept wings (trapezoid) — distinct from delta
-  const sw = type==='f22'?7.5:6;
-  const wingGeo=triGeo([ 0,0,0, sw,0,3.5, sw,0,5,  0,0,0, sw,0,5, 0,0,4.5,
-                         0,0,0, -sw,0,3.5, -sw,0,5,  0,0,0, -sw,0,5, 0,0,4.5 ]);
-  const wings=new THREE.Mesh(wingGeo, body); wings.position.z=1; collectMerge(wings,mrg);
-  // twin tail fins for f18/f22, single for f16
-  if(type==='f16'){ const fin=new THREE.Mesh(triGeo([0,0,len/2-1,0,3,len/2+1,0,0,len/2+1.5]), dark); collectMerge(fin,mrg); }
-  else { for(const s of [-1,1]){ const fin=new THREE.Mesh(triGeo([0,0,0,0,2.6,1.4,0,0,2.0]), dark);
-    fin.position.set(s*1.4,0.3,len/2-1); fin.rotation.z=s*0.25; collectMerge(fin,mrg);} }
-  // tail planes
-  const tp=new THREE.Mesh(triGeo([0,0,0,2.6,0,1.4,0,0,1.8, 0,0,0,-2.6,0,1.4,0,0,1.8]), body); tp.position.z=len/2-1; collectMerge(tp,mrg);
-  // red wing edge strips (shared material -> merges into one draw call together)
-  for(const s of [-1,1]){ const strip=new THREE.Mesh(new THREE.PlaneGeometry(0.4,4), stripMat);
-    strip.rotation.x=-Math.PI/2; strip.position.set(s*sw*0.7,0.06,3); collectMerge(strip,mrg); }
+  // one unlit accent material for wingtip strips + nozzle cores + intake lips: all merge into a single draw call
+  const stripMat=new THREE.MeshBasicMaterial({color:0xff3a1c, side:THREE.DoubleSide});
+  // Per-type airframe: each drone type gets its own silhouette so they can be told apart at range.
+  //  f16: single-engine, cropped delta + LERX, single fin, chin intake
+  //  f18: twin-engine, straight-tapered wing, big LERX, twin canted fins, side intakes
+  //  f22: stealth: flattened body with chines, diamond wing, canted fins, caret intakes, 2D nozzles
+  const S={
+    f16:{ len:10, rF:0.95, rR:0.85, nl:4.2, flat:0.9,  wing:[0.8,-0.8, 5.4,2.9, 5.4,3.9, 0.8,3.6],
+          tail:[0.7,3.6, 3.0,5.3, 3.0,6.0, 0.7,5.6], lerx:[0.7,-4.2, 1.6,-0.8, 0.7,-0.8] },
+    f18:{ len:11, rF:1.0,  rR:1.05, nl:4.4, flat:0.85, wing:[1.1,0.2, 6.2,2.8, 6.2,3.8, 1.1,4.0],
+          tail:[0.9,4.4, 3.6,5.8, 3.6,6.6, 0.9,6.4], lerx:[0.8,-4.8, 1.35,-2.2, 1.9,0.4, 0.8,0.4] },
+    f22:{ len:14, rF:1.05, rR:1.25, nl:5.0, flat:0.72, wing:[1.2,-2.2, 7.6,3.6, 7.6,4.6, 1.2,6.0],
+          tail:[1.2,5.4, 4.2,7.4, 4.2,8.3, 1.2,8.0], lerx:[0.9,-10.2, 2.1,-2.2, 1.0,-2.2] }
+  }[type] || null;
+  const sp=S||{ len:10, rF:0.95, rR:0.85, nl:4.2, flat:0.9, wing:[0.8,-0.8,5.4,2.9,5.4,3.9,0.8,3.6], tail:[0.7,3.6,3.0,5.3,3.0,6.0,0.7,5.6], lerx:[0.7,-4.2,1.6,-0.8,0.7,-0.8] };
+  const len=sp.len, half=len/2;
+  const put=(geo,mat,x,y,z,rx,ry,rz,sx,sy,sz)=>{ const m=new THREE.Mesh(geo,mat); m.position.set(x||0,y||0,z||0); m.rotation.set(rx||0,ry||0,rz||0);
+    if(sx) m.scale.set(sx,sy,sz); collectMerge(m,mrg); return m; };
+  // planform helper: [x0,z0, x1,z1, ...] quad (4 pts) or tri (3 pts) or two tris (4 pts, lerx) in the y=yy plane, mirrored to both sides
+  const plan=(p,yy,twoTri)=>{ const v=[];
+    for(const s of [1,-1]){
+      if(p.length===6) v.push(s*p[0],yy,p[1], s*p[2],yy,p[3], s*p[4],yy,p[5]);
+      else if(twoTri) v.push(s*p[0],yy,p[1], s*p[2],yy,p[3], s*p[6],yy,p[7],  s*p[2],yy,p[3], s*p[4],yy,p[5], s*p[6],yy,p[7]);
+      else v.push(s*p[0],yy,p[1], s*p[2],yy,p[3], s*p[4],yy,p[5],  s*p[0],yy,p[1], s*p[4],yy,p[5], s*p[6],yy,p[7]);
+    }
+    return triGeo(v); };
+  // fuselage (slightly flattened) + nose cone
+  put(new THREE.CylinderGeometry(sp.rR, sp.rF, len, 14), body, 0,0,0, Math.PI/2,0,0, type==='f22'?1.25:1, 1, sp.flat);
+  put(new THREE.ConeGeometry(sp.rF, sp.nl, 14), body, 0,0,-half-sp.nl/2, -Math.PI/2,0,0, type==='f22'?1.25:1, 1, sp.flat);
+  // dark glass canopy
+  const can=new THREE.Mesh(new THREE.SphereGeometry(0.8,12,8,0,Math.PI*2,0,Math.PI/2), new THREE.MeshStandardMaterial({color:0x1c1f24, metalness:0.9, roughness:0.12}));
+  can.scale.set(type==='f22'?0.95:0.8, 0.8, 2.1); can.position.set(0,sp.rF*sp.flat*0.72,-half+(type==='f22'?0.4:1.4)); collectMerge(can,mrg);
+  // wings, strakes/chines, tailplanes
+  put(plan(sp.wing,0,false), body);
+  put(plan(sp.lerx,0.05,sp.lerx.length===8), body);
+  put(plan(sp.tail,0.1,false), body);
+  // red wingtip strips along the tip chord
+  const tipX=sp.wing[2], tipZ=(sp.wing[3]+sp.wing[5])/2, tipC=sp.wing[5]-sp.wing[3]+0.6;
+  for(const s of [-1,1]) put(new THREE.PlaneGeometry(0.34,tipC), stripMat, s*(tipX-0.2),0.07,tipZ, -Math.PI/2,0,0);
+  if(type==='f16' || !S){
+    // single swept fin on the spine + chin intake + single round nozzle
+    put(triGeo([0,0.8,half-3.2, 0,0.8,half+0.6, 0,4.3,half+1.4,  0,0.8,half-3.2, 0,4.3,half+1.4, 0,4.3,half+0.3]), dark);
+    put(new THREE.BoxGeometry(1.5,0.9,3.2), dark, 0,-sp.rF*0.95,-1.4);
+    put(new THREE.PlaneGeometry(1.3,0.6), stripMat, 0,-sp.rF*0.95,-3.02);
+    put(new THREE.CylinderGeometry(0.62,0.8,1.3,14), dark, 0,0,half+0.55, Math.PI/2,0,0);
+    put(new THREE.CircleGeometry(0.52,14), stripMat, 0,0,half+1.22);
+  } else {
+    // twin canted fins (tops lean outward)
+    const f18=type==='f18';
+    const fx=f18?1.1:1.5, z0=f18?half-3.4:half-3.2, z1=f18?half-0.6:half, zt0=f18?half-1.2:half-0.6, zt1=f18?half-0.1:half+0.6, fh=f18?3.4:3.2;
+    for(const s of [-1,1]) put(triGeo([0,0,z0, 0,0,z1, 0,fh,zt1,  0,0,z0, 0,fh,zt1, 0,fh,zt0]), dark, s*fx,0.5,0, 0,0,-s*(f18?0.38:0.45));
+    // side intakes with glowing lips
+    const ix=f18?1.25:1.55, iy=f18?-0.45:-0.2, iz=f18?-0.8:-1.2, il=f18?2.6:3.2;
+    for(const s of [-1,1]){
+      put(new THREE.BoxGeometry(0.95,1.05,il), dark, s*ix,iy,iz, 0,f22Yaw(s),0);
+      const yw=f22Yaw(s), d=il/2+0.02; put(new THREE.PlaneGeometry(0.8,0.9), stripMat, s*ix-Math.sin(yw)*d,iy,iz-Math.cos(yw)*d, 0,yw,0);
+    }
+    // twin nozzles: round (f18) or flat 2D thrust-vectoring boxes (f22)
+    for(const s of [-1,1]){
+      if(f18){ put(new THREE.CylinderGeometry(0.52,0.66,1.2,12), dark, s*0.62,0,half+0.5, Math.PI/2,0,0);
+               put(new THREE.CircleGeometry(0.44,12), stripMat, s*0.62,0,half+1.12); }
+      else   { put(new THREE.BoxGeometry(1.1,0.72,1.5), dark, s*0.72,0,half+0.55);
+               put(new THREE.PlaneGeometry(0.88,0.5), stripMat, s*0.72,0,half+1.31); }
+    }
+  }
+  function f22Yaw(s){ return type==='f22' ? s*0.12 : 0; }   // f22 caret intakes splay slightly outward
   flushMerge(mrg, g);
   // HELIOS sensor eye — glowing red spot on the nose (drone identity + eyecandy). Left unmerged:
   // eye is a single per-instance MeshBasicMaterial (no dedup benefit) and eyeGlow is a Sprite.
-  const eye=new THREE.Mesh(new THREE.SphereGeometry(0.45,10,8), new THREE.MeshBasicMaterial({color:0xff2b1a}));
-  eye.position.set(0,0.2,-len/2-2.4); g.add(eye);
+  const eye=new THREE.Mesh(new THREE.SphereGeometry(0.42,10,8), new THREE.MeshBasicMaterial({color:0xff2b1a}));
+  eye.position.set(0,0.12,-half-sp.nl*0.62); g.add(eye);
   const eyeGlow=new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xff3020, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending }));
   eyeGlow.scale.set(6,6,1); eyeGlow.position.copy(eye.position); g.add(eyeGlow);
   g.userData.eye=eye; g.userData.eyeGlow=eyeGlow;
