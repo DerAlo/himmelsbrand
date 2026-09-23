@@ -1471,9 +1471,11 @@ function resize(){
 addEventListener('resize', resize); resize();
 
 // Resolution scaling per GFX level: pixel-ratio cap (device pixels rendered), reacts live.
+// The cap alone does nothing on 1x desktop screens, so low also renders below native (upscaled).
 const PIXEL_RATIO_CAP = { high:2, medium:1.5, low:1 };
+const RENDER_SCALE = { high:1, medium:1, low:0.8 };
 function applyGfxPixelRatio(level){
-  renderer.setPixelRatio(Math.min(devicePixelRatio||1, PIXEL_RATIO_CAP[level]||1));
+  renderer.setPixelRatio(Math.min(devicePixelRatio||1, PIXEL_RATIO_CAP[level]||1)*(RENDER_SCALE[level]||1));
   resize();
 }
 GFX.onChange(applyGfxPixelRatio);
