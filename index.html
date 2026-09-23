@@ -1923,7 +1923,8 @@ function makeParticleSystem(max, additive){
       pointTexture:{ value: additive?fireTex:smokeTex },
       scale:{ value: innerHeight*0.5 },
       fogColor:{ value: scene.fog.color },
-      fogDensity:{ value: scene.fog.density }
+      fogDensity:{ value: scene.fog.density },
+      tint:{ value: new THREE.Color(1,1,1) }   // smoke only: scene light level/colour (day white, dusk warm, night dim blue)
     },
     vertexShader:`
       attribute float psize;
@@ -1945,6 +1946,7 @@ function makeParticleSystem(max, additive){
       uniform sampler2D pointTexture;
       uniform vec3 fogColor;
       uniform float fogDensity;
+      uniform vec3 tint;
       varying vec3 vColor;
       varying float vFogDepth;
       varying float vAlpha;
@@ -1955,7 +1957,7 @@ function makeParticleSystem(max, additive){
         vec4 tex=texture2D(pointTexture, pc);
         float a=tex.a*vAlpha;
         if(a<0.015) discard;
-        gl_FragColor=vec4(vColor*tex.rgb, a);
+        gl_FragColor=vec4(vColor*tex.rgb${additive?"":"*tint"}, a);
         float fogFactor=1.0 - exp(-fogDensity*fogDensity*vFogDepth*vFogDepth);
         ${additive ? 'gl_FragColor.a *= 1.0-0.85*clamp(fogFactor,0.0,1.0);' : 'gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, clamp(fogFactor,0.0,1.0));'}
       }`,
@@ -1964,7 +1966,7 @@ function makeParticleSystem(max, additive){
   });
   particleMaterials.push(mat);
   const points=new THREE.Points(geo,mat); points.frustumCulled=false; points.renderOrder=additive?11:10; scene.add(points);   // fire glows through its own smoke
-  const P={ pos,col,size,misc,geo,max,count:0,cur:0,
+  const P={ pos,col,size,misc,geo,max,count:0,cur:0,mat,
     p:new Float32Array(max*3), v:new Float32Array(max*3), life:new Float32Array(max), maxlife:new Float32Array(max),
     cr:new Float32Array(max), cg:new Float32Array(max), cb:new Float32Array(max),
     cr2:new Float32Array(max), cg2:new Float32Array(max), cb2:new Float32Array(max),
@@ -2010,6 +2012,12 @@ function makeParticleSystem(max, additive){
 }
 const fireP  = makeParticleSystem(3000, true);   // fire, sparks, tracer glow, muzzle
 const smokeP = makeParticleSystem(3000, false);  // smoke, trails
+// Smoke is unlit, so it follows the scene light explicitly: sun colour x sky light level
+// (applyTimeOfDay drives both). Keeps grey smoke from glowing at night; dusk smoke goes warm.
+HOOKS.preRender.push(function(){
+  const lvl=THREE.MathUtils.clamp(hemi.intensity/0.5, 0.18, 1);
+  smokeP.mat.uniforms.tint.value.copy(sun.color).multiplyScalar(lvl*Math.min(1.1, 0.55+0.45*sun.intensity/1.7));
+});
 
 const C_ORANGE=new THREE.Color(0xff8a1e), C_YELLOW=new THREE.Color(0xffe36b), C_RED=new THREE.Color(0xd62b1a),
       C_SMOKE=new THREE.Color(0x555555), C_DARK=new THREE.Color(0x1a1a1a), C_WHITE=new THREE.Color(0xffffff),
@@ -2215,8 +2223,9 @@ function updateSmokeColumns(dt){
     smokeP.spawn(c.x+(Math.random()-0.5)*8*s, c.y+2, c.z+(Math.random()-0.5)*8*s,
       FX_WIND.x*0.5+(Math.random()-0.5)*6, 20+Math.random()*14, FX_WIND.z*0.5+(Math.random()-0.5)*6,
       5.5+Math.random()*2.5, 16*s, (150+Math.random()*70)*s, C_SMK_WARM, k<0.4?C_SMK_MID:C_SMK_LIGHT, 0.994, -5);
-    if(k<0.55 && Math.random()<0.8) fireP.spawn(c.x+(Math.random()-0.5)*7*s, c.y+1, c.z+(Math.random()-0.5)*7*s,
-      (Math.random()-0.5)*8, 18+Math.random()*22, (Math.random()-0.5)*8, 0.35+Math.random()*0.35, (9+Math.random()*7)*s, 2, C_FIRE, C_DEEP, 0.92, -10);
+    // burning wreck at the base: a couple of licking flames per tick (reads as a fire glow at night too)
+    if(k<0.6) for(let f=0;f<2;f++) fireP.spawn(c.x+(Math.random()-0.5)*8*s, c.y+1, c.z+(Math.random()-0.5)*8*s,
+      (Math.random()-0.5)*8, 16+Math.random()*22, (Math.random()-0.5)*8, 0.4+Math.random()*0.4, (24+Math.random()*16)*s*(1-0.5*k), 6, C_FIRE, C_DEEP, 0.92, -10);
   }
 }
 HOOKS.missionStart.push(()=>{ smokeCols.length=0; });
