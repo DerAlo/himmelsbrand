@@ -397,6 +397,15 @@ function runHooks(list, a, b){ for(let i=list.length-1;i>=0;i--){ try{ list[i](a
 //   'missileWarn' {e}  'lock' {target}  'allyHit' {dmg, hp}  'missionEnd' {victory}. Add new emits freely.
 const EV = (function(){ const L={}; return { on(n,f){ (L[n]=L[n]||[]).push(f); }, emit(n,d){ const l=L[n]; if(!l) return; for(const f of l){ try{ f(d||{}); }catch(e){ console.error('EV '+n, e); } } } }; })();
 
+// Spoken/radio line format: 'SPEAKER|text' or 'SPEAKER|text|hint' (hint = delivery for the TTS bake,
+// e.g. 'ruhig', 'dringend', 'fluestern', 'wuetend' — never shown). A bare 'text' has no speaker.
+// The voice clip key is voiceKey(speaker+'|'+text): the hint never changes the key.
+function parseLine(line){
+  const p=String(line).split('|');
+  if(p.length===1) return { spk:'', text:p[0], hint:'' };
+  return { spk:p[0], text:p[1], hint:p.slice(2).join('|') };
+}
+
 // Free the GPU buffers of a removed object tree (geometries only: materials/programs are shared and
 // re-compiling them would hitch). Shared geometry is safe too — three.js re-uploads it on next use.
 // Set geometry.userData.keep=true to opt out. Call AFTER scene.remove(obj).
@@ -3494,7 +3503,7 @@ function gameOver(victory){
       if(campaignId==='helios'){ refreshUnlocks(); document.body.classList.toggle('gold-wings', SAVE.unlocks.goldWings); }
       persistSave();
       const hasNext = mission.index < activeCampaign.length-1;
-      const winLine = def.win && def.win[0] ? def.win[0].split('|').pop() : '';
+      const winLine = def.win && def.win[0] ? parseLine(def.win[0]).text : '';
       const starRow = `<div class="debrief-stars">`+[0,1,2].map(k=>`<span class="${k<res.stars?'on':''}">${k<res.stars?'★':'☆'}</span>`).join('')+`</div>`;
       const unlockNote = campaignId!=='helios' ? '' :
                        ((!wasAce&&SAVE.unlocks.ace?'<div class="unlock-note">FREIGESCHALTET: ASS-MODUS (Endlos)</div>':'')
@@ -3692,8 +3701,8 @@ function applyTimeOfDay(tod){
    --------------------------------------------------------------------------- */
 let radioHideT=0;
 function radio(line){
-  // line: "SPEAKER|text"
-  const parts=line.split('|'); const spk=parts.length>1?parts[0]:''; const txt=parts.pop();
+  // line: "SPEAKER|text" or "SPEAKER|text|hint" (see parseLine)
+  const pl=parseLine(line); const spk=pl.spk, txt=pl.text;
   dom.radio.querySelector('.rspk').textContent = spk?('» '+spk+':'):'';
   dom.radio.querySelector('.rtext').textContent = txt;
   dom.radio.classList.add('show'); radioHideT=4.2;
