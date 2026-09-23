@@ -1781,7 +1781,8 @@ function updateTerrain(px,pz,budget){
   }
   for(let i=0;i<missing.length && i<lim;i++){
     const q=missing[i]; const m=buildChunk(q.cx,q.cz); chunks.set(q.key,m); terrainGroup.add(m);
-    if(typeof scatterChunkScenery==='function' && !sceneryChunks.has(q.key)) scatterChunkScenery(q.cx,q.cz);   // scenery streams in lockstep with its terrain chunk
+    // a REbuilt chunk (runway plateau baked in / removed) must re-scatter too: stale trees stood on the runway or floated
+    if(typeof scatterChunkScenery==='function'){ if(sceneryChunks.has(q.key)) freeScenery(q.key); scatterChunkScenery(q.cx,q.cz); }
   }
   for(const [key,m] of chunks){ if(!needed.has(key)){ terrainGroup.remove(m); m.geometry.dispose(); chunks.delete(key); } }
   if(typeof sceneryChunks!=='undefined'){
