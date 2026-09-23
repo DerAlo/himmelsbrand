@@ -3284,8 +3284,9 @@ function drawMissileThreats(cx,cy,w,h){
       hctx.restore();
     }
   }
-  // boxed warning under the reticle (steady frame, blinking text)
-  const bw=196, bh=24, bx=cx-bw/2, by=boss?128:86;   // top centre under the heading readout (below the boss bar when shown): never covers targets, lock box or the jet
+  // boxed warning top centre under the heading readout (steady frame, blinking text): never covers targets,
+  // lock box or the jet; during boss fights it sits below the (possibly two-line) boss bar. Only runs while a threat exists.
+  const bw=196, bh=24, bx=cx-bw/2, by=(boss && dom.bosswrap) ? Math.max(86, dom.bosswrap.getBoundingClientRect().bottom+8) : 86;
   hctx.fillStyle='rgba(40,4,4,0.55)'; hctx.fillRect(bx,by,bw,bh);
   hctx.strokeStyle=HUD_RED; hctx.lineWidth=1.5; hctx.strokeRect(bx+0.5,by+0.5,bw-1,bh-1);
   hctx.textAlign='center'; hctx.textBaseline='middle'; hctx.font=HF13B;
