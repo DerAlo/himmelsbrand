@@ -1703,9 +1703,12 @@ HOOKS.always.push((dt)=>sweepShadows(dt));
 // applyTimeOfDay) with a height falloff (thin/clear air near mountain tops, hazier in
 // valleys) plus a smoothed in-cloud whiteout when the player is inside a cumulus cluster
 // (cloudClusters comes from section 6). Writing scene.fog.density/color is the ONLY thing
-// this does — every material with fog:true (terrain, water, models, particle
-// ShaderMaterials, this track's cloud shader) gets it for free via three's own per-frame
-// fog uniform refresh, so it works for ANY material without touching shader chunks globally.
+// this does for the rest of the scene — every material with fog:true (terrain, water,
+// models, particle ShaderMaterials) gets it for free via three's own per-frame fog uniform
+// refresh, so it works for ANY material without touching shader chunks globally. The cloud/
+// cirrus billboards (section 6) do their own manual fog math (no USE_FOG dependency, since
+// they need a custom near-camera fade term too), so their uFogColor/uFogDensity uniforms are
+// mirrored from scene.fog right here each frame.
 let curFogBase=0.000085;
 const fogColorBase=new THREE.Color(0xa8c8e8);
 const WHITEOUT_COLOR=new THREE.Color(0xf4f8ff);
@@ -1729,6 +1732,10 @@ function applyAtmosphere(dt){
   scene.fog.density = curFogBase*heightMul + _cloudFog*0.0021;
   _fogColorTmp.copy(fogColorBase).lerp(WHITEOUT_COLOR, _cloudFog*0.85);
   scene.fog.color.copy(_fogColorTmp);
+  if(typeof cloudMat!=='undefined'){
+    cloudMat.uniforms.uFogColor.value.copy(scene.fog.color); cloudMat.uniforms.uFogDensity.value=scene.fog.density;
+    cirrusMat.uniforms.uFogColor.value.copy(scene.fog.color); cirrusMat.uniforms.uFogDensity.value=scene.fog.density;
+  }
 }
 HOOKS.always.push((dt)=>applyAtmosphere(dt));
 
@@ -2001,10 +2008,8 @@ const CIRRUS_COUNT = { high:CIRRUS_MAX, medium:16, low:0   };
 
 const CLOUD_VS = `
 attribute float aBelly; attribute float aSeed;
-varying float vBelly; varying vec2 vUv2; varying vec2 vSunLocal;
+varying float vBelly; varying vec2 vUv2; varying vec2 vSunLocal; varying float vDist;
 uniform vec3 sunDir;
-#include <common>
-#include <fog_pars_vertex>
 void main(){
   vUv2 = uv; vBelly = aBelly;
   vec3 center = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
@@ -2014,13 +2019,13 @@ void main(){
   vec3 world = center + right*position.x*scaleX + up*position.y*scaleY;
   vSunLocal = vec2(dot(sunDir,right), dot(sunDir,up));
   vec4 mvPosition = viewMatrix*vec4(world,1.0);
+  vDist = -mvPosition.z;
   gl_Position = projectionMatrix*mvPosition;
-  #include <fog_vertex>
 }`;
 const CLOUD_FS = `
-varying float vBelly; varying vec2 vUv2; varying vec2 vSunLocal;
+varying float vBelly; varying vec2 vUv2; varying vec2 vSunLocal; varying float vDist;
 uniform sampler2D map; uniform vec3 uLitColor; uniform vec3 uShadeColor; uniform vec3 uSunColor; uniform float uOpacity;
-#include <fog_pars_fragment>
+uniform vec3 uFogColor; uniform float uFogDensity;
 void main(){
   vec4 tex = texture2D(map, vUv2);
   float a = tex.a; if(a<0.02) discard;
@@ -2031,14 +2036,13 @@ void main(){
   float lightAmt = min(vert*0.7+rim*0.5, 1.0);
   vec3 col = mix(uShadeColor, uLitColor, lightAmt);
   col += uSunColor*pow(rim,5.0)*0.55*vert;
-  float nearFade = smoothstep(30.0, 190.0, vFogDepth);                        // soft fade flying through, no hard pop
+  float nearFade = smoothstep(30.0, 190.0, vDist);                          // soft fade flying through, no hard pop
+  float fogFactor = 1.0 - exp(-uFogDensity*uFogDensity*vDist*vDist);        // matches THREE.FogExp2 falloff
+  col = mix(col, uFogColor, fogFactor);
   gl_FragColor = vec4(col, a*uOpacity*nearFade);
-  #include <fog_fragment>
 }`;
 const CIRRUS_VS = `
-varying vec2 vUv2;
-#include <common>
-#include <fog_pars_vertex>
+varying vec2 vUv2; varying float vDist;
 void main(){
   vUv2 = uv;
   vec3 center = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
@@ -2047,30 +2051,31 @@ void main(){
   vec3 up    = vec3(viewMatrix[0].y, viewMatrix[1].y, viewMatrix[2].y);
   vec3 world = center + right*position.x*scaleX + up*position.y*scaleY;
   vec4 mvPosition = viewMatrix*vec4(world,1.0);
+  vDist = -mvPosition.z;
   gl_Position = projectionMatrix*mvPosition;
-  #include <fog_vertex>
 }`;
 const CIRRUS_FS = `
-varying vec2 vUv2;
+varying vec2 vUv2; varying float vDist;
 uniform sampler2D map; uniform vec3 uTint; uniform float uOpacity;
-#include <fog_pars_fragment>
+uniform vec3 uFogColor; uniform float uFogDensity;
 void main(){
   vec4 tex=texture2D(map, vUv2); float a=tex.a; if(a<0.015) discard;
-  gl_FragColor=vec4(uTint, a*uOpacity);
-  #include <fog_fragment>
+  float fogFactor = 1.0 - exp(-uFogDensity*uFogDensity*vDist*vDist);
+  vec3 col = mix(uTint, uFogColor, fogFactor*0.7);
+  gl_FragColor=vec4(col, a*uOpacity);
 }`;
 
 const cloudMat = new THREE.ShaderMaterial({
-  transparent:true, depthWrite:false, fog:true, side:THREE.DoubleSide,
+  transparent:true, depthWrite:false, fog:false, side:THREE.DoubleSide,
   uniforms:{ sunDir:{value:sunDir.clone()}, map:{value:cloudTex}, uOpacity:{value:0.92},
     uLitColor:{value:new THREE.Color(0xffffff)}, uShadeColor:{value:new THREE.Color(0x9fb2c8)}, uSunColor:{value:new THREE.Color(0xfff2d8)},
-    fogColor:{value:new THREE.Color(0xa8c8e8)}, fogDensity:{value:0.000085} },
+    uFogColor:{value:new THREE.Color(0xa8c8e8)}, uFogDensity:{value:0.000085} },
   vertexShader:CLOUD_VS, fragmentShader:CLOUD_FS
 });
 const cirrusMat = new THREE.ShaderMaterial({
-  transparent:true, depthWrite:false, fog:true, side:THREE.DoubleSide,
+  transparent:true, depthWrite:false, fog:false, side:THREE.DoubleSide,
   uniforms:{ map:{value:cloudTex}, uOpacity:{value:0.30}, uTint:{value:new THREE.Color(0xffffff)},
-    fogColor:{value:new THREE.Color(0xa8c8e8)}, fogDensity:{value:0.000085} },
+    uFogColor:{value:new THREE.Color(0xa8c8e8)}, uFogDensity:{value:0.000085} },
   vertexShader:CIRRUS_VS, fragmentShader:CIRRUS_FS
 });
 const cloudGeo=new THREE.PlaneGeometry(1,1);
