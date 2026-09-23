@@ -180,7 +180,9 @@ def analyse(path, say, ref_wav=None, want_f0=True, want_mos=True):
          'lead': round(a / sr, 3), 'trail': round(dur - b / sr, 3), 'gap': round(max_gap(x, sr), 3)}
     exp = expected_dur(say)
     r['dur_ratio'] = round(speech / exp, 3) if exp > 0 else 1.0
-    r['rate'] = round(syllables(say) / max(0.3, speech), 2)
+    syll = syllables(say)
+    r['syll'] = syll
+    r['rate'] = round(syll / max(0.3, speech), 2)
     hyp = transcribe(x16[a * 16000 // sr: b * 16000 // sr] if b > a else x16)
     r['asr'] = hyp
     r['wer'], r['cer'] = [round(v, 3) for v in wer_cer(say, hyp)]
@@ -193,11 +195,12 @@ def analyse(path, say, ref_wav=None, want_f0=True, want_mos=True):
 
 def score(r, lax=False):
     """single number to rank candidates of the same line (higher = better); lax for dialect speakers"""
-    s = r.get('mos', 3.0)
+    short = r.get('syll', 99) <= 2  # MOS models are unreliable on single-word utterances
+    s = r.get('mos', 3.0) if not short else max(r.get('mos', 3.0), 3.0)
     s -= (0.6 if lax else 1.6) * min(1.0, r.get('cer', 1.0)) * 2.5
     s += 1.5 * (r.get('sim', 0.5) - 0.5) if 'sim' in r else 0
     dr = r.get('dur_ratio', 1.0)
-    if dr > 1.9 or dr < 0.45: s -= 1.5
+    if dr > 1.9 or dr < 0.45: s -= 0.3 if short else 1.5
     if r.get('gap', 0) > 1.2: s -= 0.8
     if r.get('clip', 0) > 0.002: s -= 0.5
     if r.get('speech', 0) < 0.3: s -= 5
@@ -206,11 +209,12 @@ def score(r, lax=False):
 
 def bad(r, lax=False):
     """hard failure -> regenerate with another seed"""
+    short = r.get('syll', 99) <= 2  # duration model + MOS are unreliable on single-word utterances
     reasons = []
     if r.get('speech', 0) < 0.25: reasons.append('silent')
     if r.get('cer', 1) > (0.45 if lax else 0.2): reasons.append('cer %.2f' % r.get('cer', 1))
     dr = r.get('dur_ratio', 1)
-    if dr > 2.1 or dr < 0.4: reasons.append('dur %.2f' % dr)
+    if not short and (dr > 2.1 or dr < 0.4): reasons.append('dur %.2f' % dr)
     if r.get('gap', 0) > 1.5: reasons.append('gap %.1fs' % r['gap'])
-    if r.get('mos', 3) < 2.2: reasons.append('mos %.2f' % r.get('mos', 0))
+    if not short and r.get('mos', 3) < 2.2: reasons.append('mos %.2f' % r.get('mos', 0))
     return reasons
