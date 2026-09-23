@@ -2456,7 +2456,10 @@ function buildRunway(x, z, heading){
   }}
   const gy = Math.max(sum/cnt, CFG.waterLevel+8);
   // Register the plateau BEFORE rebuilding terrain so chunks bake in the flat pad.
-  AIRFIELD = { x, z, cos:cosH, sin:sinH, halfL:L/2+40, halfW:W/2+30, ramp:420, y:gy };
+  // Ramp reaches well past the runway ends into the approach corridor itself — real
+  // strips grade a clear overrun/approach area, so final approach shouldn't clip a
+  // stray hill just short of the threshold (LANDING track fix; was 40/420).
+  AIRFIELD = { x, z, cos:cosH, sin:sinH, halfL:L/2+120, halfW:W/2+30, ramp:700, y:gy };
   rebuildTerrainAround(x, z);
   const strip=new THREE.Mesh(new THREE.PlaneGeometry(W,L), new THREE.MeshStandardMaterial({color:0x2b2e33, roughness:0.95, metalness:0.0}));
   strip.rotation.x=-Math.PI/2; strip.position.y=0.4; grp.add(strip);
@@ -4435,8 +4438,13 @@ function updatePlayer(dt){
   // Height of the WHEELS (not the fuselage origin) above the ground — derived from the
   // actual gear geometry (gearMinY, a Box3 measured once at model-build time) instead of
   // a hand-picked fuselage offset. This is what actually decides ground contact below.
+  // Measured against the RUNWAY's own flat datum when one is assigned (matching the plant
+  // height updatePlayerGround uses) — NOT raw local terrain, which can be far off (hills,
+  // dips) anywhere outside the strip's own flattened footprint and would otherwise fire a
+  // "touchdown" kilometres from the actual pad whenever the flight path happens to graze it.
   const gearOff = -(player.obj.userData.gearMinY||-1.9);
-  const wheelClear = clear - gearOff;
+  const groundRefY = player.runway ? player.runway.y : groundY;
+  const wheelClear = (player.obj.position.y - groundRefY) - gearOff;
 
   // Auto-flare: continuous authority (0..1, critically-damped) that ramps in as the
   // wheels approach the runway — never an on/off snap, so pitch/sink never jump.
@@ -4449,10 +4457,12 @@ function updatePlayer(dt){
   }
   if(L.flareK>0.5 && !L.once.flare){ L.once.flare=true; radio('KIEBITZ|Abfangen … abfangen …|leise'); }
 
-  if(player.gearDown && (overRunway || player.runway) && wheelClear<=0.05 && player.pitch>-0.15){
+  if(player.gearDown && overRunway && wheelClear<=0.05 && player.pitch>-0.15){
     // ---- LANDING TOUCHDOWN: grade by sink rate + alignment ----
     // Triggered by the WHEELS reaching the ground (wheelClear), so the mains (the
     // gear's lowest point) always touch first — no separate nose/main simulation needed.
+    // Requires the real runway footprint (overRunway), not just "a runway exists for this
+    // mission" — touching down kilometres away over rolling terrain is a crash, not a landing.
     // A runway is landable from BOTH ends, so use |dot| — flying back down the
     // strip the "wrong" way is a perfectly valid approach, not a crash.
     const sink=Math.max(0,-player.vy);
@@ -4489,7 +4499,7 @@ function updatePlayer(dt){
     for(let i=0;i<8;i++) smokeP.spawn(player.obj.position.x,groundY+1,player.obj.position.z,(Math.random()-0.5)*20,4,(Math.random()-0.5)*20,0.7,8,26,C_GREY,C_SMOKE,0.9,0);
     player.landed=true;
     if(mission.active) onLanded(hard);
-  } else if(clear<3.4 && player.crashCd<=0 && !(player.gearDown && (overRunway||player.runway))){
+  } else if(clear<3.4 && player.crashCd<=0 && !(player.gearDown && overRunway)){
     // hard terrain impact (no gear / not a runway / nose down) — forgiving bounce
     EV.emit('crash',{cause:'terrain'});
     player.hp-=34; player.crashCd=1.0; shake=Math.max(shake,1.2); damageFlash=Math.max(damageFlash,1.0);
