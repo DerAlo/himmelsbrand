@@ -381,6 +381,21 @@ const GFX = (function(){
   return { get quality(){ return quality; }, level, set, autoDowngrade, onChange, LEVELS };
 })();
 
+// Frame / lifecycle hooks, so subsystems can live in their OWN section instead of editing the main loop.
+//   HOOKS.update       f(dt)          every frame while state==='playing' (after weapons, before the mission runtime)
+//   HOOKS.always       f(dt, rawDt)   every frame in every state (after particles/debris)
+//   HOOKS.preRender    f(rawDt)       every frame right before the frame is rendered
+//   HOOKS.missionStart f(def, index)  at the end of setupMission (campaign missions)
+//   HOOKS.reset        f()            at the end of resetWorld (new mission / endless / menu)
+// Register with HOOKS.update.push(fn). A hook that throws is logged once and removed.
+const HOOKS = { update:[], always:[], preRender:[], missionStart:[], reset:[] };
+function runHooks(list, a, b){ for(let i=list.length-1;i>=0;i--){ try{ list[i](a,b); }catch(e){ console.error('hook failed, removed:', e); list.splice(i,1); } } }
+
+// Free the GPU buffers of a removed object tree (geometries only: materials/programs are shared and
+// re-compiling them would hitch). Shared geometry is safe too — three.js re-uploads it on next use.
+// Set geometry.userData.keep=true to opt out. Call AFTER scene.remove(obj).
+function disposeTree(obj){ if(!obj) return; obj.traverse(o=>{ const g=o.geometry; if(g && !(g.userData&&g.userData.keep)) g.dispose(); }); }
+
 // Energy fighting: turn performance depends on airspeed.
 // SLOW = tighter turn, FAST = wider turn. Braking still helps, but the player has
 // a clear turn-rate ADVANTAGE over enemies at every speed (see playerTurnMultFor),
@@ -1310,7 +1325,10 @@ const Audio = (function(){
     bogey:bogeyGain?bogeyGain.gain.value:0, missileVoices:missileVoiceCount }; }
 
   return { init, resume, setEngine, gun, missileLaunch, explosion, hit, hitTaken, lockTone, reload, bombDrop, samLaunch, warnBeep,
-    updateMusic, updateBogey, setStyle, silenceFlight, duckMusic, startMissileSound, updateMissileSound, stopMissileSound, _debug };
+    updateMusic, updateBogey, setStyle, silenceFlight, duckMusic, startMissileSound, updateMissileSound, stopMissileSound, _debug,
+    // Extension points for sound code living in OTHER sections (landing, bosses, voice radio FX, ...):
+    // build nodes on ctx() and connect them to out() (SFX master) or musicBus(). ctx() is null until init().
+    ctx:()=> (enabled?ctx:null), out:()=>master, musicBus:()=>musicBus };
 })();
 
 /* ---------------------------------------------------------------------------
@@ -2378,7 +2396,7 @@ function buildEurofighter(withLight){
 // ---- Runway / airbase strip (a landing surface the player can roll on) ----
 let runwayMesh=null;
 function buildRunway(x, z, heading){
-  if(runwayMesh){ scene.remove(runwayMesh); runwayMesh=null; }
+  if(runwayMesh){ scene.remove(runwayMesh); disposeTree(runwayMesh); runwayMesh=null; }
   const grp=new THREE.Group();
   const L=1400, W=60;
   // Pad height = a robust average of the RAW terrain across the strip footprint,
@@ -2427,7 +2445,7 @@ function buildRunway(x, z, heading){
   return { x, z, heading, length:L, width:W, y:gy };
 }
 function clearRunway(){
-  if(runwayMesh){ scene.remove(runwayMesh); runwayMesh=null; }
+  if(runwayMesh){ scene.remove(runwayMesh); disposeTree(runwayMesh); runwayMesh=null; }
   player.runway=null;
   if(AIRFIELD){ const a=AIRFIELD; AIRFIELD=null; rebuildTerrainAround(a.x, a.z); }  // restore natural terrain
 }
@@ -2793,7 +2811,7 @@ function destroyGround(gt){
   // debris chunks
   for(let i=0;i<10;i++){ const a=Math.random()*Math.PI*2, sp=80+Math.random()*160;
     fireP.spawn(gt.obj.position.x,gt.obj.position.y+4,gt.obj.position.z, Math.cos(a)*sp, 80+Math.random()*120, Math.sin(a)*sp, 1.0, 8, 2, C_YELLOW, C_RED, 0.95, 60); }
-  scene.remove(gt.obj);
+  scene.remove(gt.obj); disposeTree(gt.obj);
   if(gt.bossPart && boss){
     const left=boss.parts.filter(p=>!p.dead).length;
     if(left>0) radio('WAGNER|'+(boss.kind==='auge'?'Pylon':'Turm')+' zerstört — '+left+' übrig.');
@@ -2803,7 +2821,7 @@ function destroyGround(gt){
   if(mission.active) onGroundDestroyed(gt);
   score += 150; if(dom.score) dom.score.textContent=score;
 }
-function clearGroundTargets(){ for(const gt of groundTargets){ scene.remove(gt.obj); } groundTargets.length=0; }
+function clearGroundTargets(){ for(const gt of groundTargets){ scene.remove(gt.obj); disposeTree(gt.obj); } groundTargets.length=0; }
 
 /* ---------------------------------------------------------------------------
    11. ENEMIES
@@ -3371,7 +3389,7 @@ function gotoMenu(){
   Audio.setStyle('score'); Voice.stop(); Audio.duckMusic(false);   // undo any pause-duck (Pause->Menü left the music bus at 0)
   clearVictoryTimer();
   clearGroundTargets(); clearBoss(); clearRunway(); clearAlly();
-  for(const e of enemies) scene.remove(e.obj); enemies.length=0;
+  for(const e of enemies){ scene.remove(e.obj); disposeTree(e.obj); } enemies.length=0;
   // tear down in-flight projectiles too (else a fired missile's oscillator + meshes leak into the menu)
   for(const m of missiles){ Audio.stopMissileSound(m.snd); scene.remove(m.mesh); } missiles.length=0;
   for(const m of enemyMissiles) scene.remove(m.mesh); enemyMissiles.length=0;
@@ -3388,7 +3406,7 @@ function hideHudExtras(){ dom.objectives.innerHTML=''; dom.bosswrap.classList.re
 /* ===== Common world reset ===== */
 function resetWorld(){
   clearVictoryTimer();
-  for(const e of enemies) scene.remove(e.obj); enemies.length=0;
+  for(const e of enemies){ scene.remove(e.obj); disposeTree(e.obj); } enemies.length=0;
   for(const b of bullets) releaseBullet(b); bullets.length=0;
   for(const m of missiles){ Audio.stopMissileSound(m.snd); scene.remove(m.mesh); } missiles.length=0;
   for(const m of enemyMissiles) scene.remove(m.mesh); enemyMissiles.length=0;
@@ -3399,6 +3417,7 @@ function resetWorld(){
   if(dom.score) dom.score.textContent='0';
   player.obj.visible=true;
   resetPlayer();
+  runHooks(HOOKS.reset);
 }
 
 /* ===== ENDLESS ===== */
@@ -3777,6 +3796,7 @@ function setupMission(index){
   banner(def.name.toUpperCase(), 'MISSION '+(index+1));
   queueRadio(def.intro, 3.6);
   renderObjectives(); updateWeaponHUD();
+  runHooks(HOOKS.missionStart, def, index);
 }
 function layoutGroundTargets(groundSpec){
   // place targets in a cluster ~3000m ahead along the player's heading, spread out
@@ -3913,7 +3933,7 @@ function updateMission(dt){
    15d2. ALLY (Hauptmann Lärche) — escortable friendly aircraft
    --------------------------------------------------------------------------- */
 let ally=null;
-function clearAlly(){ if(ally){ scene.remove(ally.obj); ally=null; } }
+function clearAlly(){ if(ally){ scene.remove(ally.obj); disposeTree(ally.obj); ally=null; } }
 const ALLY_HP=420;
 function spawnAlly(opts){
   opts = opts || {};
@@ -3989,7 +4009,7 @@ function fireAllyBullet(pos, dir, target){
    15e. BOSSES — KRONOS (carrier) and DAS AUGE (finale)
    --------------------------------------------------------------------------- */
 let boss=null;
-function clearBoss(){ if(boss){ scene.remove(boss.obj); boss=null; } dom.bosswrap.classList.remove('show'); }
+function clearBoss(){ if(boss){ scene.remove(boss.obj); disposeTree(boss.obj); boss=null; } dom.bosswrap.classList.remove('show'); }
 function spawnBoss(kind, finale){
   const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion);
   const bx=player.obj.position.x+fwd.x*3800, bz=player.obj.position.z+fwd.z*3800;
@@ -4569,7 +4589,7 @@ function killEnemy(e){
   const idx=enemies.indexOf(e); if(idx<0) return;
   if(e.wing){ e.wing.wing=null; e.wing.pinRole=null; }   // un-pair a pincer partner
   const _kpan=screenPanX(e.obj.position);
-  enemies.splice(idx,1); scene.remove(e.obj);
+  enemies.splice(idx,1); scene.remove(e.obj); disposeTree(e.obj);
   explode(e.obj.position.x,e.obj.position.y,e.obj.position.z, e.type==='f22'?1.8:1.2);
   Audio.explosion(e.type==='f22', _kpan);
   markHit(true,true);   // kill juice: red X + micro hit-stop + score pop
@@ -4954,6 +4974,7 @@ function loop(now){
     updateMissiles(dt);
     updateEnemyMissiles(dt);
     updateBombs(dt);
+    runHooks(HOOKS.update, dt);
     if(rwrT>0) rwrT-=rawDt;
     if(gameMode==='campaign') updateMission(dt);
     nextWaveCheck(dt);
@@ -4979,6 +5000,7 @@ function loop(now){
 
   // particles + debris always update (ride scaled dt so they freeze/slow with the world)
   fireP.update(dt); smokeP.update(dt); updateDebris(dt); updateFX(dt); updateBlobs(dt);
+  runHooks(HOOKS.always, dt, rawDt);
 
   // --- Adaptive music + spatial bogey (runs every frame incl. menu/pause; uses REAL time) ---
   if(state==='playing'){
@@ -4998,6 +5020,7 @@ function loop(now){
 
   updateCamera(dt);
   drawHUD();
+  runHooks(HOOKS.preRender, rawDt);
    // post-FX: bloom breathes with combat (boss stabs / solid hits), graded via ShaderPass
   if(composer){ gradePass.uniforms.uTime.value+=rawDt; bloomPass.strength=0.30+(boss?0.10:0)+(hitMarkT>0?0.14:0); composer.render(); }
   else renderer.render(scene, camera);
