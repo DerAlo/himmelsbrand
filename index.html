@@ -4700,6 +4700,9 @@ function updateMissiles(dt){
     mi.trailCd-=dt;
     smokeP.spawn(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,(Math.random()-0.5)*10,(Math.random()-0.5)*10,(Math.random()-0.5)*10,0.9,10,60,C_WHITE,C_GREY,0.95,-2);
     fireP.spawn(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0,0,0,0.15,14,2,C_YELLOW,C_ORANGE,0.9,0);
+    if(mi.trailCd<=0){ mi.trailCd=0.05;   // sparser glowing embers drifting off the smoke -> reads as "lit" trail, not just grey fog
+      fireP.spawn(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z, (Math.random()-0.5)*24,(Math.random()-0.5)*24,(Math.random()-0.5)*24, 0.45+Math.random()*0.35, 4,1, C_ORANGE, C_RED, 0.9, -8);
+     }
     const mdist=mi.mesh.position.distanceTo(player.obj.position);
     Audio.updateMissileSound(mi.snd, screenPanX(mi.mesh.position), dopp(mi.mesh.position,mi.vel), Math.max(0,Math.min(1,1-mdist/2500))*0.18);
     const mpan=screenPanX(mi.mesh.position);

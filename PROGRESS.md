@@ -20,6 +20,9 @@
   (`terrainHeight<waterLevel`) und spawnt eine helle Gischt statt des Staubrings.
 - `updateAlly`: Banking/Roll aus Gier-Rate (lokale Z-Rotation nach dem lookAt), vorher reine
   Blickrichtung ohne Schräglage.
+- `updateMissiles`: `trailCd` (existierte, wurde aber nie ausgewertet) nutzt jetzt einen
+  Intervall-Spawn heller, kurzlebiger Glut-Partikel zusätzlich zur bestehenden Rauch/Feuer-Spur —
+  liest sich als „brennende" Spur statt nur grauer Nebel.
 
 ## Getestet
 - `node tools/jsgate.mjs index.html` → OK nach jeder Änderung.
@@ -29,10 +32,13 @@
 - Voller Sweep (`tools/sweep.mjs`, SWEEP_MS=2200): 27/27 Missionen + Endlos + 12 Cutscenes,
   0 newErrors überall. Draw calls jetzt 448-968 (vorher Baseline ~1000-1300) — klar runter.
   Dreiecke 685k-786k (Baseline ~700-780k) — praktisch unverändert, Budget eingehalten.
+- Zweiter voller Sweep nach dem Glut-Spur-Zusatz in `updateMissiles`: erneut 27/27 Missionen +
+  Endlos + 12 Cutscenes, 0 newErrors, minFps 54.7, maxCalls 947 — keine Regression.
 
 ## Nächste Schritte (falls Zeit/Budget reicht)
-- Missile-Smoke-Trail (in `updateMissiles`) noch nicht separat verfeinert (weiten/aufhellen).
-- Tracer-Streckung nach Geschwindigkeit nicht umgesetzt.
+- Tracer-Streckung nach Geschwindigkeit nicht umgesetzt (Tracer ist bereits ein langer, dünner
+  Box-Streak + additivem Glow-Sprite — bewusst nicht angefasst, geteiltes Pool-Mesh/Material,
+  Risiko > Nutzen).
 - Ally-Banking optisch noch nicht per Screenshot bestätigt (Ally war im Testlauf nicht sichtbar
   im Frame, aber Code-Pfad lief fehlerfrei durch alle 27 Missionen inkl. B-Team wo Allies spawnen).
 
