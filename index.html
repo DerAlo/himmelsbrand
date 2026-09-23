@@ -2059,7 +2059,7 @@ function updateDebris(dt){
     d.mesh.rotation.x+=d.av.x*dt; d.mesh.rotation.y+=d.av.y*dt; d.mesh.rotation.z+=d.av.z*dt;
     if(d.hot && !d.settled){    // burning wreckage: a thin ember+smoke streak on the way down
       d.trailCd-=dt;
-      if(d.trailCd<=0){ d.trailCd=0.035;
+      if(d.trailCd<=0){ d.trailCd=0.035/FXQ();
         smokeP.spawn(d.mesh.position.x,d.mesh.position.y,d.mesh.position.z,0,6,0, 0.5,3,14,C_SOOT,C_SMOKE,0.9,-2);
         if(Math.random()<0.5) fireP.spawn(d.mesh.position.x,d.mesh.position.y,d.mesh.position.z,(Math.random()-0.5)*8,4,(Math.random()-0.5)*8,0.2,3,1,C_ORANGE,C_RED,0.85,0);
        }
@@ -2068,7 +2068,7 @@ function updateDebris(dt){
     if(d.mesh.position.y<=gy){
       if(d.hot && !d.settled){    // impact puff: the burning chunk hits the ground and flares once
         fireP.spawn(d.mesh.position.x,gy,d.mesh.position.z,0,30,0,0.25,10,2,C_YELLOW,C_ORANGE,0.9,0);
-        smokeP.spawn(d.mesh.position.x,gy,d.mesh.position.z,0,20,0,1.2,8,50,C_SOOT,C_DARK,0.93,-4);
+        smokeP.spawn(d.mesh.position.x,gy,d.mesh.position.z,0,20,0,1.2,8,50,C_SMK_WARM,C_SMK_MID,0.93,-4);
        }
       d.mesh.position.y=gy; d.vel.set(0,0,0); d.av.multiplyScalar(Math.pow(0.02,dt)); d.settled=true;
     }
@@ -2613,8 +2613,8 @@ function buildEurofighter(withLight){
 // A cheap sprite-opacity toggle, so it runs unconditionally regardless of GFX.level().
 HOOKS.always.push(function(){
   const t=performance.now()*0.001;
-  const jets=[ (typeof player!=='undefined'&&player)?player.obj:null, (typeof ally!=='undefined'&&ally)?ally.obj:null ];
-  for(const obj of jets){
+  for(let j=0;j<2;j++){   // player jet, then ally jet (no per-frame array)
+    const obj = j===0 ? ((typeof player!=='undefined'&&player)?player.obj:null) : ((typeof ally!=='undefined'&&ally)?ally.obj:null);
     if(!obj || !obj.userData.strobes) continue;
     const ph=(t*2 + obj.userData.strobePhase)%1;
     const on = ph<0.06 || (ph>0.12 && ph<0.16);   // double-flash pattern like a real anti-collision strobe
@@ -4881,7 +4881,7 @@ function updateMissiles(dt){
     mi.trailCd-=dt;
     missileTrail(mi,false);
     fireP.spawn(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0,0,0,0.15,14,2,C_YELLOW,C_ORANGE,0.9,0);
-    if(mi.trailCd<=0){ mi.trailCd=0.05;   // sparser glowing embers drifting off the smoke -> reads as "lit" trail, not just grey fog
+    if(mi.trailCd<=0){ mi.trailCd=0.05/FXQ();   // sparser glowing embers drifting off the smoke -> reads as "lit" trail, not just grey fog
       fireP.spawn(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z, (Math.random()-0.5)*24,(Math.random()-0.5)*24,(Math.random()-0.5)*24, 0.45+Math.random()*0.35, 4,1, C_ORANGE, C_RED, 0.9, -8);
      }
     const mdist=mi.mesh.position.distanceTo(player.obj.position);
