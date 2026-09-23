@@ -1609,6 +1609,67 @@ function buildEnvMap(){
 const terrainGroup = new THREE.Group(); scene.add(terrainGroup);
 const chunks = new Map();
 const terrainMat = new THREE.MeshLambertMaterial({ vertexColors:true });
+// Cosmetic detail layer only: multiplies the EXISTING per-vertex colour and perturbs the
+// fragment normal for lighting alone. Never touches vertex positions, geometry or
+// terrainHeight() — collision, runway placement and the water depth map stay bit-identical.
+// uDetail/uGlint below are driven per GFX level from section 5b (GFX.onChange).
+terrainMat.onBeforeCompile = function(sh){
+  sh.uniforms.uTime = { value: 0 };
+  sh.uniforms.uCamPos = { value: new THREE.Vector3() };
+  sh.uniforms.uDetail = { value: 1.0 };
+  terrainMat.userData.shader = sh;
+  sh.vertexShader = sh.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vWPosG;\nvarying vec3 vNW;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vWPosG = (modelMatrix*vec4(position,1.0)).xyz;\n  vNW = normalize(mat3(modelMatrix)*normal);');
+  sh.fragmentShader = sh.fragmentShader
+    .replace('#include <common>',
+      '#include <common>\nvarying vec3 vWPosG;\nvarying vec3 vNW;\nuniform float uTime;\nuniform vec3 uCamPos;\nuniform float uDetail;\n' +
+      'float tHash(vec2 p){ return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453); }\n' +
+      'float tNoise(vec2 p){\n' +
+      '  vec2 i=floor(p), f=fract(p);\n' +
+      '  float a=tHash(i), b=tHash(i+vec2(1.0,0.0)), c=tHash(i+vec2(0.0,1.0)), d=tHash(i+vec2(1.0,1.0));\n' +
+      '  vec2 u=f*f*(3.0-2.0*f);\n' +
+      '  return mix(a,b,u.x) + (c-a)*u.y*(1.0-u.x) + (d-b)*u.x*u.y;\n' +
+      '}')
+    .replace('#include <normal_fragment_begin>',
+      '#include <normal_fragment_begin>\n' +
+      '  // Fake micro-relief: a lighting-only normal wobble, faded out with distance and by\n' +
+      '  // GFX level. No geometry change, so it cannot desync from terrainHeight() sampling.\n' +
+      '  {\n' +
+      '    float distN = length(vWPosG - uCamPos);\n' +
+      '    float fadeN = uDetail*(1.0 - smoothstep(180.0, 500.0, distN));\n' +
+      '    if(fadeN > 0.002){\n' +
+      '      vec2 bp = vWPosG.xz*0.22;\n' +
+      '      float bn = tNoise(bp) - tNoise(bp+vec2(3.1,1.7));\n' +
+      '      normal = normalize(normal + vec3(bn*0.35, 0.0, bn*0.35)*fadeN);\n' +
+      '    }\n' +
+      '  }')
+    .replace('#include <color_fragment>',
+      '#include <color_fragment>\n' +
+      '  // Fades with distance: invisible past a few hundred metres anyway, and the fog\n' +
+      '  // GFX-ATMO applies already hides the far, bulk terrain, so this stays cheap there.\n' +
+      '  float distT = length(vWPosG - uCamPos);\n' +
+      '  float detailFade = uDetail*(1.0 - smoothstep(220.0, 650.0, distT));\n' +
+      '  if(detailFade > 0.002){\n' +
+      '    float macro = tNoise(vWPosG.xz*0.006);\n' +
+      '    float micro = tNoise(vWPosG.xz*0.09);\n' +
+      '    float fieldN = tNoise(vWPosG.xz*0.0013);\n' +
+      '    // faint low-altitude field patchwork, only where the ground is already grass-green\n' +
+      '    // (a brightness/hue proxy) so it never paints onto sand, rock or snow\n' +
+      '    float isMeadowish = smoothstep(0.05,0.22,diffuseColor.g-diffuseColor.r) * smoothstep(600.0, 60.0, vWPosG.y);\n' +
+      '    float field = step(0.5, fract(fieldN*5.0)) * isMeadowish;\n' +
+      '    diffuseColor.rgb *= 1.0 + (macro-0.5)*0.10*detailFade + (field-0.5)*0.05*detailFade;\n' +
+      '    diffuseColor.rgb *= 1.0 + (micro-0.5)*0.05*detailFade;\n' +
+      '    // rock crack darkening on steep faces, reusing the normal the geometry already has\n' +
+      '    float steep = 1.0 - clamp(vNW.y, 0.0, 1.0);\n' +
+      '    diffuseColor.rgb *= 1.0 - steep*micro*0.18*detailFade;\n' +
+      '    // noisy snow edge ON TOP of heightColor()\'s existing smooth altitude band: nudges\n' +
+      '    // the effective treeline by up to +-70m per-position so it is not a dead-straight\n' +
+      '    // contour, using the real world altitude (vWPosG.y) already free in this shader\n' +
+      '    float snowMix = smoothstep(430.0 + (macro-0.5)*140.0, 540.0 + (macro-0.5)*140.0, vWPosG.y);\n' +
+      '    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.94,0.96,1.0), snowMix*0.35*detailFade);\n' +
+      '  }\n');
+};
 
 // Stable per-position hash: same world x/z always yields the same value, so a rebuilt
 // chunk is bit-identical (Math.random() here made terrain flicker between rebuilds).
@@ -1691,6 +1752,7 @@ function buildChunk(cx, cz){
   const mesh=new THREE.Mesh(geo, terrainMat);
   mesh.position.set(ox,0,oz);
   mesh.frustumCulled=true;
+  mesh.receiveShadow=true;      // GFX-ATMO sun shadows land on the ground once shadow maps are enabled
   return mesh;
 }
 // Chunk building is budgeted per call: one chunk costs ~2 ms and crossing a border needs
@@ -1709,10 +1771,22 @@ function updateTerrain(px,pz,budget){
   }
   missing.sort((a,b)=>a.d-b.d);                       // nearest first: fill the view centre
   const lim = (budget===undefined) ? CHUNK_BUDGET : budget;
+  // 5b: evict out-of-range scenery BEFORE building anything new, so a pool's shared instance
+  // capacity (its high-water mark) is recycled immediately — a big jump (mission start, or a
+  // teleport far away) must not allocate a whole extra ring's worth before the old ring is
+  // freed. Piggybacks on the same needed-set bookkeeping, so every caller of updateTerrain
+  // (including rebuildTerrainAround) gets scenery lifecycle for free with no foreign edits.
+  if(typeof sceneryChunks!=='undefined'){
+    for(const key of sceneryChunks.keys()){ if(!needed.has(key)) freeScenery(key); }
+  }
   for(let i=0;i<missing.length && i<lim;i++){
     const q=missing[i]; const m=buildChunk(q.cx,q.cz); chunks.set(q.key,m); terrainGroup.add(m);
+    if(typeof scatterChunkScenery==='function' && !sceneryChunks.has(q.key)) scatterChunkScenery(q.cx,q.cz);   // scenery streams in lockstep with its terrain chunk
   }
   for(const [key,m] of chunks){ if(!needed.has(key)){ terrainGroup.remove(m); m.geometry.dispose(); chunks.delete(key); } }
+  if(typeof sceneryChunks!=='undefined'){
+    for(const key of needed){ if(chunks.has(key) && !sceneryChunks.has(key)){ const p=key.split(','); scatterChunkScenery(+p[0],+p[1]); } }
+  }
 }
 
 // Water plane (follows player)
@@ -1794,6 +1868,10 @@ waterMat.onBeforeCompile=function(sh){
   sh.uniforms.uShallow={ value: new THREE.Color(0x1d5566) };   // measured: this reads calmer under motion than a tint closer to the deep colour
   sh.uniforms.uLightLevel={ value: 1.0 };                      // set from applyTimeOfDay: surf must not glow at night
   sh.uniforms.uSand={ value: new THREE.Color(0x9d9a80) };
+  sh.uniforms.uTime={ value: 0 };
+  sh.uniforms.uCamPos={ value: new THREE.Vector3() };
+  sh.uniforms.uSunDir={ value: sunDir.clone() };
+  sh.uniforms.uGlint={ value: 1.0 };                           // GFX level: 1 high, 0.6 medium, 0 low
   waterMat.userData.shader = sh;
   sh.vertexShader = sh.vertexShader
     .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;')
@@ -1807,7 +1885,7 @@ waterMat.onBeforeCompile=function(sh){
     .replace('vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + reflectedLight.directSpecular + reflectedLight.indirectSpecular + totalEmissiveRadiance;',
              'vec3 outgoingLight = reflectedLight.directDiffuse*0.30 + reflectedLight.indirectDiffuse*0.16 + reflectedLight.directSpecular + reflectedLight.indirectSpecular + totalEmissiveRadiance;')
     .replace('#include <common>',
-      '#include <common>\nvarying vec3 vWPos;\nuniform sampler2D uDepthTex;\nuniform vec2 uDepthCenter;\nuniform float uDepthSpan;\nuniform vec3 uShallow;\nuniform vec3 uSand;\nuniform float uLightLevel;')
+      '#include <common>\nvarying vec3 vWPos;\nuniform sampler2D uDepthTex;\nuniform vec2 uDepthCenter;\nuniform float uDepthSpan;\nuniform vec3 uShallow;\nuniform vec3 uSand;\nuniform float uLightLevel;\nuniform float uTime;\nuniform vec3 uCamPos;\nuniform vec3 uSunDir;\nuniform float uGlint;')
     .replace('#include <dithering_fragment>',
       '#include <dithering_fragment>\n' +
       '  vec2 duv = (vWPos.xz - uDepthCenter)/uDepthSpan + 0.5;\n' +
@@ -1836,6 +1914,18 @@ waterMat.onBeforeCompile=function(sh){
       '  // pixels near the threshold switched it on and off between frames — measured as 87 %\n' +
       '  // of the land/water flicker while flying. The shoreline now comes from the terrain\n' +
       '  // wet-sand band plus this alpha fade, both of which vary smoothly.\n' +
+      '  // Sun glint below is a SEPARATE, always-smooth analytic term (no texture lookup, no\n' +
+      '  // threshold anywhere in it) continuous in both space and time, so by construction it\n' +
+      '  // cannot reproduce the bug above; it fades with the same smooth `shore` this water\n' +
+      '  // already computes, so it never appears past the shoreline blend either.\n' +
+      '  vec3 viewDirW = normalize(uCamPos - vWPos);\n' +
+      '  vec2 gp = vWPos.xz*0.015;\n' +
+      '  float gn1 = sin(gp.x*1.7 + gp.y*1.13 + uTime*0.9);\n' +
+      '  float gn2 = sin(gp.x*-1.31 + gp.y*2.31 + uTime*0.57 + 1.7);\n' +
+      '  vec3 waveN = normalize(vec3(gn1*0.05+gn2*0.035, 1.0, gn2*0.05-gn1*0.03));\n' +
+      '  vec3 halfW = normalize(uSunDir + viewDirW);\n' +
+      '  float glintSpec = pow(max(dot(waveN, halfW), 0.0), 60.0);\n' +
+      '  gl_FragColor.rgb += glintSpec*uGlint*shore*uLightLevel*vec3(1.0,0.93,0.80);\n' +
       '  ');
 };
    // NO normal map on purpose. A tileable ripple texture on a 12,000-unit plane always
@@ -1852,6 +1942,319 @@ water.rotation.x=-Math.PI/2;
 water.position.y=CFG.waterLevel-0.4;
 waterMat.polygonOffset=true; waterMat.polygonOffsetFactor=-3; waterMat.polygonOffsetUnits=-6;
 scene.add(water);
+
+/* ---------------------------------------------------------------------------
+   5b. SCENERY (instanced trees/rocks/haybales/villages, streamed with the terrain)
+   Everything here is READ-ONLY towards other tracks' globals (AIRFIELD, player,
+   groundTargets, sunDir, camera, scene.fog) and only ADDS to updateTerrain's body
+   below — none of the pre-existing terrain-mesh lines are touched. Placement is
+   altitude-band-driven (the same bands heightColor() already uses) rather than
+   real slope sampling, which keeps per-candidate cost to a couple of hash() calls
+   so the budgeted chunk-build loop never hitches when new chunks stream in.
+   --------------------------------------------------------------------------- */
+const SCN = {
+  cell: 92,                 // candidate grid spacing, metres (measured: keeps a full 49-chunk ring at ~60% of the +500k triangle budget)
+  clearAirfield: 140,       // clearance from the runway plateau
+  clearTarget: 60,          // clearance from ground targets
+  villageChance: 0.014,     // per-chunk roll for a small village cluster
+};
+function scnDensity(){                          // extra per-candidate thinning, on top of the family odds below
+  const L = GFX.level();
+  return L==='high' ? 1.0 : (L==='medium' ? 0.55 : 0.15);
+}
+function nearAirfield(x,z,margin){
+  const A = AIRFIELD; if(!A) return false;
+  const dx=x-A.x, dz=z-A.z;
+  const lx = dx*A.cos - dz*A.sin, lz = dx*A.sin + dz*A.cos;
+  return Math.abs(lx) < A.halfW+margin && Math.abs(lz) < A.halfL+margin;
+}
+function nearGroundTarget(x,z,margin){
+  for(let i=0;i<groundTargets.length;i++){
+    const t=groundTargets[i]; if(!t || !t.obj) continue;
+    const dx=x-t.obj.position.x, dz=z-t.obj.position.z;
+    const rr=(t.radius||8)+margin;
+    if(dx*dx+dz*dz < rr*rr) return true;
+  }
+  return false;
+}
+
+// --- instanced pools -------------------------------------------------------
+function _mkTrunkGeo(rTop,rBot,h,seg){ const g=new THREE.CylinderGeometry(rTop,rBot,h,seg,1,true); g.translate(0,h/2,0); return g; }
+function _mkConeGeo(r,h,seg){ const g=new THREE.ConeGeometry(r,h,seg,1,false); g.translate(0,h/2,0); return g; }
+function _mkBallGeo(r){ return new THREE.IcosahedronGeometry(r,0); }
+function _mkHayGeo(r,len,seg){ const g=new THREE.CylinderGeometry(r,r,len,seg,1,false); g.rotateZ(Math.PI/2); g.translate(0,r,0); return g; }
+function _mkWallGeo(w,h,d){ const g=new THREE.BoxGeometry(w,h,d); g.translate(0,h/2,0); return g; }
+
+let _windMats = [];
+// Shared instancing material factory: adds a per-instance tint (instTint, so pools are not
+// flat poster-paint colour) and, when sway is true, a cheap vertex-shader wind wobble driven
+// by a shared uTime and gated by GFX level (uWindAmp). Only ever multiplies colour / offsets
+// the visual mesh — no gameplay state (collision, targeting) reads any of this.
+function makeInstancedMat(colorHex, sway){
+  const mat = new THREE.MeshLambertMaterial({ color: colorHex });
+  mat.onBeforeCompile = function(sh){
+    sh.uniforms.uTime = { value: 0 };
+    if(sway) sh.uniforms.uWindAmp = { value: (GFX.level()==='high') ? 1.0 : 0.0 };
+    mat.userData.shader = sh;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec3 instTint;\nvarying vec3 vTint;\nuniform float uTime;' + (sway ? '\nuniform float uWindAmp;' : ''))
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vTint = instTint;' +
+        (sway ?
+          ('\n  #ifdef USE_INSTANCING\n' +
+           '  float _sw = sin(uTime*1.4 + instanceMatrix[3].x*0.09 + instanceMatrix[3].z*0.07);\n' +
+           '  transformed.x += _sw*uWindAmp*0.08*position.y;\n' +
+           '  transformed.z += _sw*uWindAmp*0.05*position.y;\n' +
+           '  #endif') : ''));
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vTint;')
+      .replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb *= vTint;');
+  };
+  if(sway) _windMats.push(mat);
+  return mat;
+}
+const MAT_TRUNK_CONIFER = makeInstancedMat(0x4a3420, false);
+const MAT_CONIFER_CANOPY = makeInstancedMat(0x1d3a20, true);
+const MAT_TRUNK_DECID = makeInstancedMat(0x6b5a3c, false);
+const MAT_DECID_CANOPY = makeInstancedMat(0x4c7a30, true);
+const MAT_ROCK = makeInstancedMat(0x6e6c64, false);
+const MAT_HAY = makeInstancedMat(0xc9a23c, false);
+const MAT_WALL = makeInstancedMat(0xd6cab0, false);
+const MAT_ROOF = makeInstancedMat(0x7a3a2c, false);
+
+const GEO_CONIFER_TRUNK_H=7.2, GEO_CONIFER_CANOPY_H=9.5, GEO_CONIFER_CANOPY_R=3.0;
+const GEO_DECID_TRUNK_H=5.6, GEO_DECID_CANOPY_R=3.6;
+const GEO_ROCK_R=2.0, GEO_HAY_R=1.5, GEO_HOUSE_WALL_H=6.4;
+
+// A pool is one InstancedMesh with a fixed capacity: 8 pools total = 8 extra draw calls,
+// regardless of how many trees/rocks/houses are ever placed (well inside the +60 draw call
+// budget). "Freed" instances are hidden with a near-zero (never exactly zero, to avoid a
+// singular/NaN normal matrix) scale rather than removed, so instance count only ever grows
+// towards its cap — the triangle budget already assumes every pool eventually reaches cap.
+const _pPos=new THREE.Vector3(), _pQuat=new THREE.Quaternion(), _pEul=new THREE.Euler(), _pScale=new THREE.Vector3(), _pMat=new THREE.Matrix4();
+const _HIDE_MAT = new THREE.Matrix4().makeScale(0.0001,0.0001,0.0001);
+function makePool(geo, mat, cap){
+  const im = new THREE.InstancedMesh(geo, mat, cap);
+  im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  const tint = new Float32Array(cap*3); for(let i=0;i<cap;i++){ tint[i*3]=1; tint[i*3+1]=1; tint[i*3+2]=1; }
+  geo.setAttribute('instTint', new THREE.InstancedBufferAttribute(tint,3));
+  for(let i=0;i<cap;i++) im.setMatrixAt(i, _HIDE_MAT);
+  im.instanceMatrix.needsUpdate = true;
+  im.count = 0;                                    // grows as slots are first used
+  im.frustumCulled = false;                        // per-instance transforms are not covered by the base geometry's bounds
+  im.receiveShadow = true;
+  const free = []; for(let i=cap-1;i>=0;i--) free.push(i);
+  scene.add(im);
+  return { im, free, cap, hi:0 };
+}
+function placeInPool(pool, x, y, z, ry, scale, tr, tg, tb){
+  if(pool.free.length===0) return -1;              // pool exhausted: skip silently, no crash, no allocation
+  const slot = pool.free.pop();
+  _pPos.set(x,y,z); _pEul.set(0,ry,0); _pQuat.setFromEuler(_pEul); _pScale.set(scale,scale,scale);
+  _pMat.compose(_pPos,_pQuat,_pScale);
+  pool.im.setMatrixAt(slot, _pMat);
+  pool.im.geometry.attributes.instTint.setXYZ(slot, tr,tg,tb);
+  pool.im.geometry.attributes.instTint.needsUpdate = true;
+  pool.im.instanceMatrix.needsUpdate = true;
+  if(slot+1 > pool.hi){ pool.hi = slot+1; pool.im.count = pool.hi; }
+  return slot;
+}
+function freeSlot(pool, slot){
+  if(slot<0) return;
+  pool.im.setMatrixAt(slot, _HIDE_MAT);
+  pool.im.instanceMatrix.needsUpdate = true;
+  pool.free.push(slot);
+}
+// pool.hi is a high-water mark that normally only grows (see makePool/placeInPool), which is the
+// right, cheap trade-off for ordinary streaming as the player flies around: freed slots reuse via
+// a LIFO free-list in whatever order chunks happened to evict, so hi cannot shrink reliably slot
+// by slot (the old top slot can easily be re-handed-out by pure luck). GFX.onChange calls this
+// once, right after it has freed EVERY loaded chunk's scenery (so the pool is, in truth, entirely
+// empty), to wipe it back to its pristine just-created state before the new-density rebuild runs.
+// That makes the rebuild re-populate slots 0,1,2,... in order again, so hi (and therefore the
+// InstancedMesh's actual drawn/GPU-submitted instance count) always lands exactly on the new
+// peak — dropping GFX quality mid-flight then really does cut the triangles submitted, not just
+// their visual density. O(cap) per pool, so this only ever runs from that rare event.
+function resetPool(pool){
+  pool.free.length = 0;
+  for(let i=pool.cap-1;i>=0;i--) pool.free.push(i);
+  pool.hi = 0;
+  pool.im.count = 0;
+}
+const SPOOL = {
+  coniferTrunk: makePool(_mkTrunkGeo(0.34,0.48,GEO_CONIFER_TRUNK_H,5), MAT_TRUNK_CONIFER, 4500),
+  coniferCanopy: makePool(_mkConeGeo(GEO_CONIFER_CANOPY_R,GEO_CONIFER_CANOPY_H,6), MAT_CONIFER_CANOPY, 4500),
+  decidTrunk: makePool(_mkTrunkGeo(0.30,0.42,GEO_DECID_TRUNK_H,5), MAT_TRUNK_DECID, 1800),
+  decidCanopy: makePool(_mkBallGeo(GEO_DECID_CANOPY_R), MAT_DECID_CANOPY, 1800),
+  rock: makePool(_mkBallGeo(GEO_ROCK_R), MAT_ROCK, 1400),
+  haybale: makePool(_mkHayGeo(GEO_HAY_R,3.4,7), MAT_HAY, 350),
+  houseWall: makePool(_mkWallGeo(7,GEO_HOUSE_WALL_H,8), MAT_WALL, 250),
+  houseRoof: makePool(_mkConeGeo(6.2,4.6,4), MAT_ROOF, 250),
+};
+
+// --- scattering --------------------------------------------------------------
+function placeConifer(wx,h,wz,ry,tintJ,rec){
+  const scl = 0.75+hash2(wx*7.7,wz*7.7)*0.6;
+  const s1 = placeInPool(SPOOL.coniferTrunk, wx, h, wz, ry, scl, 1,1,1);
+  if(s1>=0) rec.slots.push({pool:SPOOL.coniferTrunk, slot:s1});
+  const s2 = placeInPool(SPOOL.coniferCanopy, wx, h+GEO_CONIFER_TRUNK_H*scl*0.55, wz, ry, scl, tintJ,tintJ,tintJ);
+  if(s2>=0) rec.slots.push({pool:SPOOL.coniferCanopy, slot:s2});
+}
+function placeDecid(wx,h,wz,ry,tintJ,rec){
+  const scl = 0.75+hash2(wx*8.9,wz*8.9)*0.6;
+  const s1 = placeInPool(SPOOL.decidTrunk, wx, h, wz, ry, scl, 1,1,1);
+  if(s1>=0) rec.slots.push({pool:SPOOL.decidTrunk, slot:s1});
+  const s2 = placeInPool(SPOOL.decidCanopy, wx, h+GEO_DECID_TRUNK_H*scl*0.92, wz, ry, scl, tintJ,tintJ,tintJ);
+  if(s2>=0) rec.slots.push({pool:SPOOL.decidCanopy, slot:s2});
+}
+function buildChurch(x,y,z,ry){
+  const g = new THREE.Group();
+  const towerH=14, towerR=3.2;
+  const tower = new THREE.Mesh(new THREE.CylinderGeometry(towerR,towerR*1.05,towerH,8,1,true), MAT_WALL);
+  tower.position.y = towerH/2; tower.receiveShadow=true;
+  const spireH=8;
+  const spire = new THREE.Mesh(new THREE.ConeGeometry(towerR*1.05,spireH,6), MAT_ROOF);
+  spire.position.y = towerH+spireH/2; spire.receiveShadow=true;
+  const nave = new THREE.Mesh(new THREE.BoxGeometry(9,7,16), MAT_WALL);
+  nave.position.set(0,3.5,-11); nave.receiveShadow=true;
+  const naveRoof = new THREE.Mesh(new THREE.ConeGeometry(7.4,4.2,4), MAT_ROOF);
+  naveRoof.position.set(0,7+2.1,-11); naveRoof.rotation.y=Math.PI/4; naveRoof.receiveShadow=true;
+  g.add(tower,spire,nave,naveRoof);
+  g.position.set(x,y,z); g.rotation.y=ry;
+  scene.add(g);
+  return g;
+}
+function buildVillage(cx,cz,ox,oz,rec){
+  const size=CFG.chunkSize;
+  const ax = ox + (hash2(cx*3.3,cz*7.1)-0.5)*size*0.6;
+  const az = oz + (hash2(cx*7.1,cz*3.3)-0.5)*size*0.6;
+  const ah = terrainHeight(ax,az);
+  if(ah < CFG.waterLevel+8 || ah > 260) return;               // villages sit in the lowlands
+  if(nearAirfield(ax,az,SCN.clearAirfield+200)) return;
+  if(nearGroundTarget(ax,az,SCN.clearTarget+120)) return;
+  const baseRy = hash2(cx*11.1,cz*13.3)*Math.PI*2;
+  const houses = 3+Math.floor(hash2(cx*19.1,cz*23.3)*4);
+  for(let i=0;i<houses;i++){
+    const a = baseRy + i*(Math.PI*2/houses) + (hash2(cx+i*3.1,cz+i*1.7)-0.5)*0.6;
+    const rr = 30+hash2(cx+i*5.3,cz+i*2.9)*45;
+    const hx = ax+Math.cos(a)*rr, hz = az+Math.sin(a)*rr;
+    const hh = terrainHeight(hx,hz);
+    if(hh < CFG.waterLevel+6 || hh>260) continue;
+    const hry = hash2(hx*0.9,hz*0.9)*Math.PI*2;
+    const s1 = placeInPool(SPOOL.houseWall, hx, hh, hz, hry, 1.0, 1,1,1);
+    if(s1>=0) rec.slots.push({pool:SPOOL.houseWall, slot:s1});
+    const s2 = placeInPool(SPOOL.houseRoof, hx, hh+GEO_HOUSE_WALL_H, hz, hry+Math.PI/4, 1.0, 1,1,1);
+    if(s2>=0) rec.slots.push({pool:SPOOL.houseRoof, slot:s2});
+  }
+  const ch = terrainHeight(ax,az);
+  if(ch >= CFG.waterLevel+6 && ch<=260) rec.group = buildChurch(ax,ch,az,baseRy);
+}
+const sceneryChunks = new Map();    // key "cx,cz" -> { slots:[{pool,slot}], group:THREE.Group|null }
+function scatterChunkScenery(cx,cz){
+  const size=CFG.chunkSize, ox=cx*size, oz=cz*size;
+  const rec = { slots:[], group:null };
+  const density = scnDensity();
+  if(density>0){
+    const cell = SCN.cell, n = Math.floor(size/cell);
+    for(let gz=0; gz<n; gz++){
+      for(let gx=0; gx<n; gx++){
+        const jx = hash2(cx*97+gx*3.7, cz*131+gz*5.3), jz = hash2(cx*53+gx*2.1, cz*211+gz*9.7);
+        const wx = ox-size/2+(gx+0.15+jx*0.7)*cell, wz = oz-size/2+(gz+0.15+jz*0.7)*cell;
+        const roll = hash2(wx*0.31+11.1, wz*0.31+7.7);
+        if(roll > density) continue;
+        if(nearAirfield(wx,wz,SCN.clearAirfield) || nearGroundTarget(wx,wz,SCN.clearTarget)) continue;
+        const h = terrainHeight(wx,wz);
+        if(h < CFG.waterLevel+2 || h > 540) continue;          // never in water; nothing grows above the snowline
+        const famRoll = hash2(wx*0.07+3.3, wz*0.07+9.9);
+        const tintJ = 0.85+hash2(wx*1.7+1.1, wz*1.7+2.2)*0.3;
+        const ry = hash2(wx*2.3+5.5, wz*2.3+6.6)*Math.PI*2;
+        if(h > 400){                                            // rock band: sparse boulders only
+          if(famRoll < 0.10){
+            const scl=0.7+hash2(wx*3.1,wz*3.1)*0.9;
+            const s=placeInPool(SPOOL.rock, wx, h+GEO_ROCK_R*0.25, wz, ry, scl, tintJ,tintJ,tintJ);
+            if(s>=0) rec.slots.push({pool:SPOOL.rock, slot:s});
+          }
+        } else if(h > 190){                                     // treeline: sparser conifers + occasional boulder
+          if(famRoll < 0.34) placeConifer(wx,h,wz,ry,tintJ,rec);
+          else if(famRoll < 0.40){
+            const scl=0.7+hash2(wx*4.1,wz*4.1)*0.8;
+            const s=placeInPool(SPOOL.rock, wx, h+GEO_ROCK_R*0.25, wz, ry, scl, tintJ,tintJ,tintJ);
+            if(s>=0) rec.slots.push({pool:SPOOL.rock, slot:s});
+          }
+        } else if(h > 15){                                      // meadow/forest band
+          if(famRoll < 0.30) placeConifer(wx,h,wz,ry,tintJ,rec);
+          else if(famRoll < 0.44) placeDecid(wx,h,wz,ry,tintJ,rec);
+          else if(famRoll < 0.50){
+            const scl=0.6+hash2(wx*5.3,wz*5.3)*0.6;
+            const s=placeInPool(SPOOL.rock, wx, h+GEO_ROCK_R*0.2, wz, ry, scl, tintJ,tintJ,tintJ);
+            if(s>=0) rec.slots.push({pool:SPOOL.rock, slot:s});
+          } else if(famRoll < 0.52){
+            const s=placeInPool(SPOOL.haybale, wx, h, wz, ry, 0.85+hash2(wx*6.1,wz*6.1)*0.4, tintJ,tintJ*0.95,tintJ*0.7);
+            if(s>=0) rec.slots.push({pool:SPOOL.haybale, slot:s});
+          }
+        }
+        // h<=15 (beach/wetland): left clear on purpose
+      }
+    }
+    const vRoll = hash2(cx*17.3+41.1, cz*17.3+59.7);
+    if(density>0.3 && vRoll < SCN.villageChance) buildVillage(cx,cz,ox,oz,rec);
+  }
+  sceneryChunks.set(cx+','+cz, rec);
+}
+function freeScenery(key){
+  const rec = sceneryChunks.get(key); if(!rec) return;
+  for(let i=0;i<rec.slots.length;i++) freeSlot(rec.slots[i].pool, rec.slots[i].slot);
+  if(rec.group){ scene.remove(rec.group); disposeTree(rec.group); }
+  sceneryChunks.delete(key);
+}
+GFX.onChange(function(level){
+  const detail = level==='high'?1.0:(level==='medium'?0.6:0.0);
+  if(terrainMat.userData.shader) terrainMat.userData.shader.uniforms.uDetail.value = detail;
+  if(waterMat.userData.shader) waterMat.userData.shader.uniforms.uGlint.value = detail;
+  const windAmp = level==='high'?1.0:0.0;
+  for(let i=0;i<_windMats.length;i++){ if(_windMats[i].userData.shader) _windMats[i].userData.shader.uniforms.uWindAmp.value = windAmp; }
+  // density changed: free every currently-streamed scenery chunk, wipe every pool back to empty
+  // (see resetPool — this is what makes the new, lower density at medium/low actually shrink the
+  // GPU-submitted instance count instead of leaving old high-water peaks silently redrawn as
+  // degenerate triangles), then rebuild every chunk fresh at the new density.
+  const keys = Array.from(sceneryChunks.keys());
+  for(let i=0;i<keys.length;i++) freeScenery(keys[i]);
+  Object.values(SPOOL).forEach(resetPool);
+  for(let i=0;i<keys.length;i++){ const p=keys[i].split(','); scatterChunkScenery(+p[0],+p[1]); }
+});
+
+// --- cheap horizon impostor -------------------------------------------------
+// At high viewRadius the terrain still ends in a hard, un-fogged edge (fog only reaches
+// ~80% opacity by then). A single low-poly ring of jagged "distant peaks", tinted to the
+// current fog colour and always re-centred under the player, hides that edge without any
+// extra terrain chunks or draw-call growth (one mesh, one draw call).
+function buildHorizonRing(){
+  const R=8600, H=2600, seg=48;
+  const geo = new THREE.CylinderGeometry(R,R,H,seg,1,true);
+  const pos = geo.attributes.position;
+  const rows = seg+1;
+  for(let i=0;i<rows;i++) pos.setY(i, 260+hash2(i*7.13,42.7)*1500);        // jagged top ring = peaks
+  for(let i=rows;i<rows*2;i++) pos.setY(i, -260);                          // bottom ring sinks below the haze
+  pos.needsUpdate = true;
+  geo.computeVertexNormals();
+  const mat = new THREE.MeshBasicMaterial({ color:0x8fa8bf, side:THREE.BackSide, depthWrite:false, fog:false });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  scene.add(mesh);
+  return mesh;
+}
+const horizonRing = buildHorizonRing();
+const _ringRock = new THREE.Color(0x5c6a72);
+
+// --- shared per-frame driver (shader uTime + camera pos + horizon ring follow) ---
+let _scnTime = 0;
+HOOKS.always.push(function(dt){
+  _scnTime += (dt||0.016);
+  if(terrainMat.userData.shader){ terrainMat.userData.shader.uniforms.uTime.value=_scnTime; terrainMat.userData.shader.uniforms.uCamPos.value.copy(camera.position); }
+  if(waterMat.userData.shader){ waterMat.userData.shader.uniforms.uTime.value=_scnTime; waterMat.userData.shader.uniforms.uCamPos.value.copy(camera.position); waterMat.userData.shader.uniforms.uSunDir.value.copy(sunDir); }
+  for(let i=0;i<_windMats.length;i++){ if(_windMats[i].userData.shader) _windMats[i].userData.shader.uniforms.uTime.value=_scnTime; }
+  if(typeof player!=='undefined' && player && player.obj) horizonRing.position.set(player.obj.position.x, 0, player.obj.position.z);
+  if(scene.fog) horizonRing.material.color.copy(scene.fog.color).lerp(_ringRock,0.35);
+});
 
 /* ---------------------------------------------------------------------------
    6. CLOUDS (sprite puffs, wrap around player = infinite)
