@@ -1482,18 +1482,22 @@ applyGfxPixelRatio(GFX.level());   // the hardcoded cap above may differ from a 
 // Auto-quality monitor: only while GFX.quality==='auto' and actually playing, watch a rolling
 // ~6s window of real frame times; if the slow tail (p90) stays above 24ms, drop one GFX level
 // ONCE per window and keep watching (a second sustained bad window can drop again).
-const _frameWin=[];
+// Allocation-free: frame times go into a fixed ring, evaluated once per second.
+const _fwMs=new Float32Array(1024), _fwSort=new Float32Array(1024);
+let _fwN=0, _fwHead=0, _fwSpan=0, _fwEval=0;
 function monitorAutoQuality(rawDt){
-  if(GFX.quality!=='auto' || state!=='playing'){ _frameWin.length=0; return; }
-  const now=performance.now();
-  _frameWin.push({t:now, ms:rawDt*1000});
-  while(_frameWin.length>1 && now-_frameWin[0].t>6000) _frameWin.shift();
-  if(_frameWin.length<30 || now-_frameWin[0].t<5900) return;   // need a full ~6s sample first
-  const ms=_frameWin.map(f=>f.ms).sort((a,b)=>a-b);
-  const p90=ms[Math.floor(ms.length*0.9)];
+  if(GFX.quality!=='auto' || state!=='playing' || document.hidden){ _fwN=0; _fwSpan=0; _fwEval=0; return; }
+  _fwMs[_fwHead]=rawDt*1000; _fwHead=(_fwHead+1)&1023; if(_fwN<1024) _fwN++;
+  _fwSpan+=rawDt; _fwEval+=rawDt;
+  if(_fwSpan<6 || _fwEval<1) return;   // need a full ~6s sample, then re-check every second
+  _fwEval=0;
+  const n=Math.min(_fwN, 360);   // last 360 frames = 6 s at 60 fps (a longer window when slower)
+  for(let k=0;k<n;k++) _fwSort[k]=_fwMs[(_fwHead-1-k+1024)&1023];
+  const w=_fwSort.subarray(0,n); w.sort();
+  const p90=w[Math.floor(n*0.9)];
   if(p90>24){
     if(GFX.autoDowngrade()) console.info('GFX auto-downgrade: p90 frame time '+p90.toFixed(1)+'ms -> '+GFX.level());
-    _frameWin.length=0;   // restart the window so we don't downgrade again next frame off stale data
+    _fwN=0; _fwSpan=0;   // restart the window: judge the new level on fresh frames only
   }
 }
 HOOKS.always.push((dt,rawDt)=>monitorAutoQuality(rawDt));
@@ -1682,9 +1686,17 @@ HOOKS.always.push(()=>updateSunShadow());
 // markShadows: flag a subtree to cast/receive (called after building or rebuilding an
 // object). This track re-applies it on a cheap periodic sweep so aircraft/terrain/ground
 // targets rebuilt by other tracks stay correctly flagged without editing their code.
+// Unlit/transparent/additive bits (flames, nav lights, glowing eyes, decals, canopy glass)
+// never cast: they would drop solid shadows and each costs an extra shadow-pass draw call.
+// Flat PlaneGeometry decals (runway markings) never cast either.
+function _castsShadow(o){
+  const m=o.material; if(!m) return false; if(Array.isArray(m)) return true;
+  if(m.isMeshBasicMaterial || m.transparent || m.blending===THREE.AdditiveBlending || m.isShaderMaterial || m.isPointsMaterial) return false;
+  return !(o.geometry && o.geometry.type==='PlaneGeometry');
+}
 function markShadows(obj, cast, receive){
   if(!obj) return;
-  obj.traverse(o=>{ if(o.isMesh){ o.castShadow=!!cast; o.receiveShadow=!!receive; } });
+  obj.traverse(o=>{ if(o.isMesh){ o.castShadow=!!cast && _castsShadow(o); o.receiveShadow=!!receive; } });
 }
 let _shadowSweepT=0;
 function sweepShadows(dt){
@@ -1722,9 +1734,9 @@ function applyAtmosphere(dt){
   const heightMul=THREE.MathUtils.lerp(1.35,0.55, alt/2600);
   let inside=0;
   if(typeof cloudClusters!=='undefined'){
-    for(const c of cloudClusters){
+    for(let i=0;i<cloudActiveN;i++){ const c=cloudClusters[i];
       const dx=c.x-p.x, dy=(c.y-p.y)*1.5, dz=c.z-p.z;
-      const d=Math.sqrt(dx*dx+dy*dy+dz*dz), r=260;
+      const d=Math.sqrt(dx*dx+dy*dy+dz*dz), r=c.r;
       if(d<r) inside=Math.max(inside, 1-d/r);
     }
   }
@@ -1736,6 +1748,8 @@ function applyAtmosphere(dt){
     cloudMat.uniforms.uFogColor.value.copy(scene.fog.color); cloudMat.uniforms.uFogDensity.value=scene.fog.density;
     cirrusMat.uniforms.uFogColor.value.copy(scene.fog.color); cirrusMat.uniforms.uFogDensity.value=scene.fog.density;
   }
+  // particle ShaderMaterials (section 7) captured the density as a plain number at build time
+  for(const m of particleMaterials){ const u=m.uniforms; if(u.fogDensity) u.fogDensity.value=scene.fog.density; if(u.fogColor && u.fogColor.value!==scene.fog.color) u.fogColor.value.copy(scene.fog.color); }
 }
 HOOKS.always.push((dt)=>applyAtmosphere(dt));
 
@@ -1990,178 +2004,245 @@ waterMat.polygonOffset=true; waterMat.polygonOffsetFactor=-3; waterMat.polygonOf
 scene.add(water);
 
 /* ---------------------------------------------------------------------------
-   6. CLOUDS — instanced billboard puffs (cumulus clusters + high cirrus), one
-   draw call per layer instead of ~200 individual sprites. Each puff is a unit
-   plane billboarded IN THE VERTEX SHADER from the view matrix (instanceMatrix
-   only carries translation+scale), lit with a cheap fake sun term (vertical
-   gradient + a rim computed from the sun direction projected onto the billboard
-   plane = "silver lining"). fog:true + the stock fog_pars/fog_fragment chunks
-   mean these participate in the same scene.fog every other material uses (see
-   4b/applyAtmosphere) with zero extra per-material wiring. GFX level only
-   changes mesh.count (instance buffers are allocated once, at max size).
+   6. CLOUDS — instanced billboard puffs (cumulus clusters + flat high cirrus),
+   one draw call per layer. Puff shapes come from a procedural 2x2 atlas of
+   cauliflower-like puffs (flat bases). Each puff is billboarded in the vertex
+   shader; per-instance data rides in the instance matrix (col0.x = width,
+   col1.y = height, col2.x = atlas seed, col2.z = belly 0..1) so clusters can be
+   re-sorted back-to-front every frame without extra attribute buffers.
+   Lighting: wrapped lambert on a fake sphere normal, darker bellies, and a
+   forward-scatter "silver lining" on the thin edges when looking toward the sun.
+   Fog is done by hand (uFogColor/uFogDensity mirrored from scene.fog in 4b), plus
+   a far fade at the wrap distance (no popping) and a near fade (fly-through).
+   GFX level = number of active clusters (buffers allocated once at max size).
    --------------------------------------------------------------------------- */
-const cloudTex = radialTexture('rgba(255,255,255,0.95)','rgba(255,255,255,0.55)');
+function makePuffAtlas(){
+  const S=512, T=256, c=document.createElement('canvas'); c.width=c.height=S; const g=c.getContext('2d');
+  let sd=7; const rnd=()=>{ sd=(sd*16807)%2147483647; return (sd-1)/2147483646; };
+  const blob=(px,py,rr,a0)=>{ const grd=g.createRadialGradient(px,py,0,px,py,rr);
+    grd.addColorStop(0,'rgba(255,255,255,'+a0+')'); grd.addColorStop(0.55,'rgba(255,255,255,'+(a0*0.7)+')'); grd.addColorStop(1,'rgba(255,255,255,0)');
+    g.fillStyle=grd; g.fillRect(px-rr,py-rr,rr*2,rr*2); };
+  for(let t=0;t<4;t++){
+    const ox=(t&1)*T, oy=(t>>1)*T, cx=ox+T/2, base=oy+T*0.66;
+    const A=T*(0.30+rnd()*0.06), B=T*(0.24+rnd()*0.12);          // dome half-width / height
+    g.save(); g.beginPath(); g.rect(ox,oy,T,T); g.clip();
+    for(let i=0;i<9;i++){ const u=-0.9+1.8*i/8, rr=T*(0.07+rnd()*0.05); blob(cx+u*A, base-rr*0.5, rr, 0.45); }   // flat base row
+    for(let i=0;i<80;i++){                                         // dome body
+      let u,v; do{ u=rnd()*2-1; v=rnd(); }while(u*u+v*v>1);
+      const rr=T*(0.05+rnd()*0.09)*(1-0.35*v); blob(cx+u*A*0.85, base-v*B*0.85-rr*0.3, rr, 0.40);
+    }
+    for(let i=0;i<70;i++){                                         // cauliflower bumps on the rim
+      const th=rnd()*Math.PI, k=0.86+rnd()*0.16, rr=T*(0.022+rnd()*0.04);
+      blob(cx+Math.cos(th)*A*k, base-Math.sin(th)*B*k-rr*0.2, rr, 0.5);
+    }
+    g.globalCompositeOperation='destination-in';                   // flat soft base + transparent tile border (no bleeding)
+    const b=g.createLinearGradient(0,base+T*0.01,0,base+T*0.09);
+    b.addColorStop(0,'rgba(0,0,0,1)'); b.addColorStop(1,'rgba(0,0,0,0)');
+    g.fillStyle=b; g.fillRect(ox,oy,T,T);
+    const m=g.createRadialGradient(cx,oy+T/2,T*0.42,cx,oy+T/2,T*0.5);
+    m.addColorStop(0,'rgba(0,0,0,1)'); m.addColorStop(1,'rgba(0,0,0,0)');
+    g.fillStyle=m; g.fillRect(ox,oy,T,T);
+    g.restore(); g.globalCompositeOperation='source-over';
+  }
+  const tex=new THREE.CanvasTexture(c); tex.anisotropy=2; return tex;
+}
+function makeCirrusTex(){
+  const W=256, H=128, c=document.createElement('canvas'); c.width=W; c.height=H; const g=c.getContext('2d');
+  let sd=11; const rnd=()=>{ sd=(sd*16807)%2147483647; return (sd-1)/2147483646; };
+  for(let i=0;i<90;i++){
+    const x=W*(0.12+rnd()*0.76), y=H*(0.2+rnd()*0.6), rx=W*(0.05+rnd()*0.16), ry=H*(0.015+rnd()*0.05);
+    g.save(); g.translate(x,y); g.rotate((rnd()-0.5)*0.35); g.scale(rx/ry,1);
+    const grd=g.createRadialGradient(0,0,0,0,0,ry);
+    grd.addColorStop(0,'rgba(255,255,255,0.22)'); grd.addColorStop(1,'rgba(255,255,255,0)');
+    g.fillStyle=grd; g.fillRect(-ry,-ry,ry*2,ry*2); g.restore();
+  }
+  g.globalCompositeOperation='destination-in';
+  const m=g.createRadialGradient(W/2,H/2,H*0.2,W/2,H/2,H*0.5);
+  m.addColorStop(0,'rgba(0,0,0,1)'); m.addColorStop(1,'rgba(0,0,0,0)');
+  g.save(); g.translate(W/2,H/2); g.scale(2,1); g.translate(-W/2,-H/2); g.fillStyle=m; g.fillRect(0,0,W,H); g.restore();
+  return new THREE.CanvasTexture(c);
+}
+const cloudTex = makePuffAtlas();
+const cirrusTex = makeCirrusTex();
 const CLOUD_SPAN = 8000;
-const CLOUD_MAX = 260, CIRRUS_MAX = 30;
-const CLOUD_COUNT  = { high:CLOUD_MAX, medium:170, low:80  };
-const CIRRUS_COUNT = { high:CIRRUS_MAX, medium:16, low:0   };
+const CLOUD_CLUSTERS = 64, CIRRUS_CLUSTERS = 16;
+const CLOUD_MAX = 520, CIRRUS_MAX = 48;
+const CLOUD_LEVEL  = { high:64, medium:42, low:22 };   // active cumulus clusters
+const CIRRUS_LEVEL = { high:16, medium:10, low:0 };    // active cirrus clusters
 
 const CLOUD_VS = `
-attribute float aBelly; attribute float aSeed;
-varying float vBelly; varying vec2 vUv2; varying vec2 vSunLocal; varying float vDist;
-uniform vec3 sunDir;
+varying vec2 vUv; varying vec2 vR; varying float vH; varying float vDist; varying float vFade; varying float vPhase; varying vec3 vSunL;
+uniform vec3 sunDir; uniform vec2 uCenter; uniform float uHalf;
 void main(){
-  vUv2 = uv; vBelly = aBelly;
   vec3 center = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
-  float scaleX = length(instanceMatrix[0].xyz), scaleY = length(instanceMatrix[1].xyz);
+  float sx = instanceMatrix[0][0], sy = instanceMatrix[1][1];
+  float seed = instanceMatrix[2][0], belly = instanceMatrix[2][2];
   vec3 right = vec3(viewMatrix[0].x, viewMatrix[1].x, viewMatrix[2].x);
   vec3 up    = vec3(viewMatrix[0].y, viewMatrix[1].y, viewMatrix[2].y);
-  vec3 world = center + right*position.x*scaleX + up*position.y*scaleY;
-  vSunLocal = vec2(dot(sunDir,right), dot(sunDir,up));
-  vec4 mvPosition = viewMatrix*vec4(world,1.0);
-  vDist = -mvPosition.z;
-  gl_Position = projectionMatrix*mvPosition;
+  vec3 back  = vec3(viewMatrix[0].z, viewMatrix[1].z, viewMatrix[2].z);
+  vec3 world = center + right*position.x*sx + up*position.y*sy;
+  float tile = floor(seed*4.0); float flip = fract(seed*4.0) > 0.5 ? -1.0 : 1.0;
+  vec2 u = vec2(0.5 + (uv.x-0.5)*flip, uv.y);
+  vUv = (u + vec2(mod(tile,2.0), 1.0 - floor(tile/2.0))) * 0.5;   // canvas y is flipped vs uv
+  vR = position.xy*2.0;
+  vH = clamp(belly*0.6 + uv.y*0.4, 0.0, 1.0);
+  vSunL = vec3(dot(sunDir,right), dot(sunDir,up), dot(sunDir,back));
+  vPhase = dot(normalize(center - cameraPosition), sunDir);
+  float m = max(abs(center.x-uCenter.x), abs(center.z-uCenter.y));
+  vFade = 1.0 - smoothstep(uHalf*0.70, uHalf*0.97, m);
+  vec4 mv = viewMatrix*vec4(world,1.0);
+  vDist = -mv.z;
+  gl_Position = projectionMatrix*mv;
 }`;
 const CLOUD_FS = `
-varying float vBelly; varying vec2 vUv2; varying vec2 vSunLocal; varying float vDist;
+varying vec2 vUv; varying vec2 vR; varying float vH; varying float vDist; varying float vFade; varying float vPhase; varying vec3 vSunL;
 uniform sampler2D map; uniform vec3 uLitColor; uniform vec3 uShadeColor; uniform vec3 uSunColor; uniform float uOpacity;
 uniform vec3 uFogColor; uniform float uFogDensity;
 void main(){
-  vec4 tex = texture2D(map, vUv2);
-  float a = tex.a; if(a<0.02) discard;
-  vec2 r = vUv2-0.5;
-  vec2 sunL = length(vSunLocal)>0.0001 ? normalize(vSunLocal) : vec2(0.0,1.0);
-  float rim = clamp(dot(normalize(r+1e-5), sunL)*0.5+0.5, 0.0, 1.0);          // sun-facing rim = silver lining
-  float vert = clamp(vBelly*0.55+0.45, 0.0, 1.0);                            // top lit, belly dark
-  float lightAmt = min(vert*0.7+rim*0.5, 1.0);
-  vec3 col = mix(uShadeColor, uLitColor, lightAmt);
-  col += uSunColor*pow(rim,5.0)*0.55*vert;
-  float nearFade = smoothstep(30.0, 190.0, vDist);                          // soft fade flying through, no hard pop
+  float dens = texture2D(map, vUv).a;
+  float nearFade = smoothstep(40.0, 230.0, vDist);                        // soft fade flying through, no hard pop
+  float a = dens*uOpacity*vFade*nearFade;
+  if(a<0.004) discard;
+  vec3 n = vec3(vR, sqrt(max(0.0, 1.0-dot(vR,vR))));
+  float diff = clamp(dot(n, vSunL)*0.38+0.62, 0.0, 1.0);                  // wrapped lambert on a fake sphere
+  float lit = diff*mix(0.52, 1.0, vH);                                      // bellies + lower puffs sit in shade
+  vec3 col = mix(uShadeColor, uLitColor, lit);
+  float fwd = pow(max(vPhase,0.0), 5.0);
+  col += uSunColor*fwd*(1.0-dens)*(1.0-dens)*0.32;                           // silver lining: thin edges glow backlit
+  col += uSunColor*fwd*0.08;
   float fogFactor = 1.0 - exp(-uFogDensity*uFogDensity*vDist*vDist);        // matches THREE.FogExp2 falloff
-  col = mix(col, uFogColor, fogFactor);
-  gl_FragColor = vec4(col, a*uOpacity*nearFade);
+  col = mix(col, uFogColor, fogFactor*0.92);
+  gl_FragColor = vec4(col, a);
 }`;
 const CIRRUS_VS = `
-varying vec2 vUv2; varying float vDist;
+varying vec2 vUv; varying float vDist; varying float vFade;
+uniform vec2 uCenter; uniform float uHalf;
 void main(){
-  vUv2 = uv;
-  vec3 center = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
-  float scaleX = length(instanceMatrix[0].xyz), scaleY = length(instanceMatrix[1].xyz);
-  vec3 right = vec3(viewMatrix[0].x, viewMatrix[1].x, viewMatrix[2].x);
-  vec3 up    = vec3(viewMatrix[0].y, viewMatrix[1].y, viewMatrix[2].y);
-  vec3 world = center + right*position.x*scaleX + up*position.y*scaleY;
-  vec4 mvPosition = viewMatrix*vec4(world,1.0);
-  vDist = -mvPosition.z;
-  gl_Position = projectionMatrix*mvPosition;
+  vUv = uv;
+  vec4 wp = modelMatrix*instanceMatrix*vec4(position.x, 0.0, -position.y, 1.0);   // flat, horizontal sheets
+  float m = max(abs(wp.x-uCenter.x), abs(wp.z-uCenter.y));
+  vFade = 1.0 - smoothstep(uHalf*0.70, uHalf*0.97, m);
+  vec3 toC = wp.xyz - cameraPosition;
+  vFade *= smoothstep(0.02, 0.22, abs(toC.y)/max(length(toC),1.0));          // fade out edge-on
+  vec4 mv = viewMatrix*wp;
+  vDist = -mv.z;
+  gl_Position = projectionMatrix*mv;
 }`;
 const CIRRUS_FS = `
-varying vec2 vUv2; varying float vDist;
+varying vec2 vUv; varying float vDist; varying float vFade;
 uniform sampler2D map; uniform vec3 uTint; uniform float uOpacity;
 uniform vec3 uFogColor; uniform float uFogDensity;
 void main(){
-  vec4 tex=texture2D(map, vUv2); float a=tex.a; if(a<0.015) discard;
+  float a = texture2D(map, vUv).a*uOpacity*vFade; if(a<0.004) discard;
   float fogFactor = 1.0 - exp(-uFogDensity*uFogDensity*vDist*vDist);
-  vec3 col = mix(uTint, uFogColor, fogFactor*0.7);
-  gl_FragColor=vec4(col, a*uOpacity);
+  vec3 col = mix(uTint, uFogColor, fogFactor*0.6);
+  gl_FragColor = vec4(col, a);
 }`;
 
 const cloudMat = new THREE.ShaderMaterial({
   transparent:true, depthWrite:false, fog:false, side:THREE.DoubleSide,
-  uniforms:{ sunDir:{value:sunDir.clone()}, map:{value:cloudTex}, uOpacity:{value:0.92},
+  uniforms:{ sunDir:{value:sunDir.clone()}, map:{value:cloudTex}, uOpacity:{value:1.0},
     uLitColor:{value:new THREE.Color(0xffffff)}, uShadeColor:{value:new THREE.Color(0x9fb2c8)}, uSunColor:{value:new THREE.Color(0xfff2d8)},
-    uFogColor:{value:new THREE.Color(0xa8c8e8)}, uFogDensity:{value:0.000085} },
+    uFogColor:{value:new THREE.Color(0xa8c8e8)}, uFogDensity:{value:0.000085},
+    uCenter:{value:new THREE.Vector2()}, uHalf:{value:CLOUD_SPAN/2} },
   vertexShader:CLOUD_VS, fragmentShader:CLOUD_FS
 });
 const cirrusMat = new THREE.ShaderMaterial({
   transparent:true, depthWrite:false, fog:false, side:THREE.DoubleSide,
-  uniforms:{ map:{value:cloudTex}, uOpacity:{value:0.30}, uTint:{value:new THREE.Color(0xffffff)},
-    uFogColor:{value:new THREE.Color(0xa8c8e8)}, uFogDensity:{value:0.000085} },
+  uniforms:{ map:{value:cirrusTex}, uOpacity:{value:0.30}, uTint:{value:new THREE.Color(0xffffff)},
+    uFogColor:{value:new THREE.Color(0xa8c8e8)}, uFogDensity:{value:0.000085},
+    uCenter:{value:new THREE.Vector2()}, uHalf:{value:CLOUD_SPAN/2} },
   vertexShader:CIRRUS_VS, fragmentShader:CIRRUS_FS
 });
-const cloudGeo=new THREE.PlaneGeometry(1,1);
-cloudGeo.setAttribute('aBelly', new THREE.InstancedBufferAttribute(new Float32Array(CLOUD_MAX),1));
-cloudGeo.setAttribute('aSeed',  new THREE.InstancedBufferAttribute(new Float32Array(CLOUD_MAX),1));
-const cloudMesh=new THREE.InstancedMesh(cloudGeo, cloudMat, CLOUD_MAX);
-cloudMesh.frustumCulled=false; cloudMesh.renderOrder=-10; scene.add(cloudMesh);
-const cirrusGeo=new THREE.PlaneGeometry(1,1);
-const cirrusMesh=new THREE.InstancedMesh(cirrusGeo, cirrusMat, CIRRUS_MAX);
-cirrusMesh.frustumCulled=false; cirrusMesh.renderOrder=-11; scene.add(cirrusMesh);
+const cloudMesh=new THREE.InstancedMesh(new THREE.PlaneGeometry(1,1), cloudMat, CLOUD_MAX);
+cloudMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+cloudMesh.frustumCulled=false; cloudMesh.renderOrder=-10; cloudMesh.count=0; scene.add(cloudMesh);
+const cirrusMesh=new THREE.InstancedMesh(new THREE.PlaneGeometry(1,1), cirrusMat, CIRRUS_MAX);
+cirrusMesh.frustumCulled=false; cirrusMesh.renderOrder=-11; cirrusMesh.count=0; scene.add(cirrusMesh);
 
-const cloudClusters=[];   // {x,y,z,drift,first,count,offs:[{ox,oy,oz,sx,sy}]}
-const cirrusClusters=[];
-let cloudTotal=0, cirrusTotal=0;
-const _cldPos=new THREE.Vector3(), _cldScl=new THREE.Vector3(), _cldQ=new THREE.Quaternion(), _cldM4=new THREE.Matrix4();
+// Clusters keep {x,y,z} = centre (4b's in-cloud whiteout reads these). Only the first
+// cloudActiveN / cirrusActiveN clusters are live at the current GFX level.
+const cloudClusters=[];   // {x,y,z,drift,d2,offs:[{ox,oy,oz,sx,sy,seed,belly}]}
+const cirrusClusters=[];  // {x,y,z,drift,offs:[{ox,oz,sx,sz,yaw}]}
+const _cloudSorted=[];
+let cloudActiveN=0, cirrusActiveN=0;
 function seedClouds(cx,cz){
   cloudClusters.length=0; cirrusClusters.length=0;
-  const bellyAttr=cloudGeo.attributes.aBelly, seedAttr=cloudGeo.attributes.aSeed;
-  let idx=0;
-  for(let i=0;i<60 && idx<CLOUD_MAX;i++){
-    const puffs=3+((Math.random()*4)|0);
-    const c={ x:cx+(Math.random()-0.5)*CLOUD_SPAN, y:650+Math.random()*1650, z:cz+(Math.random()-0.5)*CLOUD_SPAN,
-      drift:(Math.random()-0.5)*6, first:idx, count:0, offs:[] };
-    for(let p=0;p<puffs && idx<CLOUD_MAX;p++,idx++){
-      const oy=(Math.random()-0.5)*120, sc=280+Math.random()*380;
-      c.offs.push({ ox:(Math.random()-0.5)*540, oy, oz:(Math.random()-0.5)*540, sx:sc, sy:sc*0.62 });
-      bellyAttr.array[idx]=THREE.MathUtils.clamp((oy+60)/120,0,1);
-      seedAttr.array[idx]=Math.random();
-      c.count++;
+  let tot=0;
+  for(let i=0;i<CLOUD_CLUSTERS;i++){
+    const big=Math.random()<0.22, n=big?(9+((Math.random()*4)|0)):(5+((Math.random()*3)|0));
+    const R=big?430:280, H=big?360:190;
+    const c={ x:cx+(Math.random()-0.5)*CLOUD_SPAN, y:700+Math.random()*1500, z:cz+(Math.random()-0.5)*CLOUD_SPAN,
+      drift:(Math.random()-0.5)*6, d2:0, r:big?380:260, offs:[] };
+    for(let k=0;k<n && tot<CLOUD_MAX;k++,tot++){
+      const t=n>1?k/(n-1):0.5;                                   // 0 = base puff, 1 = top puff
+      const spread=R*(1-t*0.55), ang=Math.random()*6.2832, rr=Math.sqrt(Math.random())*spread;
+      const w=(big?560:420)*(1-t*0.35)*(0.8+Math.random()*0.45);
+      c.offs.push({ ox:Math.cos(ang)*rr, oy:-H*0.5+t*H+(Math.random()-0.5)*40, oz:Math.sin(ang)*rr,
+        sx:w, sy:w*(0.62+Math.random()*0.12), seed:Math.random()*0.999, belly:THREE.MathUtils.clamp(t*0.9+Math.random()*0.15,0,1) });
     }
     cloudClusters.push(c);
   }
-  cloudTotal=idx; bellyAttr.needsUpdate=true; seedAttr.needsUpdate=true;
-  idx=0;
-  for(let i=0;i<14 && idx<CIRRUS_MAX;i++){
-    const puffs=1+((Math.random()*3)|0);
-    const c={ x:cx+(Math.random()-0.5)*CLOUD_SPAN, y:2600+Math.random()*900, z:cz+(Math.random()-0.5)*CLOUD_SPAN,
-      drift:(Math.random()-0.5)*3, first:idx, count:0, offs:[] };
-    for(let p=0;p<puffs && idx<CIRRUS_MAX;p++,idx++){
-      const sc=700+Math.random()*900;
-      c.offs.push({ ox:(Math.random()-0.5)*1400, oy:(Math.random()-0.5)*100, oz:(Math.random()-0.5)*1400, sx:sc, sy:sc*0.22 });
-      c.count++;
+  tot=0;
+  for(let i=0;i<CIRRUS_CLUSTERS;i++){
+    const n=2+((Math.random()*2)|0);
+    const c={ x:cx+(Math.random()-0.5)*CLOUD_SPAN, y:2700+Math.random()*900, z:cz+(Math.random()-0.5)*CLOUD_SPAN, drift:(Math.random()-0.5)*3, offs:[] };
+    const yaw=Math.random()*3.1416;
+    for(let k=0;k<n && tot<CIRRUS_MAX;k++,tot++){
+      const s=1100+Math.random()*1300;
+      c.offs.push({ ox:(Math.random()-0.5)*1500, oz:(Math.random()-0.5)*1500, sx:s, sz:s*(0.30+Math.random()*0.2), yaw:yaw+(Math.random()-0.5)*0.4 });
     }
     cirrusClusters.push(c);
   }
-  cirrusTotal=idx;
   applyCloudLevel(GFX.level());
-  updateCloudMatrices(); updateCirrusMatrices();
+  writeCirrusMatrices();
 }
-function updateCloudMatrices(){
-  for(const c of cloudClusters){ for(let k=0;k<c.count;k++){
-    const o=c.offs[k], i=c.first+k;
-    _cldPos.set(c.x+o.ox, c.y+o.oy, c.z+o.oz); _cldScl.set(o.sx,o.sy,1);
-    _cldM4.compose(_cldPos,_cldQ,_cldScl); cloudMesh.setMatrixAt(i,_cldM4);
+function writeCloudMatrices(){
+  // back-to-front by cluster: transparent puffs blend correctly against each other
+  const cp=camera.position;
+  _cloudSorted.length=0;
+  for(let i=0;i<cloudActiveN;i++){ const c=cloudClusters[i]; const dx=c.x-cp.x, dy=c.y-cp.y, dz=c.z-cp.z; c.d2=dx*dx+dy*dy+dz*dz; _cloudSorted.push(c); }
+  _cloudSorted.sort(_cloudFar);
+  const a=cloudMesh.instanceMatrix.array; let b=0, n=0;
+  for(const c of _cloudSorted){ for(const o of c.offs){
+    a[b]=o.sx; a[b+1]=0; a[b+2]=0; a[b+3]=0;  a[b+4]=0; a[b+5]=o.sy; a[b+6]=0; a[b+7]=0;
+    a[b+8]=o.seed; a[b+9]=0; a[b+10]=o.belly; a[b+11]=0;  a[b+12]=c.x+o.ox; a[b+13]=c.y+o.oy; a[b+14]=c.z+o.oz; a[b+15]=1;
+    b+=16; n++;
   }}
-  cloudMesh.instanceMatrix.needsUpdate=true;
+  cloudMesh.count=n; cloudMesh.instanceMatrix.needsUpdate=true;
 }
-function updateCirrusMatrices(){
-  for(const c of cirrusClusters){ for(let k=0;k<c.count;k++){
-    const o=c.offs[k], i=c.first+k;
-    _cldPos.set(c.x+o.ox, c.y+o.oy, c.z+o.oz); _cldScl.set(o.sx,o.sy,1);
-    _cldM4.compose(_cldPos,_cldQ,_cldScl); cirrusMesh.setMatrixAt(i,_cldM4);
+function _cloudFar(p,q){ return q.d2-p.d2; }
+const _cldPos=new THREE.Vector3(), _cldScl=new THREE.Vector3(), _cldQ=new THREE.Quaternion(), _cldM4=new THREE.Matrix4(), _cldUp=new THREE.Vector3(0,1,0);
+function writeCirrusMatrices(){
+  let n=0;
+  for(let i=0;i<cirrusActiveN;i++){ const c=cirrusClusters[i]; for(const o of c.offs){
+    _cldPos.set(c.x+o.ox, c.y, c.z+o.oz); _cldScl.set(o.sx,1,o.sz); _cldQ.setFromAxisAngle(_cldUp,o.yaw);
+    _cldM4.compose(_cldPos,_cldQ,_cldScl); cirrusMesh.setMatrixAt(n++,_cldM4);
   }}
-  cirrusMesh.instanceMatrix.needsUpdate=true;
+  cirrusMesh.count=n; cirrusMesh.instanceMatrix.needsUpdate=true;
 }
 function applyCloudLevel(level){
-  cloudMesh.count=Math.min(cloudTotal, CLOUD_COUNT[level]!==undefined?CLOUD_COUNT[level]:CLOUD_MAX);
-  cirrusMesh.count=Math.min(cirrusTotal, CIRRUS_COUNT[level]!==undefined?CIRRUS_COUNT[level]:CIRRUS_MAX);
+  cloudActiveN=Math.min(cloudClusters.length, CLOUD_LEVEL[level]!==undefined?CLOUD_LEVEL[level]:CLOUD_CLUSTERS);
+  cirrusActiveN=Math.min(cirrusClusters.length, CIRRUS_LEVEL[level]!==undefined?CIRRUS_LEVEL[level]:CIRRUS_CLUSTERS);
+  writeCloudMatrices(); writeCirrusMatrices();
 }
 GFX.onChange(applyCloudLevel);
+function wrapCluster(c,px,pz,half){
+  if(c.x-px>half) c.x-=CLOUD_SPAN; else if(c.x-px<-half) c.x+=CLOUD_SPAN;
+  if(c.z-pz>half) c.z-=CLOUD_SPAN; else if(c.z-pz<-half) c.z+=CLOUD_SPAN;
+}
 function updateClouds(px,pz,dt){
   const half=CLOUD_SPAN/2;
-  for(const c of cloudClusters){
-    c.x+=c.drift*dt;
-    let dx=c.x-px, dz=c.z-pz;
-    if(dx>half) c.x-=CLOUD_SPAN; else if(dx<-half) c.x+=CLOUD_SPAN;
-    if(dz>half) c.z-=CLOUD_SPAN; else if(dz<-half) c.z+=CLOUD_SPAN;
-  }
-  for(const c of cirrusClusters){
-    c.x+=c.drift*dt;
-    let dx=c.x-px, dz=c.z-pz;
-    if(dx>half) c.x-=CLOUD_SPAN; else if(dx<-half) c.x+=CLOUD_SPAN;
-    if(dz>half) c.z-=CLOUD_SPAN; else if(dz<-half) c.z+=CLOUD_SPAN;
-  }
-  updateCloudMatrices(); updateCirrusMatrices();
+  for(const c of cloudClusters){ c.x+=c.drift*dt; wrapCluster(c,px,pz,half); }
+  for(const c of cirrusClusters){ c.x+=c.drift*dt; wrapCluster(c,px,pz,half); }
+  writeCirrusMatrices();
 }
+// Every frame in every state (menu orbit, cutscenes, playing): re-sort + fade centre.
+HOOKS.always.push(()=>{
+  writeCloudMatrices();
+  const p=player.obj ? player.obj.position : camera.position;
+  cloudMat.uniforms.uCenter.value.set(p.x,p.z); cirrusMat.uniforms.uCenter.value.set(p.x,p.z);
+});
 
 /* ---------------------------------------------------------------------------
    7. PARTICLE SYSTEM (pooled Points, two blend modes)
@@ -2331,8 +2412,13 @@ function updateBlobs(dt){
   if(state!=='playing'){ for(const b of blobs) b.visible=false; return; }
   const lightF=THREE.MathUtils.clamp(hemi.intensity/0.75,0.12,1);     // night: shadows nearly vanish
   const p=player.obj.position, gy=Math.max(terrainHeight(p.x,p.z),CFG.waterLevel), alt=p.y-gy;
-  const b0=blobs[0]; b0.visible=true; b0.position.set(p.x,gy+1.6,p.z); b0.scale.set(13,1,13);
-  b0.material.opacity=THREE.MathUtils.clamp(0.55*(1-alt/420),0,0.55)*lightF;
+  // With real sun shadows (4b) the blob shrinks to a soft contact/AO cue under the gear and
+  // enemy blobs are dropped: two shadows per aircraft read as a bug.
+  const realSh=renderer.shadowMap.enabled && sun.castShadow;
+  const b0=blobs[0]; b0.visible=true; b0.position.set(p.x,gy+1.6,p.z);
+  if(realSh){ b0.scale.set(8,1,8); b0.material.opacity=THREE.MathUtils.clamp(0.32*(1-alt/45),0,0.32)*lightF; }
+  else { b0.scale.set(13,1,13); b0.material.opacity=THREE.MathUtils.clamp(0.55*(1-alt/420),0,0.55)*lightF; }
+  if(realSh){ for(let i=1;i<BLOB_N;i++) blobs[i].visible=false; return; }
   blobCd-=dt; if(blobCd>0) return; blobCd=0.15;
   const list=enemies.map(e=>({e,d:e.obj.position.distanceTo(p)})).filter(o=>o.d<1100).sort((a,b)=>a.d-b.d).slice(0,BLOB_N-1);
   for(let i=1;i<BLOB_N;i++){ const b=blobs[i], o=list[i-1];
