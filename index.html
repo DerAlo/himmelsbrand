@@ -1609,10 +1609,12 @@ function buildEnvMap(){
 const terrainGroup = new THREE.Group(); scene.add(terrainGroup);
 const chunks = new Map();
 const terrainMat = new THREE.MeshLambertMaterial({ vertexColors:true });
-// Cosmetic detail layer only: multiplies the EXISTING per-vertex colour and perturbs the
-// fragment normal for lighting alone. Never touches vertex positions, geometry or
-// terrainHeight() — collision, runway placement and the water depth map stay bit-identical.
-// uDetail/uGlint below are driven per GFX level from section 5b (GFX.onChange).
+// Land-cover colour stage (see LAND below): every land pixel is classified in world space
+// (meadow / field parcels / forest / rock / noisy snow line) and multiplied by the material
+// colour, so applyTimeOfDay()'s ground tint keeps working. Vertex colours still carry sea
+// bed, wet sand and beach below +9 m. Never touches positions or terrainHeight(): collision,
+// runway and the water depth map stay bit-identical. uDetail (5b, per GFX level) only gates
+// the close-range grain; the land cover itself costs 5 texture reads on every level.
 terrainMat.onBeforeCompile = function(sh){
   sh.uniforms.uTime = { value: 0 };
   sh.uniforms.uCamPos = { value: new THREE.Vector3() };
@@ -1620,44 +1622,62 @@ terrainMat.onBeforeCompile = function(sh){
   sh.uniforms.uFar = { value: camera.far };
   sh.uniforms.uSkyTop = { value: skyMat.uniforms.top.value };      // same Color objects the sky uses: TOD changes follow for free
   sh.uniforms.uSkyBot = { value: skyMat.uniforms.bot.value };
+  sh.uniforms.uNoise = { value: LAND.tex };
+  sh.uniforms.uFields = { value: LAND.ftex };
+  sh.uniforms.uAir = { value: new THREE.Vector4() };               // airfield centre x,z + cos,sin
+  sh.uniforms.uAirExt = { value: new THREE.Vector3() };            // half width, half length, on
   terrainMat.userData.shader = sh;
+  const WL = CFG.waterLevel.toFixed(2);
   sh.vertexShader = sh.vertexShader
     .replace('#include <common>', '#include <common>\nvarying vec3 vWPosG;\nvarying vec3 vNW;')
     .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vWPosG = (modelMatrix*vec4(position,1.0)).xyz;\n  vNW = normalize(mat3(modelMatrix)*normal);');
   sh.fragmentShader = sh.fragmentShader
     .replace('#include <common>',
       '#include <common>\nvarying vec3 vWPosG;\nvarying vec3 vNW;\nuniform float uTime;\nuniform vec3 uCamPos;\nuniform float uDetail;\nuniform float uFar;\nuniform vec3 uSkyTop;\nuniform vec3 uSkyBot;\n' +
-      'float tHash(vec2 p){ return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453); }\n' +
-      'float tNoise(vec2 p){\n' +
-      '  vec2 i=floor(p), f=fract(p);\n' +
-      '  float a=tHash(i), b=tHash(i+vec2(1.0,0.0)), c=tHash(i+vec2(0.0,1.0)), d=tHash(i+vec2(1.0,1.0));\n' +
-      '  vec2 u=f*f*(3.0-2.0*f);\n' +
-      '  return mix(a,b,u.x) + (c-a)*u.y*(1.0-u.x) + (d-b)*u.x*u.y;\n' +
-      '}')
+      'uniform sampler2D uNoise;\nuniform sampler2D uFields;\nuniform vec4 uAir;\nuniform vec3 uAirExt;\n')
     .replace('#include <color_fragment>',
       '#include <color_fragment>\n' +
-      '  // Fades with distance: invisible past a few hundred metres anyway, and the fog\n' +
-      '  // GFX-ATMO applies already hides the far, bulk terrain, so this stays cheap there.\n' +
-      '  float distT = length(vWPosG - uCamPos);\n' +
-      '  float detailFade = uDetail*(1.0 - smoothstep(220.0, 650.0, distT));\n' +
-      '  if(detailFade > 0.002){\n' +
-      '    float macro = tNoise(vWPosG.xz*0.006);\n' +
-      '    float micro = tNoise(vWPosG.xz*0.09);\n' +
-      '    float fieldN = tNoise(vWPosG.xz*0.0013);\n' +
-      '    // faint low-altitude field patchwork, only where the ground is already grass-green\n' +
-      '    // (a brightness/hue proxy) so it never paints onto sand, rock or snow\n' +
-      '    float isMeadowish = smoothstep(0.05,0.22,diffuseColor.g-diffuseColor.r) * smoothstep(600.0, 60.0, vWPosG.y);\n' +
-      '    float field = step(0.5, fract(fieldN*5.0)) * isMeadowish;\n' +
-      '    diffuseColor.rgb *= 1.0 + (macro-0.5)*0.10*detailFade + (field-0.5)*0.05*detailFade;\n' +
-      '    diffuseColor.rgb *= 1.0 + (micro-0.5)*0.05*detailFade;\n' +
-      '    // rock crack darkening on steep faces, reusing the normal the geometry already has\n' +
-      '    float steep = 1.0 - clamp(vNW.y, 0.0, 1.0);\n' +
-      '    diffuseColor.rgb *= 1.0 - steep*micro*0.18*detailFade;\n' +
-      '    // noisy snow edge ON TOP of heightColor()\'s existing smooth altitude band: nudges\n' +
-      '    // the effective treeline by up to +-70m per-position so it is not a dead-straight\n' +
-      '    // contour, using the real world altitude (vWPosG.y) already free in this shader\n' +
-      '    float snowMix = smoothstep(430.0 + (macro-0.5)*140.0, 540.0 + (macro-0.5)*140.0, vWPosG.y);\n' +
-      '    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.94,0.96,1.0), snowMix*0.35*detailFade);\n' +
+      '  {\n' +
+      '    vec2 wp = vWPosG.xz; float h = vWPosG.y;\n' +
+      '    float ny = clamp(normalize(vNW).y, 0.0, 1.0);\n' +
+      '    vec4 nA = texture2D(uNoise, wp/5200.0);\n' +
+      '    vec4 nB = texture2D(uNoise, wp/730.0 + 0.37);\n' +
+      '    float macro = texture2D(uNoise, wp/9100.0 + 0.61).g;\n' +
+      '    float land = smoothstep(' + WL + '+3.0, ' + WL + '+9.0, h);\n' +
+      '    float air = 0.0;\n' +
+      '    if(uAirExt.z > 0.5){\n' +
+      '      vec2 d = wp - uAir.xy;\n' +
+      '      vec2 q = abs(vec2(d.x*uAir.z - d.y*uAir.w, d.x*uAir.w + d.y*uAir.z)) - uAirExt.xy;\n' +
+      '      air = 1.0 - smoothstep(0.0, 90.0, max(q.x, q.y));\n' +
+      '    }\n' +
+      // natural meadow in the valleys, drier alpine pasture higher up, large lush/dry patches
+      '    vec3 albedo = mix(vec3(0.135,0.215,0.068), vec3(0.185,0.205,0.095), smoothstep(150.0, 380.0, h + (macro-0.5)*120.0));\n' +
+      '    albedo *= 0.84 + 0.32*macro;\n' +
+      '    albedo = mix(albedo, albedo*vec3(1.18,1.06,0.78), smoothstep(0.55, 0.90, nB.g)*0.55);\n' +
+      // cultivated parcels on flat lowland, rotated off the chunk grid and gently warped
+      '    vec2 fp = mat2(0.918, -0.397, 0.397, 0.918) * wp / 2300.0 + (nB.ba - 0.5)*0.010;\n' +
+      '    float fieldW = smoothstep(0.90, 0.975, ny) * smoothstep(12.0, 20.0, h) * (1.0 - smoothstep(160.0, 250.0, h + (macro-0.5)*110.0)) * (1.0 - air);\n' +
+      '    albedo = mix(albedo, texture2D(uFields, fp).rgb*0.5, fieldW);\n' +
+      '    albedo = mix(albedo, vec3(0.140,0.215,0.070), air);\n' +
+      // forest (JS twin: landForest() - keep in sync)
+      '    float fN = nA.r*0.78 + nB.b*0.22;\n' +
+      '    float thr = 0.56 - 0.08*smoothstep(40.0,140.0,h) + 0.35*smoothstep(360.0+(macro-0.5)*120.0, 450.0+(macro-0.5)*120.0, h)\n' +
+      '              + 0.4*(1.0-smoothstep(0.64,0.78,ny)) + 0.4*(1.0-smoothstep(10.0,22.0,h));\n' +
+      '    float forest = smoothstep(thr, thr+0.035, fN) * (1.0 - air);\n' +
+      '    vec3 forestC = mix(vec3(0.070,0.112,0.042), vec3(0.042,0.080,0.038), smoothstep(90.0, 260.0, h + (macro-0.5)*160.0));\n' +
+      '    forestC *= 0.70 + 0.60*texture2D(uNoise, wp/150.0 + 0.19).a;\n' +
+      '    albedo = mix(albedo, forestC, forest);\n' +
+      // rock on cliffs and above the pasture, horizontal strata; snow only where it can lie
+      '    float rockW = max(smoothstep(380.0, 440.0, h + (macro-0.5)*60.0), 1.0 - smoothstep(0.60, 0.76, ny + (nB.g-0.5)*0.12));\n' +
+      '    vec3 rockC = vec3(0.300,0.285,0.265) * (0.93 + 0.07*sin(h*0.11 + nB.b*9.0 + nA.g*6.0)) * (0.78 + 0.44*nB.g);\n' +
+      '    albedo = mix(albedo, rockC, rockW*(1.0 - forest*0.7));\n' +
+      '    float snowLine = 470.0 + (macro-0.5)*170.0 + (nB.b-0.5)*60.0;\n' +
+      '    float snow = smoothstep(snowLine-15.0, snowLine+25.0, h) * smoothstep(0.50, 0.70, ny + (nB.a-0.5)*0.2);\n' +
+      '    albedo = mix(albedo, vec3(0.86,0.89,0.95), snow);\n' +
+      '    diffuseColor.rgb = mix(diffuseColor.rgb, albedo*diffuse, land);\n' +
+      // close-range grain only (GFX level gated)
+      '    float detailFade = uDetail*(1.0 - smoothstep(150.0, 600.0, length(vWPosG - uCamPos)));\n' +
+      '    if(detailFade > 0.002) diffuseColor.rgb *= 1.0 + (texture2D(uNoise, wp/61.0 + 0.53).a - 0.5)*0.22*detailFade;\n' +
       '  }\n')
     .replace('#include <fog_fragment>',
       '#include <fog_fragment>\n' +
@@ -1712,6 +1732,124 @@ function terrainNormal(x, z, out){
   const hL=terrainHeight(x-NRM_EPS, z), hR=terrainHeight(x+NRM_EPS, z);
   const hD=terrainHeight(x, z-NRM_EPS), hU=terrainHeight(x, z+NRM_EPS);
   return out.set(hL-hR, 2*NRM_EPS, hD-hU).normalize();
+}
+// --- land-cover textures: forest mask, colour noise and field parcels ---------------------
+// Vertex colours alone live on a 20 m (near) / 250 m (far land) lattice, which is why the
+// ground read as flat poster paint. The terrain shader instead classifies every PIXEL in
+// world space (meadow, field patchwork, forest, rock, snow) from two small tileable,
+// mipmapped textures: mipmaps average the pattern with distance, so the same land cover
+// stays readable from 50 m up to the far plane without shimmering. JS keeps the raw bytes
+// and samples them bilinearly exactly like the GPU's level 0, so 5b plants trees where
+// the shader paints forest (landForest() below and the GLSL twin must stay in sync).
+const LAND = { N:256, data:null, tex:null, FN:512, fdata:null, ftex:null };
+function _lhash(n){ n=(n^61)^(n>>>16); n=Math.imul(n,9); n^=n>>>4; n=Math.imul(n,0x27d4eb2d); n^=n>>>15; return (n>>>0)/4294967296; }
+// periodic fBm -> equalised to a uniform 0..1 distribution (thresholds then mean coverage)
+function _landFbm(N, p0, oct, seed, outCh, out){
+  const v=new Float32Array(N*N);
+  let amp=1, p=p0;
+  for(let o=0;o<oct;o++, p*=2, amp*=0.5){
+    const lat=new Float32Array(p*p);
+    for(let i=0;i<lat.length;i++) lat[i]=_lhash(i*7919 + seed*104729 + o*15485863);
+    const k=p/N;
+    for(let y=0;y<N;y++){
+      const fy=y*k, y0=Math.floor(fy), ty=fy-y0, sy=ty*ty*(3-2*ty), r0=(y0%p)*p, r1=((y0+1)%p)*p;
+      for(let x=0;x<N;x++){
+        const fx=x*k, x0=Math.floor(fx), tx=fx-x0, sx=tx*tx*(3-2*tx), c0=x0%p, c1=(x0+1)%p;
+        const a=lat[r0+c0], b=lat[r0+c1], c=lat[r1+c0], d=lat[r1+c1];
+        v[y*N+x] += amp*((a+(b-a)*sx) + ((c+(d-c)*sx)-(a+(b-a)*sx))*sy);
+      }
+    }
+  }
+  let mn=1e9, mx=-1e9; for(let i=0;i<v.length;i++){ if(v[i]<mn) mn=v[i]; if(v[i]>mx) mx=v[i]; }
+  const B=1024, hist=new Uint32Array(B), sc=(B-1)/(mx-mn);
+  for(let i=0;i<v.length;i++) hist[((v[i]-mn)*sc)|0]++;
+  for(let i=1;i<B;i++) hist[i]+=hist[i-1];
+  const inv=255/v.length;
+  for(let i=0;i<v.length;i++) out[i*4+outCh]=Math.min(255, Math.round(hist[((v[i]-mn)*sc)|0]*inv));
+}
+function _landFields(N, out){
+  // recursive rectangle split = Bavarian parcel patchwork (strips, blocks, hedges, tracks)
+  let s=977; const rnd=()=>_lhash(s++);
+  // linear albedo; stored x2 in 8 bit
+  const PAL=[
+    [0.150,0.255,0.075, 26], [0.130,0.235,0.065, 16], [0.185,0.270,0.090, 10], [0.230,0.300,0.110, 6],   // meadows
+    [0.440,0.370,0.160, 11], [0.360,0.300,0.130, 5],                                                      // wheat / stubble
+    [0.270,0.200,0.125, 10], [0.200,0.150,0.095, 4],                                                      // ploughed
+    [0.120,0.215,0.055, 9],                                                                                // maize
+    [0.520,0.470,0.060, 3],                                                                                // rapeseed
+  ];
+  let tot=0; for(const p of PAL) tot+=p[3];
+  const put=(x,y,r,g,b)=>{ const i=(((y&(N-1))*N)+(x&(N-1)))*4; out[i]=Math.min(255,r*510); out[i+1]=Math.min(255,g*510); out[i+2]=Math.min(255,b*510); out[i+3]=255; };
+  const leaf=(x,y,w,h)=>{
+    let r=rnd()*tot, k=0; while(r>PAL[k][3]){ r-=PAL[k][3]; k++; }
+    const j=0.9+rnd()*0.2, c=PAL[k], striped=k>=4 && k<=8, alongX=w>h;
+    const edge=rnd(), er= edge<0.28 ? [0.055,0.100,0.040] : (edge<0.36 ? [0.36,0.33,0.25] : null);
+    for(let yy=0;yy<h;yy++) for(let xx=0;xx<w;xx++){
+      let f=j; if(striped) f*= ((alongX?yy:xx)&1) ? 0.93 : 1.05;
+      if(xx===0 || yy===0){ if(er){ put(x+xx,y+yy,er[0],er[1],er[2]); continue; } f*=0.82; }
+      put(x+xx,y+yy,c[0]*f,c[1]*f,c[2]*f);
+    }
+  };
+  const split=(x,y,w,h,d)=>{
+    const big=Math.max(w,h), r=rnd();
+    if(d>2 && (big<16 || (big<60 && r<0.30) || (w*h<1600 && r<0.65))){ leaf(x,y,w,h); return; }
+    const longSide = rnd()<0.7;                      // mostly cut the long side, sometimes make strips
+    const cutX = (w>=h) === longSide;
+    if(cutX && w>=10){ const c=Math.max(5, Math.floor(w*(0.25+rnd()*0.5))); split(x,y,c,h,d+1); split(x+c,y,w-c,h,d+1); }
+    else if(!cutX && h>=10){ const c=Math.max(5, Math.floor(h*(0.25+rnd()*0.5))); split(x,y,w,c,d+1); split(x,y+c,w,h-c,d+1); }
+    else leaf(x,y,w,h);
+  };
+  split(0,0,N,N,0);
+}
+function _landTexture(data, N){
+  const t=new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping;
+  t.magFilter=THREE.LinearFilter; t.minFilter=THREE.LinearMipmapLinearFilter; t.generateMipmaps=true;
+  t.needsUpdate=true;
+  return t;
+}
+(function(){
+  const N=LAND.N; LAND.data=new Uint8Array(N*N*4);
+  _landFbm(N, 4, 6, 11, 0, LAND.data);     // R: forest mask
+  _landFbm(N, 3, 5, 23, 1, LAND.data);     // G: macro colour / snowline
+  _landFbm(N, 8, 4, 37, 2, LAND.data);     // B: medium detail, ragged edges
+  _landFbm(N, 32, 3, 51, 3, LAND.data);    // A: fine grain, canopy clumps
+  LAND.tex=_landTexture(LAND.data, N);
+  LAND.fdata=new Uint8Array(LAND.FN*LAND.FN*4); _landFields(LAND.FN, LAND.fdata);
+  LAND.ftex=_landTexture(LAND.fdata, LAND.FN);
+})();
+// bilinear, repeat-wrapped: identical to the GPU's level-0 sample of uNoise at uv=(x,z)/scale+off
+function landTex(ch, x, z, scale, off){
+  const N=LAND.N, d=LAND.data;
+  const u=(x/scale+off)*N-0.5, v=(z/scale+off)*N-0.5;
+  const i0=Math.floor(u), j0=Math.floor(v), fu=u-i0, fv=v-j0;
+  const a=i0&(N-1), b=(i0+1)&(N-1), r0=(j0&(N-1))*N, r1=((j0+1)&(N-1))*N;
+  const p=d[(r0+a)*4+ch], q=d[(r0+b)*4+ch], s=d[(r1+a)*4+ch], t=d[(r1+b)*4+ch];
+  return ((p+(q-p)*fu) + ((s+(t-s)*fu)-(p+(q-p)*fu))*fv)/255;
+}
+// 0..1 forest cover at a ground point (h = height, ny = up component of the normal).
+// GLSL twin: the 'forest' term in terrainMat's colour stage.
+function landForest(x, z, h, ny){
+  const fN = 0.78*landTex(0,x,z,5200,0) + 0.22*landTex(2,x,z,730,0.37);
+  const macro = landTex(1,x,z,9100,0.61);
+  const thr = 0.56 - 0.08*smoothBand(40,140,h) + 0.35*smoothBand(360+(macro-0.5)*120, 450+(macro-0.5)*120, h)
+            + 0.4*(1-smoothBand(0.64,0.78,ny)) + 0.4*(1-smoothBand(10,22,h));
+  return smoothBand(thr, thr+0.035, fN);
+}
+// Exact rendered ground height: the chunk mesh is a 20.8 m lattice of terrainHeight() samples
+// split along the (ix,iy+1)-(ix+1,iy) diagonal (PlaneGeometry order). Scenery stands on the
+// triangles the player sees, not on the smooth field between them (no floating on ridges).
+const _sfc = { h:0, ny:1 };
+function surfaceAt(x, z){
+  const st=CFG.chunkSize/CFG.chunkSeg;
+  const gx=x/st, gz=z/st, ix=Math.floor(gx), iz=Math.floor(gz), u=gx-ix, v=gz-iz;
+  const x0=ix*st, z0=iz*st, x1=x0+st, z1=z0+st;
+  const ha=terrainHeight(x0,z0), hd=terrainHeight(x1,z0), hb=terrainHeight(x0,z1), hc=terrainHeight(x1,z1);
+  let dhx, dhz;
+  if(u+v<=1){ _sfc.h=ha+(hd-ha)*u+(hb-ha)*v; dhx=hd-ha; dhz=hb-ha; }
+  else      { _sfc.h=hc+(hb-hc)*(1-u)+(hd-hc)*(1-v); dhx=hc-hb; dhz=hc-hd; }
+  dhx/=st; dhz/=st; _sfc.ny=1/Math.sqrt(dhx*dhx+dhz*dhz+1);
+  return _sfc;
 }
 function buildChunk(cx, cz){
   const seg=CFG.chunkSeg, size=CFG.chunkSize;
@@ -2218,6 +2356,9 @@ function freeScenery(key){
 GFX.onChange(function(level){
   const detail = level==='high'?1.0:(level==='medium'?0.6:0.0);
   if(terrainMat.userData.shader) terrainMat.userData.shader.uniforms.uDetail.value = detail;
+  // field parcels at grazing angles need anisotropic filtering, or they smear into one colour
+  const aniso = Math.min(renderer.capabilities.getMaxAnisotropy(), level==='high'?8:(level==='medium'?4:1));
+  if(LAND.ftex.anisotropy!==aniso){ LAND.ftex.anisotropy=aniso; LAND.tex.anisotropy=Math.min(aniso,4); LAND.ftex.needsUpdate=true; LAND.tex.needsUpdate=true; }
   if(waterMat.userData.shader) waterMat.userData.shader.uniforms.uGlint.value = detail;
   const windAmp = level==='high'?1.0:0.0;
   for(let i=0;i<_windMats.length;i++){ if(_windMats[i].userData.shader) _windMats[i].userData.shader.uniforms.uWindAmp.value = windAmp; }
@@ -2318,6 +2459,8 @@ HOOKS.always.push(function(dt){
   for(let i=0;i<_windMats.length;i++){ if(_windMats[i].userData.shader) _windMats[i].userData.shader.uniforms.uTime.value=_scnTime; }
   if(terrainMat.userData.shader) terrainMat.userData.shader.uniforms.uFar.value=camera.far;
   if(waterMat.userData.shader) waterMat.userData.shader.uniforms.uFar.value=camera.far;
+  if(terrainMat.userData.shader){ const u=terrainMat.userData.shader.uniforms, A=AIRFIELD;
+    if(A){ u.uAir.value.set(A.x, A.z, A.cos, A.sin); u.uAirExt.value.set(A.halfW+40, A.halfL+40, 1); } else u.uAirExt.value.z=0; }
   farLandTick();
 });
 
