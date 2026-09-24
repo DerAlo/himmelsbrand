@@ -2136,7 +2136,8 @@ const Voice = (function(){
   function playKeys(list){ if(!Array.isArray(list)) return; const g=++grp;
     for(const x of list){ const it=mk((x[1]||'NARRATOR')+'|…', {kind:'cutscene', prio:'crit', group:g, key:x[0]}); enqueue(it); } tick(0); }
   // drop queued (not yet playing) lines matching pred — e.g. story mid lines once the mission is won
-  function drop(pred){ if(queue.some(pred)) queue=queue.filter(q=>{ if(pred(q)){ T('drop', q, {why:'drop'}); return false; } return true; }); }
+  function drop(pred, cutCur){ if(queue.some(pred)) queue=queue.filter(q=>{ if(pred(q)){ T('drop', q, {why:'drop'}); return false; } return true; });
+    if(cutCur && cur && pred(cur)){ const it=cur; if(it.h) killWA(it.h, 0.18); finish(it, 'cut'); lastEnd=vnow-0.2; if(subShown) subHideAt=vnow+0.15; } }   // cutCur: also fade out the playing line (boss kill)
   function stop(){
     if(isPaused()){   // pause: park the current line (restarts on resume), keep the queue
       if(cur){ const it=cur; if(it.h) killWA(it.h, 0.04); if(it.html){ try{ it.html.pause(); }catch(e){} it.html=null; }
@@ -6711,9 +6712,18 @@ function checkMissionComplete(){
     clearVictoryTimer();
     // Only fire if we're still in the SAME won campaign mission (guards against
     // leaving to menu / starting another game during the win cutscene).
-    victoryTimer=setTimeout(()=>{ victoryTimer=null;
-      if(state==='playing' && gameMode==='campaign' && mission.done && mission.index===wonIndex) gameOver(true);
-    }, 2600);
+    // BOSSES: a boss kill waits for its death sequence (per kind), then for win[0] to finish; cap 8 s.
+    const bk=(boss && boss.dead && menuTime-(boss.deadAt||0)<1) ? boss.kind : null, w0=mission.def.win && mission.def.win[0];
+    const pw=w0 ? parseLine(w0) : null; _winWaitKey = (bk && pw) ? voiceKey((pw.spk||'')+'|'+pw.text) : null;
+    let waited=0;
+    const poll=()=>{ victoryTimer=null;
+      if(!(gameMode==='campaign' && mission.done && mission.index===wonIndex)) return;
+      if(state==='paused'){ victoryTimer=setTimeout(poll,250); return; }   // paused over the win: resume the wait, don't lose it
+      if(state!=='playing') return;
+      if(bk && _winWaitKey && waited<8000-BOSS_WIN_MS[bk]){ waited+=250; victoryTimer=setTimeout(poll,250); return; }
+      gameOver(true);
+    };
+    victoryTimer=setTimeout(poll, bk ? (BOSS_WIN_MS[bk]||4200) : 2600);
   }
 }
 function queueRadioNow(lines){ if(!lines) return; Voice.lines(lines, {prio:'crit', gap:0.4}); }   // mission-critical (win lines): never dropped
@@ -6891,6 +6901,12 @@ const BOSS_FALLBACK_NAME = {
   himmelszelt:'HIMMELSZELT · FLIEGENDE FESTUNG'
 };
 const BOSS_BY_MISSION = { m12:'prometheus', m13:'feuertraeger', b6:'himmelszelt' };
+// victory screen delay after a boss kill (ms): the death sequence plays out first (checkMissionComplete, 15d)
+const BOSS_WIN_MS = { auge:4800, kronos:4200, himmelszelt:4200, prometheus:3500, feuertraeger:4800 };
+const BOSS_P3_MIN = 5;  // s: phase 3 can't be skipped by burst damage
+const FT_WINDOW_CAP = 0.3;  // FEUERTRÄGER P2: share of maxhp one chamber window can take before it slams shut
+let _winWaitKey=null;   // voice key of win[0] still to be spoken; cleared by its voiceEnd
+EV.on('voiceEnd', d=>{ if(_winWaitKey && d && d.key===_winWaitKey) _winWaitKey=null; });
 
 // scratch vectors (kept private to this section to avoid touching other tracks' scratch vars)
 const _blcWP=new THREE.Vector3(), _blcFwd=new THREE.Vector3(), _blcRel=new THREE.Vector3();
@@ -6963,24 +6979,39 @@ function bossHitPlayer(dmg){
   if(player.hp<=0 && !winLocked){ player.alive=false; gameOver(false); }
 }
 
-// FEUERTRÄGER lock-proxy: lets A2A missiles guide onto the exposed core (bible §3.4).
+// Boss lock-proxy: lets A2A missiles and the gun assist aim at the exposed core (bible §3.4), every kind.
 // Returns the enemy-shaped bossLock (obj.position/vel), never the raw mesh: gunTarget reads .obj.position/.vel.
-function bossLockCandidate(){
-  if(!boss || boss.dead || !boss.lockable || !boss.exposed) return null;
+// dot(nose, dir to core) when the exposed core is within maxDist, else -2 (leaves core pos in _blcWP, nose in _blcFwd)
+function bossCoreDot(maxDist){
+  if(!boss || boss.dead || !boss.exposed || !boss.core) return -2;
   boss.core.getWorldPosition(_blcWP);
-  _blcFwd.set(0,0,-1).applyQuaternion(player.obj.quaternion);
   _blcRel.copy(_blcWP).sub(player.obj.position);
-  const dist=_blcRel.length(); if(dist>3500) return null;
-  _blcRel.normalize();
-  if(_blcFwd.dot(_blcRel)<0.9) return null;
-  bossLock.obj.position.copy(_blcWP); bossLock.live=true;
-  return bossLock;
+  const dist=_blcRel.length(); if(dist>maxDist || dist<1) return -2;
+  _blcFwd.set(0,0,-1).applyQuaternion(player.obj.quaternion);
+  return _blcFwd.dot(_blcRel.multiplyScalar(1/dist));
+}
+function _bossCandDot(c){ _blcRel.copy(c.obj.position).sub(player.obj.position).normalize(); return _blcFwd.dot(_blcRel); }
+function _bossProxy(){ bossLock.obj.position.copy(_blcWP); if(boss.vel) bossLock.vel.copy(boss.vel); else bossLock.vel.set(0,0,0); bossLock.live=true; return bossLock; }
+// missile lock: the core wins over an enemy candidate that sits further off the nose (PROMETHEUS: only while the lamellae are open)
+function bossLockCandidate(cand){
+  cand=cand||null;
+  if(!boss || !boss.lockable || (boss.kind==='prometheus' && !(boss.lamOpen>0.5))) return cand;
+  const d=bossCoreDot(3500); if(d<0.9) return cand;
+  if(cand && cand!==bossLock && _bossCandDot(cand)>=d) return cand;
+  return _bossProxy();
+}
+// gun assist: an escort drifting through the wide gun cone must not steal the pipper from a core right on the nose (~8°)
+function bossGunCandidate(cand){
+  if(cand===bossLock) return cand;
+  const d=bossCoreDot(CFG.gunRange+400); if(d<0.99) return cand;
+  if(cand && _bossCandDot(cand)>=d) return cand;
+  return _bossProxy();
 }
 // keep the proxy on the core every frame while a missile may be chasing it
 function syncBossLock(b){
   if(!b.lockable) return;
   b.core.getWorldPosition(bossLock.obj.position);
-  if(b.vel) bossLock.vel.copy(b.vel);
+  if(b.vel) bossLock.vel.copy(b.vel); else bossLock.vel.set(0,0,0);
   bossLock.live=!b.dead;
 }
 
@@ -7022,7 +7053,7 @@ function spawnBoss(kind, finale){
   // finale/choicePoint multiplier: only the two ORIGINAL kinds get it — new kinds already carry final HP
   if(finale && (boss.kind==='kronos'||boss.kind==='auge')){ boss.hp=Math.round(boss.hp*1.25); boss.maxhp=boss.hp; }
   boss.finale=!!finale;
-  boss.lockable=!!boss.lockable;
+  boss.lockable=true;   // every kind: A2A missiles guide onto the exposed core (bossLockCandidate)
   boss.hpDone={}; boss.callCount={}; boss.callCd={}; boss.quietUntil=0;
   scene.add(boss.obj);
   dom.bosswrap.classList.add('show');
@@ -7034,6 +7065,7 @@ function checkBossExpose(){
   if(!boss || boss.dead || boss.phase>=2) return;
   for(let i=0;i<boss.parts.length;i++) if(!boss.parts[i].dead) return;
   boss.phase=2; EV.emit('bossPhase',{kind:boss.kind,phase:2}); boss.quietUntil=menuTime+5;
+  boss.atkQuietUntil=menuTime+(boss.kind==='feuertraeger'?3:5);   // attack gate (callouts keep quietUntil)
   // FEUERTRÄGER manages its own exposed toggling (chamber open/close) — everyone else opens once, for good.
   if(boss.kind!=='feuertraeger'){
     boss.exposed=true; EV.emit('bossExposed',{kind:boss.kind,open:true});
@@ -7053,6 +7085,7 @@ function emitBossHpThresholds(){
         b.phase=3;
         EV.emit('bossPhase',{kind:b.kind,phase:3});   // same frame as the 0.25 bossHp, per contract
         b.quietUntil=menuTime+5;
+        b.atkQuietUntil=menuTime+1; b.p3T=0;   // final attacks start ~1 s in; hp floor holds P3 open (damageBoss)
         if(b.onPhase3) b.onPhase3();
       }
     }
@@ -7062,11 +7095,15 @@ function emitBossHpThresholds(){
 function damageBoss(dmg){
   if(!boss || !boss.exposed || boss.dead) return;
   const mul = boss.dmgMul ? boss.dmgMul() : 1;
-  boss.hp -= dmg*mul;
+  let d=dmg*mul;
+  if(boss.kind==='feuertraeger' && boss.phase<3){ d=Math.min(d, Math.max(0, boss.maxhp*FT_WINDOW_CAP-(boss.winDmg||0))); boss.winDmg=(boss.winDmg||0)+d; }
+  boss.hp -= d;
   (boss.core||boss.eye).getWorldPosition(_bdWP);
   fireP.spawn(_bdWP.x,_bdWP.y,_bdWP.z, (Math.random()-0.5)*60,30,(Math.random()-0.5)*60,0.3,14,3,C_WHITE,C_ORANGE,0.9,0);
-  updateBossBar();
   emitBossHpThresholds();
+  // P3 floor: the last phase always gets BOSS_P3_MIN s (final attack + story line); 5 % stays visible on the bar
+  if(boss.p3T!=null && boss.p3T<BOSS_P3_MIN) boss.hp=Math.max(boss.hp, boss.maxhp*0.05);
+  updateBossBar();
   if(boss.hp<=0) killBoss();
 }
 
@@ -7168,7 +7205,10 @@ function killFeuertraeger(){
 }
 function killBoss(){
   if(!boss || boss.dead) return;
-  boss.dead=true; boss.exposed=false;
+  boss.dead=true; boss.exposed=false; boss.deadAt=menuTime; boss.hudMsgT=0;
+  // pre-kill fight chatter (story mid lines, normal/bark callouts) is stale now: fade it out so the
+  // bossKilled / win[] lines come next instead of 2-5 s later
+  Voice.drop(q=>q.mid || q.prio!=='crit', true);
   EV.emit('bossKilled', {kind:boss.kind});   // emitted at the START of the death sequence so STORY can speak over it
   onBossDestroyed();
   if(boss.kind==='prometheus') killPrometheus();
@@ -7179,6 +7219,7 @@ function killBoss(){
 
 function bossPhaseLabel(left){
   const b=boss;
+  if(b.dead) return 'ZERSTÖRT';
   if(b.kind==='kronos') return left>0 ? `${left} × TURM BRECHEN, DANN DER BAUCH` : '① BAUCH OFFEN — KERN VERSENKEN';
   if(b.kind==='auge'){
     if(left>0) return `${left} × MAST BRECHEN (Blende)`;
@@ -7208,7 +7249,7 @@ function updateBossBar(){
   const wk=Math.round(barW*10);
   if(boss._barWk!==wk){ boss._barWk=wk; boss._barW=(wk/10).toFixed(1)+'%'; _bbFill.style.width=boss._barW; }
   const hud=(boss.hudMsgT>0 && boss.hudMsg) ? boss.hudMsg : null;
-  const lk=left*64 + boss.phase*8 + (boss.lamOpen>0.5?4:0) + (boss.chamberOpen?2:0);
+  const lk=left*64 + boss.phase*8 + (boss.lamOpen>0.5?4:0) + (boss.chamberOpen?2:0) + (boss.dead?1:0);
   if(boss._barLk!==lk || boss._barLh!==hud){
     boss._barLk=lk; boss._barLh=hud;
     const label = boss.name + '  —  ' + (hud || bossPhaseLabel(left));
@@ -7221,12 +7262,16 @@ function updateBoss(dt){
   checkBossExpose();
   updateBossCallCd(boss,dt);
   if(boss.hudMsgT>0) boss.hudMsgT-=dt;
-  if(boss.dead){ bossLock.live=false; if(boss.deathUpdate) boss.deathUpdate(dt); updateBossBar(); return; }
+  if(boss.p3T!=null) boss.p3T+=dt;   // flight time in P3 (pause-safe) for the hp floor
+  if(boss.dead){ bossLock.live=false; if(boss.deathUpdate) boss.deathUpdate(dt); updateBossBar();
+    if(menuTime-(boss.deadAt||0)>0.8) dom.bosswrap.classList.remove('show');   // 'ZERSTÖRT' reads briefly, then the bar leaves the death sequence
+    return; }
   if(boss.kind==='kronos') updateKronos(dt);
   else if(boss.kind==='prometheus') updatePrometheus(dt);
   else if(boss.kind==='feuertraeger') updateFeuertraeger(dt);
   else if(boss.kind==='himmelszelt') updateHimmelszelt(dt);
   else updateAuge(dt);
+  if(boss) syncBossLock(boss);   // proxy follows moving cores (KRONOS drift) for missiles already in flight
   updateBossBar();
 }
 
@@ -7268,7 +7313,7 @@ function buildKronos(x,z){
     gt.obj.position.set(x+ox, g.position.y+20, z+oz);
     gt.airborne=true; gt.bossPart=true; parts.push(gt);
   }
-  return { obj:g, kind:'kronos', name:BOSS_FALLBACK_NAME.kronos, hp:420, maxhp:420, core, coreGlow, deckLights, amberMat, amberGlowMat, coverL, coverR, coverT:0,
+  return { obj:g, kind:'kronos', name:BOSS_FALLBACK_NAME.kronos, hp:840, maxhp:840, core, coreGlow, deckLights, amberMat, amberGlowMat, coverL, coverR, coverT:0,
     hullParts:[hull,deck,tower], parts, exposed:false,
     fireCd:1.5, phase:1, dead:false, lockable:false, hitR:{bullet:18,missile:22}, deathStyle:'chain',
     droneCd:18, launchT:0, launchN:1, finalLaunch:false, driftD:0, roll:0, smokeCd:0, vel:new THREE.Vector3() };
@@ -7308,7 +7353,7 @@ function updateKronos(dt){
   if(b.launchT>0){
     b.launchT-=dt;
     if(b.launchT<=0) kronosLaunchDrones(b,b.launchN);
-  } else if(menuTime>=(b.quietUntil||0)){
+  } else if(menuTime>=(b.atkQuietUntil||0)){
     b.droneCd-=dt;
     const p3=b.phase>=3;
     const allowed = !p3 || (!b.finalLaunch && b.kind!=='himmelszelt');   // P3: one last double launch (HIMMELSZELT: none)
@@ -7345,7 +7390,7 @@ function buildAuge(x,z){
   beam.visible=false; g.add(beam);
   const parts=[];
   for(let i=0;i<3;i++){ const a=i/3*Math.PI*2; const gt=spawnGroundTarget('pylon', x+Math.cos(a)*120, z+Math.sin(a)*120); gt.bossPart=true; parts.push(gt); }
-  return { obj:g, kind:'auge', name:BOSS_FALLBACK_NAME.auge, hp:380, maxhp:380, base, eye, iris, glow, shutter, beam, core:eye, parts, exposed:false,
+  return { obj:g, kind:'auge', name:BOSS_FALLBACK_NAME.auge, hp:760, maxhp:760, base, eye, iris, glow, shutter, beam, core:eye, parts, exposed:false,
     fireCd:1.0, phase:1, dead:false, lockable:false, hitR:{bullet:24,missile:30}, deathStyle:'chain',
     beamState:'idle', beamCd:6, beamT:0, beamTarget:new THREE.Vector3(), shOpen:0, hbCd:0, hb2:0 };
 }
@@ -7374,7 +7419,7 @@ function updateAuge(dt){
   // last 0.5 s, then a 12-dmg pulse along the frozen line. P1 every 11 s, P2 every 8 s, P3 never. Range 2600 m.
   if(b.beamState==='idle'){
     b.beamCd-=dt;
-    if(b.phase<3 && player.alive && dist<2600 && b.beamCd<=0 && menuTime>=(b.quietUntil||0)){
+    if(b.phase<3 && player.alive && dist<2600 && b.beamCd<=0 && menuTime>=(b.atkQuietUntil||0)){
       b.beamCd = b.exposed?8:11; b.beamState='track'; b.beamT=0; b.beamTarget.copy(player.obj.position);
       const first=(b.callCount.suchblick||0)===0;
       bossCall(b,'suchblick', first ? 'HELIOS|ICH SEHE DICH. … WEICH AUS.|kalt' : 'WAGNER|Roter Strahl auf dir! Wenn er weiß wird, brich seitlich weg!|dringend');
@@ -7513,7 +7558,7 @@ function updatePrometheus(dt){
         b.lamTarget=0;
         prometheusSalvo(b);
       }
-    } else if(b.salvoCd<=0 && menuTime>=(b.quietUntil||0)){
+    } else if(b.salvoCd<=0 && menuTime>=(b.atkQuietUntil||0)){
       b.salvoCd=14; b.telegraphT=1.5;
       for(let k=0;k<3;k++) setTimeout(()=>{ if(boss===b && !b.dead){ const wp=new THREE.Vector3(); b.core.getWorldPosition(wp); spawnFlare(wp.x,wp.y,wp.z,30,0xffffff,0.25); } }, k*450);
       bossTone(260,700,1.5,'sine');
@@ -7521,7 +7566,7 @@ function updatePrometheus(dt){
     return;
   }
   // P2/P3 cycle
-  if(menuTime<(b.quietUntil||0)) return;
+  if(menuTime<(b.atkQuietUntil||0)) return;
   b.pCycleT+=dt;
   const closedDur=6, calcDur=2.2, openDur=b.phase>=3?6:5, p3Cycle=8;
   if(b.pCycleState==='closed'){
@@ -7549,7 +7594,7 @@ function detonateFirewall(b){
 }
 function setChamberOpen(b,open){
   if(b.chamberOpen===open) return;
-  b.chamberOpen=open; b.exposed=open;
+  b.chamberOpen=open; b.exposed=open; if(open) b.winDmg=0;
   EV.emit('bossExposed',{kind:b.kind,open});
   if(open) bossCall(b,'kammerOffen','WAGNER|Kammer offen! Sechs Sekunden, Geier, alles rein!|dringend');
 }
@@ -7628,7 +7673,7 @@ function updateFeuertraeger(dt){
   const flameScale = b.phase>=2?1.6:1;
   for(const n of b.nacelles){ const f=(0.8+Math.random()*0.4)*flameScale; n.flame.scale.set(f,f,f); n.glow.scale.set(22*flameScale,22*flameScale,1); }
   // glow telegraph: the chamber sphere pulses (doors still shut) while the rumble swells
-  const pulse = (!b.chamberOpen && b.cycleState==='glow' && b.phase>=2 && menuTime>=(b.quietUntil||0)) ? 1+0.35*Math.sin(menuTime*14) : 1;
+  const pulse = (!b.chamberOpen && b.cycleState==='glow' && b.phase>=2 && menuTime>=(b.atkQuietUntil||0)) ? 1+0.35*Math.sin(menuTime*14) : 1;
   const cg=90*(b.chamberOpen?1.3:0.9)*pulse; b.coreGlow.scale.set(cg,cg,1);
   b.core.material.color.setHex(b.chamberOpen?0xffcf80:0xff5a1a);
   b.doorOpenT=(b.doorOpenT||0)+((b.chamberOpen?1:0)-(b.doorOpenT||0))*Math.min(1,dt*2);
@@ -7642,7 +7687,7 @@ function updateFeuertraeger(dt){
       const dir=player.obj.position.clone().sub(src).normalize(); fireBullet(src,dir,false,6); }
     return;
   }
-  if(menuTime<(b.quietUntil||0)) return;
+  if(menuTime<(b.atkQuietUntil||0)) return;
   b.cycleT=(b.cycleT||0)+dt;
   const st=b.cycleState||'glow';
   if(st==='glow'){
@@ -7651,7 +7696,11 @@ function updateFeuertraeger(dt){
   } else if(st==='wallwait'){
     if(b.cycleT>=1.5){ detonateFirewall(b); b.cycleState='open'; b.cycleT=0; setChamberOpen(b,true); }
   } else if(st==='open'){
-    if(b.phase<3 && b.cycleT>=6){ b.cycleState='closed'; b.cycleT=0; setChamberOpen(b,false); }
+    const slam = b.phase<3 && (b.winDmg||0) >= b.maxhp*FT_WINDOW_CAP-0.5;   // P2: a window soaks at most 30 % -> >=3 windows before P3
+    if(b.phase<3 && (b.cycleT>=6 || slam)){ b.cycleState='closed'; b.cycleT=0; setChamberOpen(b,false);
+      if(slam){ b.core.getWorldPosition(_bT1); spawnFlare(_bT1.x,_bT1.y,_bT1.z,40,0xffd080,0.25);
+        for(let i=0;i<14;i++) fireP.spawn(_bT1.x,_bT1.y,_bT1.z,(Math.random()-0.5)*160,Math.random()*90,(Math.random()-0.5)*160,0.45,10,3,C_WHITE,C_ORANGE,0.9,0);
+        bossTone(160,55,0.35,'square'); shake=Math.max(shake,0.35); b.hudMsg='KAMMER VERRIEGELT'; b.hudMsgT=2; } }
   } else if(st==='closed'){
     b.fireCd-=dt;
     if(b.fireCd<=0 && player.alive){ b.fireCd=1.0; const src=new THREE.Vector3(); b.obj.localToWorld(src.set(0,10,-110));
@@ -7689,7 +7738,7 @@ const _hzPennantGeo=new THREE.CircleGeometry(3,3);
 const _hzPennantMats=[new THREE.MeshBasicMaterial({color:0xffffff, side:THREE.DoubleSide}), new THREE.MeshBasicMaterial({color:0x3a8fd9, side:THREE.DoubleSide})];
 function buildHimmelszelt(x,z){
   const b=buildKronos(x,z);
-  b.kind='himmelszelt'; b.name=BOSS_FALLBACK_NAME.himmelszelt; b.hp=600; b.maxhp=600;
+  b.kind='himmelszelt'; b.name=BOSS_FALLBACK_NAME.himmelszelt; b.hp=1200; b.maxhp=1200;
   b.obj.traverse(o=>{ if(o.isMesh && o.geometry && o.geometry.type==='BoxGeometry' && o.material && o.material.color && o.material.color.getHex()===0x2b3138){
     o.material=o.material.clone(); o.material.map=_hzRautenTex; o.material.color.setHex(0xffffff); o.material.needsUpdate=true; } });
   const roof=new THREE.Mesh(new THREE.CylinderGeometry(30,30,120,3), new THREE.MeshStandardMaterial({map:_hzStripeTex, metalness:0.2, roughness:0.7}));
@@ -7717,7 +7766,7 @@ function updateHimmelszelt(dt){
   updatePrecogMarkers(b,dt);
   if(b.exposed){
     b.vbCd-=dt;
-    if(b.vbCd<=0 && menuTime>=(b.quietUntil||0)){ b.vbCd=10; spawnPrecogMarker(b,2.2,2.2); bossCall(b,'vorausberechnung','WIGGERL|Sepp, a blauer Ring vor dir! Weg do, schnell!|panisch'); }
+    if(b.vbCd<=0 && menuTime>=(b.atkQuietUntil||0)){ b.vbCd=10; spawnPrecogMarker(b,2.2,2.2); bossCall(b,'vorausberechnung','WIGGERL|Sepp, a blauer Ring vor dir! Weg do, schnell!|panisch'); }
   }
 }
 
@@ -8314,14 +8363,14 @@ function updatePlayer(dt){
   }
 
   // Missile lock: tight forward cone (used for guided missiles).
-  currentLock = nearestEnemyInFront(0.985, 3500) || nearestEnemyInFront(0.94, 2600) || bossLockCandidate();
+  currentLock = bossLockCandidate(nearestEnemyInFront(0.985, 3500) || nearestEnemyInFront(0.94, 2600));
   if(currentLock && currentLock!==EV._lastLock) EV.emit('lock', {target:currentLock}); EV._lastLock=currentLock;
   Audio.lockTone(currentLock!=null);
   // ground lock for the AGM (forgiving cone; only when ground targets exist)
   groundLock = groundTargets.length ? (nearestGroundInFront(0.9, 4200) || nearestGroundInFront(0.8, 3000)) : null;
   // Gun target: a BROADER cone than the missile lock, so the pipper/aim-assist
   // help you in a turning fight even before you have a hard missile lock.
-  gunTarget = currentLock || nearestEnemyInFront(0.86, CFG.gunRange+400);
+  gunTarget = bossGunCandidate(currentLock || nearestEnemyInFront(0.86, CFG.gunRange+400));
   if(gunTarget){
     const gp=_leadOut2.copy(player.obj.position);
     const pt=computeLeadPoint(gp, null, gunTarget.obj.position, gunTarget.vel, CFG.bulletSpeed, _leadOut);
@@ -8814,7 +8863,7 @@ function updateMissiles(dt){
       if(mi.mesh.position.distanceTo(gt.obj.position) < gt.radius+16){ damageGround(gt, CFG.missileDmgBoss); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false,mpan); markHit(false,true); exploded=true; break; } } }
     // boss core/eye once exposed
     if(!exploded && boss && boss.exposed){ (boss.core||boss.eye).getWorldPosition(_wp);
-      if(mi.mesh.position.distanceTo(_wp) < boss.hitR.missile){ damageBoss(mi.agm?CFG.agmDmg:CFG.missileDmgBoss); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false,mpan); markHit(false,true); exploded=true; } }
+      if(mi.mesh.position.distanceTo(_wp) < boss.hitR.missile){ damageBoss(CFG.missileDmgBoss); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false,mpan); markHit(false,true); exploded=true; } }
     // AGM also strikes ground targets and detonates on terrain impact.
     if(!exploded && mi.agm){
       for(const gt of groundTargets){ if(gt.dead || gt.invuln) continue;
