@@ -980,15 +980,16 @@ function terrainHeightRaw(x, z){
 // Active airfield plateau. When set, terrainHeight() flattens the ground to a
 // smooth level pad around the runway so (a) no mountain pokes through the strip
 // and (b) the rendered ground and the landing collision use the SAME height.
-let AIRFIELD=null;   // {x,z,cos,sin,halfL,halfW,ramp,y}
+let AIRFIELD=null;   // {x,z,cos,sin,halfL,halfW,ramp,y,cut?}
 function terrainHeight(x, z){
-  const h = terrainHeightRaw(x, z);
+  let h = terrainHeightRaw(x, z);
   const A = AIRFIELD;
   if(!A) return h;
   // into runway-local frame (lx across width, lz along length)
   const dx=x-A.x, dz=z-A.z;
   const lx = dx*A.cos - dz*A.sin;
   const lz = dx*A.sin + dz*A.cos;
+  if(A.cut) h = A.cut(h, lx, lz);   // approach-corridor cut (LANDING)
   const outX = Math.max(0, Math.abs(lx) - A.halfW);
   const outZ = Math.max(0, Math.abs(lz) - A.halfL);
   const d = Math.hypot(outX, outZ);
@@ -2453,23 +2454,159 @@ function buildEurofighter(withLight){
 
 // ---- Runway / airbase strip (a landing surface the player can roll on) ----
 let runwayMesh=null;
-// Runway threshold numerals — one small canvas texture per label, built ONCE and cached
-// (buildRunway may run once per mission; a fresh CanvasTexture each time would leak GPU
-// memory since disposeTree only frees geometry, not textures/materials — see its comment).
-const _rwyNumTex={};
-function runwayNumTex(label){
-  if(_rwyNumTex[label]) return _rwyNumTex[label];
-  const c=document.createElement('canvas'); c.width=128; c.height=128; const g=c.getContext('2d');
-  g.fillStyle='#2b2e33'; g.fillRect(0,0,128,128);
-  g.fillStyle='#e8ecf0'; g.font='bold 92px system-ui, sans-serif'; g.textAlign='center'; g.textBaseline='middle';
-  g.fillText(label, 64, 68);
-  const t=new THREE.CanvasTexture(c); t.anisotropy=4;
-  return _rwyNumTex[label]=t;
+// ---- Runway resources: built ONCE and reused by every buildRunway (one per mission).
+// disposeTree frees geometry only, so per-build materials/textures used to leak; the
+// cached geometries carry userData.keep so disposeTree leaves them alone.
+// The whole airfield is 4 draw calls: baked strip, merged apron+buildings, 2 light sets.
+const RW_L=1400, RW_W=60;
+const _rw={};
+function rwStripTex(){
+  const cw=256, ch=4096, L=RW_L, W=RW_W;
+  const c=document.createElement('canvas'); c.width=cw; c.height=ch; const g=c.getContext('2d');
+  // asphalt base with per-pixel grain
+  const img=g.createImageData(cw,ch), d=img.data;
+  for(let i=0;i<d.length;i+=4){ const n=(Math.random()-0.5)*10;
+    d[i]=43+n; d[i+1]=46+n; d[i+2]=51+n*1.1; d[i+3]=255; }
+  g.putImageData(img,0,0);
+  // draw in metres: x across (-W/2..W/2), z along (-L/2 top .. +L/2 bottom)
+  const sx=cw/W, sz=ch/L; g.setTransform(sx,0,0,sz,W/2*sx,L/2*sz);
+  // re-tarred patches, a polished centre band, rubber in both touchdown zones
+  for(let i=0;i<46;i++){ g.fillStyle=Math.random()<0.5?'rgba(20,22,26,0.22)':'rgba(70,72,76,0.12)';
+    g.fillRect((Math.random()-0.5)*(W-10)-6, (Math.random()-0.5)*(L-40), 6+Math.random()*18, 10+Math.random()*50); }
+  g.fillStyle='rgba(18,19,22,0.18)'; g.fillRect(-4, -L/2, 8, L);
+  for(const s of [-1,1]){ const thr=s*(L/2-16);
+    for(let i=0;i<140;i++){ const z0=thr-s*(50+Math.random()*460), len=8+Math.random()*60;
+      g.fillStyle='rgba(8,8,9,'+(0.05+Math.random()*0.12).toFixed(3)+')';
+      g.fillRect((Math.random()<0.5?-1:1)*(1.2+Math.random()*4.2)-0.5, z0-(s>0?len:0), 0.9+Math.random()*1.2, len); } }
+  const white='rgba(236,238,240,0.93)';
+  g.fillStyle=white;
+  // edge lines + centreline dashes (30 m dash / 20 m gap)
+  for(const ex of [-W/2+1, W/2-1.9]) g.fillRect(ex, -L/2+16, 0.9, L-32);
+  for(let zz=-L/2+110; zz<L/2-110-30; zz+=50) g.fillRect(-0.45, zz, 0.9, 30);
+  for(const s of [-1,1]){ const thr=s*(L/2-16), inn=-s;   // inn = direction into the runway
+    g.fillRect(-W/2+1, thr-0.9, W-2, 1.8);                          // threshold line
+    for(let k=0;k<6;k++) for(const side of [-1,1]){                 // piano keys
+      const kx=side*(4+k*3.9); g.fillRect(kx-0.9, Math.min(thr+inn*6, thr+inn*36), 1.8, 30); }
+    for(const dz of [150,450]){ const zc=thr+inn*dz, n=dz<300?3:2;   // touchdown zone bars
+      for(const side of [-1,1]) for(let k=0;k<n;k++) g.fillRect(side*(6+k*2.6)-(side<0?1.8:0), zc-11, 1.8, 22); }
+    { const zc=thr+inn*CFG.aimDist;                                 // aiming point
+      for(const side of [-1,1]) g.fillRect(side*9-(side<0?6:0), zc-22, 6, 44); }
+    // stopway chevrons beyond the threshold (yellow)
+    g.strokeStyle='rgba(215,190,60,0.85)'; g.lineWidth=1.4;
+    for(let k=0;k<2;k++){ const zb=s*(L/2-3-k*6); g.beginPath();
+      g.moveTo(-W/2+3, zb); g.lineTo(0, zb+inn*5); g.lineTo(W/2-3, zb); g.stroke(); }
+    // designator: '36' is read by an aircraft landing heading 0 (travelling -z), i.e.
+    // at the +z end, upright for a viewer facing -z; '18' at the -z end, turned 180°
+    g.save(); g.translate(0, thr+inn*80); if(s<0) g.rotate(Math.PI);
+    g.scale(0.1,0.1); g.font='bold 190px system-ui, sans-serif'; g.textAlign='center'; g.textBaseline='middle';
+    g.fillStyle=white; g.fillText(s>0?'36':'18', 0, 0); g.restore();
+  }
+  // wear: fine dark speckle over paint + asphalt
+  g.setTransform(1,0,0,1,0,0);
+  for(let i=0;i<9000;i++){ g.fillStyle='rgba(20,20,22,'+(0.08+Math.random()*0.2).toFixed(2)+')'; g.fillRect(Math.random()*cw, Math.random()*ch, 1, 1+Math.random()*2); }
+  const t=new THREE.CanvasTexture(c);
+  t.anisotropy=Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  return t;
+}
+// merge [geometry, hex colour, Matrix4] parts into one vertex-coloured BufferGeometry
+function rwMergeColored(parts){
+  const pos=[], nor=[], col=[], cc=new THREE.Color();
+  for(const [g0,hex,m] of parts){
+    const g=g0.index? g0.toNonIndexed() : g0.clone(); g.applyMatrix4(m); cc.setHex(hex);
+    const P=g.attributes.position.array, N=g.attributes.normal.array;
+    for(let i=0;i<P.length;i++){ pos.push(P[i]); nor.push(N[i]); }
+    for(let i=0;i<P.length/3;i++) col.push(cc.r,cc.g,cc.b);
+    g.dispose(); if(g!==g0) g0.dispose();
+  }
+  const out=new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+  out.setAttribute('normal', new THREE.Float32BufferAttribute(nor,3));
+  out.setAttribute('color', new THREE.Float32BufferAttribute(col,3));
+  out.computeBoundingSphere(); return out;
+}
+function rwBaseGeo(){
+  const W=RW_W, L=RW_L, parts=[], e=new THREE.Euler(), q=new THREE.Quaternion();
+  const at=(g,hex,x,y,z,rx=0,ry=0,rz=0,s=null)=>{ e.set(rx,ry,rz); q.setFromEuler(e);
+    parts.push([g,hex,new THREE.Matrix4().compose(new THREE.Vector3(x,y,z), q, s||new THREE.Vector3(1,1,1))]); };
+  const flat=(w,l,hex,x,y,z)=>at(new THREE.PlaneGeometry(w,l),hex,x,y,z,-Math.PI/2);
+  // concrete shoulders under the strip, taxiway stub and aprons
+  flat(W+14, L+30, 0x4a4c50, 0,0.12,0);
+  flat(90,16,0x35383d, -W/2-45,0.24,-60);
+  flat(70,210,0x44464a, -75,0.1,-70);
+  flat(64,80,0x44464a, 72,0.1,120);
+  flat(24,40,0x35383d, W/2+12,0.24,120);
+  // hangars: box + shallow arched roof + dark door toward the strip
+  for(const [hx,hz] of [[-72,-130],[-72,-10],[72,120]]){ const sd=hx<0?1:-1;
+    at(new THREE.BoxGeometry(30,9,40), 0x4a525b, hx,4.5,hz);
+    at(new THREE.CylinderGeometry(15,15,40,12,1,false,-Math.PI/2,Math.PI), 0x59626c, hx,9,hz, -Math.PI/2,0,0, new THREE.Vector3(1,1,0.42));
+    at(new THREE.BoxGeometry(0.4,8,26), 0x1f2328, hx+sd*15.1,4.1,hz); }
+  // tower with glass cab, roof and antenna mast (beacon sits on top at y 36)
+  at(new THREE.CylinderGeometry(5,6,26,10), 0x5b626a, -80,13,60);
+  at(new THREE.BoxGeometry(12,7,12), 0x16202c, -80,29.5,60);
+  at(new THREE.BoxGeometry(13.4,0.8,13.4), 0x6b727a, -80,33.4,60);
+  at(new THREE.CylinderGeometry(0.25,0.25,2.4,5), 0x8a9098, -80,35,60);
+  // fuel tanks + windsock pole and sock
+  for(const tz of [-40,-18]) at(new THREE.CylinderGeometry(6,6,7,14), 0xa7abb0, -98,3.5,tz);
+  at(new THREE.CylinderGeometry(0.35,0.35,9,6), 0x9a9ea3, -W/2-10,4.5,40);
+  at(new THREE.ConeGeometry(1.6,7,10,1,true), 0xff7a30, -W/2-6,8.4,40, 0,0,Math.PI/2);
+  const g=rwMergeColored(parts); g.userData.keep=true; return g;
+}
+// glow points: size in metres, never below uMin px (so a far runway still reads as lights)
+function rwLightMat(){
+  return new THREE.ShaderMaterial({
+    uniforms:{ map:{value:glowTex}, uScale:{value:800}, uMin:{value:1.5}, uOpacity:{value:0.7} },
+    vertexShader:`attribute vec3 aCol; attribute float aSize; uniform float uScale, uMin;
+      varying vec3 vCol; varying float vA;
+      void main(){ vec4 mv=modelViewMatrix*vec4(position,1.0); float d=max(-mv.z,1.0);
+        float px=aSize*uScale/d; gl_PointSize=max(px,uMin);
+        vA=clamp(px/uMin,0.6,1.0)*(1.0-smoothstep(7000.0,11000.0,d)); vCol=aCol;
+        gl_Position=projectionMatrix*mv; }`,
+    fragmentShader:`uniform sampler2D map; uniform float uOpacity; varying vec3 vCol; varying float vA;
+      void main(){ float a=texture2D(map,gl_PointCoord).a; gl_FragColor=vec4(vCol*a*vA*uOpacity,1.0);
+        #include <encodings_fragment>
+      }`,
+    transparent:true, depthWrite:false, blending:THREE.AdditiveBlending });
+}
+function rwPoints(pos,col,size){
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('aCol', new THREE.Float32BufferAttribute(col,3));
+  g.setAttribute('aSize', new THREE.Float32BufferAttribute(size,1));
+  const p=new THREE.Points(g,_rw.lightMat); p.frustumCulled=true; return p;
+}
+// Corridor cut, called by terrainHeight as AIRFIELD.cut (this = AIRFIELD): lowers any
+// terrain poking above a 2.2° surface out of both thresholds, so the 3° glide path to the
+// aim point is flyable wherever the mission drops the strip. Only ever lowers.
+const RW_CUT_TAN=Math.tan(2.2*Math.PI/180);
+function rwCorridorCut(h, lx, lz){
+  const e=Math.abs(lz)-(RW_L/2-16); if(e<=0 || e>6500) return h;
+  const ceil=this.y+e*RW_CUT_TAN; if(h<=ceil) return h;
+  const w=120+0.12*e, f=350+0.1*e, ax=Math.abs(lx); if(ax>=w+f) return h;
+  let k=1; if(ax>w){ const t=1-(ax-w)/f; k=t*t*(3-2*t); }
+  if(e>4500){ const t=1-(e-4500)/2000; k*=t*t*(3-2*t); }
+  return h-(h-ceil)*k;
+}
+// drop every loaded chunk touching the plateau+corridor of airfield A, then refill
+function rwRebuildTerrain(A){
+  const size=CFG.chunkSize, r=size*0.72, ext=RW_L/2+6500+r, wid=1900+r;
+  for(const [key,m] of chunks){ const i=key.indexOf(',');
+    const dx=(+key.slice(0,i))*size-A.x, dz=(+key.slice(i+1))*size-A.z;
+    const lx=dx*A.cos-dz*A.sin, lz=dx*A.sin+dz*A.cos;
+    if(Math.abs(lx)<wid && Math.abs(lz)<ext){ terrainGroup.remove(m); m.geometry.dispose(); chunks.delete(key); } }
+  updateTerrain(player.obj.position.x, player.obj.position.z, 999);   // no holes allowed
+  updateDepthTex(player.obj.position.x, player.obj.position.z, true);
 }
 function buildRunway(x, z, heading){
   if(runwayMesh){ scene.remove(runwayMesh); disposeTree(runwayMesh); runwayMesh=null; }
+  const L=RW_L, W=RW_W;
+  if(!_rw.stripGeo){
+    _rw.stripGeo=new THREE.PlaneGeometry(W,L); _rw.stripGeo.userData.keep=true;
+    _rw.stripMat=new THREE.MeshStandardMaterial({map:rwStripTex(), roughness:0.93, metalness:0.0, polygonOffset:true, polygonOffsetFactor:-1, polygonOffsetUnits:-2});
+    _rw.baseGeo=rwBaseGeo();
+    _rw.baseMat=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.8, metalness:0.15});
+    _rw.lightMat=rwLightMat();
+  }
   const grp=new THREE.Group();
-  const L=1400, W=60;
   // Pad height = a robust average of the RAW terrain across the strip footprint,
   // lifted above any water. The plateau then flattens the ground to this level.
   const cosH=Math.cos(heading), sinH=Math.sin(heading);
@@ -2480,75 +2617,36 @@ function buildRunway(x, z, heading){
     sum += terrainHeightRaw(wx, wz); cnt++;
   }}
   const gy = Math.max(sum/cnt, CFG.waterLevel+8);
-  // Register the plateau BEFORE rebuilding terrain so chunks bake in the flat pad.
-  // Ramp reaches well past the runway ends into the approach corridor itself — real
-  // strips grade a clear overrun/approach area, so final approach shouldn't clip a
-  // stray hill just short of the threshold (LANDING track fix; was 40/420).
-  AIRFIELD = { x, z, cos:cosH, sin:sinH, halfL:L/2+120, halfW:W/2+30, ramp:700, y:gy };
-  rebuildTerrainAround(x, z);
-  const strip=new THREE.Mesh(new THREE.PlaneGeometry(W,L), new THREE.MeshStandardMaterial({color:0x2b2e33, roughness:0.95, metalness:0.0}));
-  strip.rotation.x=-Math.PI/2; strip.position.y=0.4; grp.add(strip);
-  // asphalt patches — subtle re-tarred blotches so the strip isn't a flat colour
-  for(let i=0;i<9;i++){ const pw=14+Math.random()*30, pl=20+Math.random()*46;
-    const p=new THREE.Mesh(new THREE.PlaneGeometry(pw,pl), new THREE.MeshStandardMaterial({color:Math.random()<0.5?0x33363c:0x24272b, roughness:1.0, metalness:0.0, transparent:true, opacity:0.5, polygonOffset:true, polygonOffsetFactor:-1, polygonOffsetUnits:-1}));
-    p.rotation.x=-Math.PI/2; p.rotation.z=Math.random()*Math.PI;
-    p.position.set((Math.random()-0.5)*(W-18), 0.42, (Math.random()-0.5)*(L-160)); grp.add(p); }
-  // centre dashes
-  for(let i=-L/2+40;i<L/2-40;i+=70){ const d=new THREE.Mesh(new THREE.PlaneGeometry(2.5,26), new THREE.MeshBasicMaterial({color:0xf0f0f0, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-4}));
-    d.rotation.x=-Math.PI/2; d.position.set(0,0.5,i); grp.add(d); }
-  // threshold bars + edge lines
-  for(const zz of [-L/2+16, L/2-16]){ for(let k=-4;k<=4;k++){ const b=new THREE.Mesh(new THREE.PlaneGeometry(3,16), new THREE.MeshBasicMaterial({color:0xffffff, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-4}));
-    b.rotation.x=-Math.PI/2; b.position.set(k*5.5,0.5,zz); grp.add(b);} }
-  for(const ex of [-W/2+2, W/2-2]){ const e=new THREE.Mesh(new THREE.PlaneGeometry(1.2,L), new THREE.MeshBasicMaterial({color:0xd8d84a, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-4}));
-    e.rotation.x=-Math.PI/2; e.position.set(ex,0.5,0); grp.add(e); }
-  // touchdown-zone bar pairs (~150/300m in) + a wide aiming-point pair (~300m), both ends
-  for(const dir of [-1,1]){ const base=dir*(L/2-16);
-    for(const dz of [110,180,250]){ for(const k of [-1,1]){ const b=new THREE.Mesh(new THREE.PlaneGeometry(2.6,10), new THREE.MeshBasicMaterial({color:0xf0f0f0, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-4}));
-      b.rotation.x=-Math.PI/2; b.position.set(k*10,0.5, base-dir*dz); grp.add(b); } }
-    for(const k of [-1,1]){ const a=new THREE.Mesh(new THREE.PlaneGeometry(4.5,20), new THREE.MeshBasicMaterial({color:0xffffff, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-4}));
-      a.rotation.x=-Math.PI/2; a.position.set(k*7,0.5, base-dir*320); grp.add(a); }
-    // threshold numeral, upright for an aircraft landing FROM this end (facing -dir along Z)
-    const num=new THREE.Mesh(new THREE.PlaneGeometry(16,16), new THREE.MeshBasicMaterial({map:runwayNumTex(dir<0?'36':'18'), transparent:true, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-4}));
-    num.rotation.x=-Math.PI/2; num.rotation.z=dir<0?0:Math.PI; num.position.set(0,0.5, base-dir*46); grp.add(num);
+  // Register plateau + approach-corridor cut BEFORE rebuilding terrain so chunks bake them in.
+  AIRFIELD = { x, z, cos:cosH, sin:sinH, halfL:L/2+120, halfW:W/2+30, ramp:700, y:gy, cut:rwCorridorCut };
+  rwRebuildTerrain(AIRFIELD);
+  const strip=new THREE.Mesh(_rw.stripGeo, _rw.stripMat);
+  strip.rotation.x=-Math.PI/2; strip.position.y=0.45; grp.add(strip);
+  grp.add(new THREE.Mesh(_rw.baseGeo, _rw.baseMat));
+  // static lights: edge (white, amber last 600 m), centreline, threshold/end bars, approach
+  const P=[], C=[], S=[];
+  const put=(lx,ly,lz,r,g,b,s)=>{ P.push(lx,ly,lz); C.push(r,g,b); S.push(s); };
+  const gl=(lx,lz)=>{ // ground height in group space (approach lights stand on real terrain)
+    const wx=x+lx*cosH+lz*sinH, wz=z-lx*sinH+lz*cosH; return Math.max(0.6, terrainHeight(wx,wz)-gy+1.0); };
+  for(let lz=-L/2+16; lz<=L/2-16+0.1; lz+=60) for(const lx of [-W/2-1.5, W/2+1.5]) put(lx,1.0,lz, 1.0,0.93,0.78, 2.2);
+  for(let lz=-L/2+45; lz<L/2-44; lz+=30) put(0,0.8,lz, 0.85,0.9,1.0, 1.3);
+  for(const s of [-1,1]){ const thr=s*(L/2-16);
+    for(let lx=-W/2; lx<=W/2+0.1; lx+=4) put(lx,0.9,thr+s*1.5, 0.25,1.0,0.45, 2.0);      // threshold: green
+    for(let lx=-W/2+6; lx<=W/2-6+0.1; lx+=6) put(lx,0.9,thr-s*1.5, 1.0,0.18,0.12, 1.6);  // runway end: red
+    for(let d=30; d<=600; d+=30){ const lz=thr+s*d; put(0,gl(0,lz),lz, 1.0,0.97,0.9, 2.6);
+      if(d%150===0) for(const lx of [-15,-10,-5,5,10,15]) put(lx,gl(lx,lz),lz, 1.0,0.97,0.9, 2.2); }
   }
-  // a couple of hangars + a tower beside the strip (base dressing)
-  const bldMat=new THREE.MeshStandardMaterial({color:0x40474f, metalness:0.4, roughness:0.7});
-  for(const hp of [[-72,-130],[-72,-10],[72,120]]){
-    const h=new THREE.Mesh(new THREE.BoxGeometry(30,14,40), bldMat); h.position.set(hp[0],7,hp[1]); grp.add(h);
-    const door=new THREE.Mesh(new THREE.PlaneGeometry(12,11), new THREE.MeshStandardMaterial({color:0x23272c, metalness:0.5, roughness:0.6, side:THREE.DoubleSide}));
-    door.rotation.y=Math.PI/2; door.position.set(hp[0]+(hp[0]<0?15.1:-15.1),5.6,hp[1]); grp.add(door);
-   }
-  const tower=new THREE.Mesh(new THREE.CylinderGeometry(5,6,26,8), bldMat); tower.position.set(-60,13,-60); grp.add(tower);
-  const cab=new THREE.Mesh(new THREE.BoxGeometry(12,7,12), new THREE.MeshStandardMaterial({color:0x223, metalness:0.5, roughness:0.3, transparent:true, opacity:0.8})); cab.position.set(-60,29,-60); grp.add(cab);
-  // taxiway stub linking the strip to the apron, + a windsock on a pole
-  const taxi=new THREE.Mesh(new THREE.PlaneGeometry(16,90), new THREE.MeshStandardMaterial({color:0x2b2e33, roughness:0.95}));
-  taxi.rotation.x=-Math.PI/2; taxi.rotation.z=Math.PI/2; taxi.position.set(-W/2-38, 0.35, -60); grp.add(taxi);
-  { const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.35,9,6), bldMat); pole.position.set(-W/2-10,4.5,40); grp.add(pole);
-    const sock=new THREE.Mesh(new THREE.ConeGeometry(1.6,7,10,1,true), new THREE.MeshStandardMaterial({color:0xff7a30, roughness:0.8, side:THREE.DoubleSide}));
-    sock.rotation.z=Math.PI/2; sock.position.set(-W/2-10+4,8.4,40); grp.add(sock); grp.userData.windsock=sock; }
-     // tower beacon (red, blinks in loop) + runway edge lights: green threshold / white centre / red end
-  const beacon=new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xff3020, transparent:true, opacity:0.9, depthWrite:false, blending:THREE.AdditiveBlending }));
-  beacon.scale.set(9,9,1); beacon.position.set(-60,35.5,-60); grp.add(beacon); grp.userData.beacon=beacon;
-  for(let ez=-L/2+40; ez<L/2-40; ez+=85){ for(const ex of [-W/2+3, W/2-3]){
-    const m=new THREE.SpriteMaterial({ map:glowTex, color:0xd8f0ff, transparent:true, opacity:0.9, depthWrite:false, blending:THREE.AdditiveBlending });
-    m.color.setHex(ez<-L/2+130?0x30ff60:(ez>L/2-130?0xff3030:0xd8f0ff));
-    const sp=new THREE.Sprite(m); sp.scale.set(7,7,1); sp.position.set(ex,1.2,ez); grp.add(sp);
-     }}
-  // centreline lights — sparse, low, white; alternate red near either stop-end
-  for(let ez=-L/2+55; ez<L/2-55; ez+=140){ const m=new THREE.SpriteMaterial({ map:glowTex, color:0xf0f0e0, transparent:true, opacity:0.85, depthWrite:false, blending:THREE.AdditiveBlending });
-    const sp=new THREE.Sprite(m); sp.scale.set(4,4,1); sp.position.set(0,0.9,ez); grp.add(sp); }
-  // approach lighting system: a dashed line of lights running out from each threshold
-  for(const dir of [-1,1]){ const base=dir*(L/2+16);
-    for(let d=30; d<=280; d+=40){ const m=new THREE.SpriteMaterial({ map:glowTex, color:0xffffff, transparent:true, opacity:0.8, depthWrite:false, blending:THREE.AdditiveBlending });
-      const sp=new THREE.Sprite(m); sp.scale.set(5,5,1); sp.position.set(0, 0.6, base+dir*d); grp.add(sp); } }
-  // PAPI (precision approach path indicator): 4 lights beside each threshold, white above /
-  // red below the 3° glideslope — colour is updated live per-frame from the player's angle
-  // (see updatePapi in section 16b). Placed both ends: the strip is landable from either side.
-  grp.userData.papi=[];
-  for(const dir of [-1,1]){ const zz=dir*(L/2-70);
-    for(let k=0;k<4;k++){ const m=new THREE.SpriteMaterial({ map:glowTex, color:0xffffff, transparent:true, opacity:0.95, depthWrite:false, blending:THREE.AdditiveBlending, fog:false });
-      const sp=new THREE.Sprite(m); sp.scale.set(5.5,5.5,1); sp.position.set(dir*(W/2+14+k*6), 3.2, zz); grp.add(sp);
-      grp.userData.papi.push({spr:sp, dir, k}); } }
+  const lights=rwPoints(P,C,S); lights.renderOrder=2; grp.add(lights);
+  // dynamic lights: 2 PAPI bars (4 each) + tower beacon; colour set per frame in updatePapi.
+  // Each bar stands left of the landing aircraft abeam the aim point; the light nearest
+  // the runway has the highest reference angle (3.50 / 3.17 / 2.83 / 2.50°).
+  const DP=[], DC=[], DS=[], meta=[];
+  for(const dirZ of [1,-1]){ const aimZ=-dirZ*(L/2-16)+dirZ*CFG.aimDist;
+    for(let k=0;k<4;k++){ DP.push(dirZ*(W/2+15+k*9), 1.3, aimZ); DC.push(0,0,0); DS.push(4.2);
+      meta.push({dirZ, ref:3.5-k*(1/3)}); } }
+  DP.push(-80,36.4,60); DC.push(0,0,0); DS.push(4.0);
+  const dyn=rwPoints(DP,DC,DS); dyn.renderOrder=2; dyn.userData.meta=meta; grp.add(dyn);
+  grp.userData.dyn=dyn;
   grp.position.set(x, gy, z);
   grp.rotation.y = heading;
   scene.add(grp); runwayMesh=grp;
@@ -2557,7 +2655,7 @@ function buildRunway(x, z, heading){
 function clearRunway(){
   if(runwayMesh){ scene.remove(runwayMesh); disposeTree(runwayMesh); runwayMesh=null; }
   player.runway=null;
-  if(AIRFIELD){ const a=AIRFIELD; AIRFIELD=null; rebuildTerrainAround(a.x, a.z); }  // restore natural terrain
+  if(AIRFIELD){ const a=AIRFIELD; AIRFIELD=null; rwRebuildTerrain(a); }  // restore natural terrain
 }
 // Rebuild the terrain chunks overlapping a point so plateau flattening is baked in.
 function rebuildTerrainAround(wx, wz){
@@ -4312,7 +4410,7 @@ function updatePlayerGround(dt){
   const att0 = player.pitch + L.aoa;
   if(player.speed>=CFG.liftoffSpeed && att0>0.12){
     player.onGround=false; player.pitch=0; player.vy=0; player.pitchRate=0;
-    L.liftT=CFG.liftBlend; L.liftAtt=att0; L.autobrake=false; L.comp=0; L.compV=0;
+    L.liftT=CFG.liftBlend; L.liftAtt=att0; L.liftPitch=0; L.autobrake=false; L.comp=0; L.compV=0;
     player.gearRetractT=1.8;                  // auto-retract once positively climbing
     L.once={}; L.kbCd=0;                      // fresh approach-callout state for the next landing
     if(L.pendingLand!=null) flushLanded();
@@ -4495,6 +4593,12 @@ function updatePlayer(dt){
   if(L.liftT>0){
     L.liftT-=dt; let k=THREE.MathUtils.clamp(1-L.liftT/CFG.liftBlend,0,1); k=k*k*(3-2*k);
     if(player.pitch<0.1*k) player.pitch=0.1*k;
+    // pitch-up authority ramps in like a real rotation (~9°/s -> full stick), else full
+    // back-stick right at liftoff swings the flight path 50° up within half a second
+    const upRate=0.16+0.9*k*k;
+    if(player.pitchRate>upRate) player.pitchRate=upRate;
+    if(player.pitch>L.liftPitch+upRate*dt) player.pitch=L.liftPitch+upRate*dt;
+    L.liftPitch=player.pitch;
   }
   const gh=terrainHeight(player.obj.position.x, player.obj.position.z);
   const groundY=Math.max(gh, CFG.waterLevel);
@@ -4622,7 +4726,7 @@ player._land = {
   comp:0, compV:0,        // strut compression (m, + = body below static rest) and its rate (m/s)
   aoa:0, aoaV:0,          // cosmetic nose-up attitude on top of player.pitch (rad) and its rate
   flareK:0,               // 0..1 auto-flare authority, ramps continuously — never a snap
-  liftT:0, liftAtt:0,     // liftoff climb-path blend timer (s) + attitude carried over from the roll
+  liftT:0, liftAtt:0, liftPitch:0,   // liftoff blend timer (s), attitude carried over from the roll, last capped pitch
   tdT:99,                 // time since touchdown (s)
   noseDown:true,          // nose wheel on the ground
   autobrake:false, brakeK:0,   // rollout autobrake (armed at touchdown, thrust cancels) + ramp
@@ -4797,22 +4901,31 @@ HOOKS.missionStart.push(()=>{
   tmpE.set(L.aoa, player.heading, 0, 'YXZ'); player.obj.quaternion.setFromEuler(tmpE);
 });
 
-// ---- PAPI (precision approach path indicator): recolour the 4 sprites per threshold
-// live from the player's own glide angle to each light (white above / red below that
-// light's individual reference angle) ----
-const _papiV=new THREE.Vector3();
+// ---- PAPI + tower beacon: per-frame colours of the runway's dynamic light points.
+// A bar shows white where the player's angle to that light is above its reference angle,
+// red below (2 white / 2 red = on the 3° path). The bar behind the player stays dark. ----
+const _papiCol=[[1.7,1.6,1.45],[1.8,0.2,0.12]], _rwBuf=new THREE.Vector2();
 function updatePapi(){
-  if(!runwayMesh || !runwayMesh.userData.papi) return;
-  for(const Lp of runwayMesh.userData.papi){
-    Lp.spr.getWorldPosition(_papiV);
-    const dx=player.obj.position.x-_papiV.x, dz=player.obj.position.z-_papiV.z, dy=player.obj.position.y-_papiV.y;
-    const dist=Math.hypot(dx,dz); if(dist<20) continue;
-    const ang=Math.atan2(dy,dist)*180/Math.PI;
-    const ref=3+(Lp.k-1.5)*0.35;
-    Lp.spr.material.color.setHex(ang>ref?0xffffff:0xff2020);
-  }
+  const R=runwayMesh; if(!R || !R.userData.dyn) return;
+  const D=R.userData.dyn, meta=D.userData.meta, pa=D.geometry.attributes.position.array, ca=D.geometry.attributes.aCol.array;
+  const p=player.obj.position, c=Math.cos(R.rotation.y), s=Math.sin(R.rotation.y);
+  const dx=p.x-R.position.x, dz=p.z-R.position.z, plx=dx*c-dz*s, plz=dx*s+dz*c, ply=p.y-R.position.y;
+  for(let i=0;i<meta.length;i++){ const M=meta[i], j=i*3;
+    const ahead=(pa[j+2]-plz)*M.dirZ;               // >0: player is still short of this bar
+    let r=0, g=0, b=0;
+    if(ahead>40){ const ang=Math.atan2(ply-pa[j+1], Math.hypot(plx-pa[j], ahead))*57.29578;
+      const C=_papiCol[ang>M.ref?0:1]; r=C[0]; g=C[1]; b=C[2]; }
+    ca[j]=r; ca[j+1]=g; ca[j+2]=b; }
+  const bj=meta.length*3, on=(performance.now()%1100)<450;
+  ca[bj]=on?1:0.06; ca[bj+1]=on?0.16:0.01; ca[bj+2]=on?0.1:0.01;
+  D.geometry.attributes.aCol.needsUpdate=true;
+  const u=_rw.lightMat.uniforms;
+  renderer.getDrawingBufferSize(_rwBuf);
+  u.uScale.value=_rwBuf.y/(2*Math.tan(camera.fov*Math.PI/360));
+  u.uMin.value=2.0*renderer.getPixelRatio();
+  u.uOpacity.value=THREE.MathUtils.clamp(1.25-hemi.intensity*1.3, 0.55, 1);   // day ~0.6, night ~0.9
 }
-HOOKS.update.push(()=>updatePapi());
+HOOKS.preRender.push(()=>updatePapi());
 
 // runway-local approach geometry toward the threshold AHEAD (landable from either end),
 // shared by the KIEBITZ triggers and the landing HUD. Reuses one object: no per-frame garbage.
@@ -4949,7 +5062,7 @@ function drawLandingHUD(){
   hctx.fillStyle = sOk?'#7dffb0':(sHard?'#ffd85a':'#ff5a5a');
   hctx.fillText('SINKRATE  '+Math.max(0,sink).toFixed(1).replace('.',',')+' m/s  '+(sOk?'[GUT]':(sHard?'[HART]':'[ZU STEIL]')), bx, by+14);
   hctx.fillStyle='#fff'; hctx.fillText('FAHRT  '+kmh+' km/h', bx, by+32);
-  hctx.fillStyle='#7dffb0'; hctx.fillText('FAHRWERK  ▼ AUS', bx, by+50);
+  hctx.fillStyle='#7dffb0'; hctx.fillText('FAHRWERK  ▼ AUSGEFAHREN', bx, by+50);
   const hint = L.flareK>0.15 ? 'Nase kommt hoch — ruhig halten'
              : (info.distToThr>0 ? 'Flugweg-Kreis auf die Zielmarke' : 'weich & gerade aufsetzen');
   hctx.fillStyle='#9fb8d0'; hctx.fillText(hint, bx, by+68);
