@@ -27,13 +27,13 @@ node tools/voice/extract_lines.mjs
 D:/tts-bake/venvs/cbx/Scripts/python.exe tools/voice/bake.py --only-missing --prune
 ```
 
-`--prune` wirft Clips raus, deren Key weder in `lines.json` noch im `/*CVO*/`-Block von `index.html`
-vorkommt (gestrichene/umformulierte Zeilen), damit `voice_clips.js` nach Story-Umbauten nicht mit
+`--prune` wirft Clips raus, deren Key nicht in `lines.json` vorkommt (gestrichene/umformulierte Zeilen), damit `voice_clips.js` nach Story-Umbauten nicht mit
 toten Clips wächst. Nur mit einer vollständigen `lines.json` benutzen (nicht mit `--limit`-Testläufen).
 Die Ausgabe von `extract_lines.mjs` prüfen: meldet es `CUTSCENE_VO ... DIFFERS`, muss der `/*CVO*/`-Block
 in `index.html` aus `D:/tts-bake/lines_cvo.json` aktualisiert werden (sonst spielen Cutscenes alte Keys).
 
-Nützliche Flags: `--speakers WAGNER,SEPP` (nur bestimmte Sprecher), `--force` (Cache ignorieren,
+Nützliche Flags: `--speakers WAGNER,SEPP` (nur bestimmte Sprecher), `--keys k1,k2` (nur diese Clips;
+mit `--force` und ggf. `TTS_SEED_OFFSET=100` neu würfeln), `--force` (Cache ignorieren,
 z. B. nach einer Casting-Änderung — der Cache-Key enthält ohnehin einen Hash der Casting-Parameter,
 daher invalidiert sich das meiste automatisch), `--limit N` (Smoke-Test), `--in`/`--out` (andere
 Pfade).
@@ -98,6 +98,12 @@ Kurzfassung:
     und neu backen (`--speakers LÄRCHE,WIGGERL,NARRATOR --force`).
 
 ## Casting (`casting.json`)
+
+`lexicon`: Aussprache-Korrekturen, die nur auf den gesprochenen Text wirken (Key bleibt am Original),
+z. B. `"Shift": "Schifft"`. Neue englische Begriffe/Abkürzungen in Story-Zeilen hier eintragen.
+QA verwirft zusätzlich Kandidaten mit Nachplappern am Ende (Whisper hört ≥2 Wörter mehr als im Text)
+oder abgeschnittenem letzten Wort und würfelt neu. Neue Sprecher: `"NAME": {"archetype": "boss_pilot_m"}`
+(plus beliebige Overrides) oder nur `speaker_archetypes`/`default_archetype` setzen.
 
 Pro Sprecher: `engine`, Referenz/Stimme, Basisparameter (`exaggeration`, `cfg_weight`,
 `temperature`, `polish`, `lax`; `speed`/`pitch_semitones` sind reine Doku-Reste ohne Wirkung mehr,

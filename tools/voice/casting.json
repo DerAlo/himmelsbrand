@@ -1,6 +1,10 @@
 {
   "_comment": "Casting for the offline voice bake. Engines: 'chatterbox' (Chatterbox multilingual, zero-shot clone from refs/*, MIT) and 'piper' (local ONNX voice, no cloning, MIT). See README.md for full rationale + licences.",
   "_comment2": "'speed' and 'pitch_semitones' are NOT applied as post-hoc DSP anymore: librosa.effects.time_stretch/pitch_shift measured to collapse MOS from ~3.3 to ~1.4 even for tiny changes (3% speed, 2.5 semitones) - see report/bakeoff.md 'Bekannte Grenzen'. All voice differentiation comes from exaggeration/cfg_weight/temperature at generation time (a real Chatterbox control), never from post-processing the waveform.",
+  "lexicon": {
+    "_comment": "Pronunciation fixes applied to the spoken text only (whole words, case-sensitive); the clip key stays on the original text. Found via Whisper transcripts in the review: Chatterbox reads 'Shift' as 'Schiff', 'KRONOS' garbled.",
+    "Shift": "Schifft", "SHIFT. Herrgott.": "Schifft! Herrgott!", "Vr": "Vau-Err", "W oder Maus": "Weh oder Maus", "KRONOS": "Kronos"
+  },
   "moods": {
     "_comment": "Deltas applied on top of a speaker's base params, keyed by the game's hint vocabulary. Only exaggeration/cfg_weight/temperature (native generation controls) and gain_db (safe, linear) are used.",
     "ruhig":         { "exaggeration": -0.10, "cfg_weight": 0.05 },

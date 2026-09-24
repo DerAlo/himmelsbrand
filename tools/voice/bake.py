@@ -33,6 +33,7 @@ TARGET_LUFS = -18.0
 PEAK_DBTP = -1.0
 KEEP_SIL_MS = 80
 MAX_CANDIDATES = 3
+SEED_OFFSET = int(os.environ.get('TTS_SEED_OFFSET', '0'))  # set to re-roll clips that --force alone reproduces
 
 
 def fnv(s):
@@ -75,6 +76,14 @@ def resolve_params(speaker, hint, casting):
                 elif k == 'gain_db':
                     p['gain_db'] = p.get('gain_db', 0.0) + v
     return p
+
+
+def apply_lexicon(say, casting):
+    # pronunciation fixes, whole words, case-sensitive: {"Shift": "Schifft"} (English words, abbreviations)
+    for w, rep in casting.get('lexicon', {}).items():
+        if not w.startswith('_'):
+            say = re.sub(r'(?<!\w)' + re.escape(w) + r'(?!\w)', rep, say)
+    return say
 
 
 def casting_hash(params):
@@ -181,12 +190,13 @@ def encode_mp3(wav_path, mp3_path, bitrate='48k'):
 # ---------------------------------------------------------------- main bake loop
 def bake_line(line, casting, force, report):
     speaker, text = line['speaker'], line['text']
-    say = line.get('say') or text
+    say = apply_lexicon(line.get('say') or text, casting)
     hint = line.get('hint') or ''
     key = line.get('key') or fnv(speaker + '|' + text)
     params = resolve_params(speaker, hint, casting)
     engine = params['engine']
-    chash = casting_hash(params)
+    # the spoken text only enters the hash when it differs from the keyed text (keeps old cache entries valid)
+    chash = casting_hash(params if say == text else {**params, '_say': say})
     cache_wav = os.path.join(CACHE_DIR, f'{key}_{engine}_{chash}.wav')
     cache_meta = os.path.join(CACHE_DIR, f'{key}_{engine}_{chash}.json')
     os.makedirs(CACHE_DIR, exist_ok=True)
@@ -198,7 +208,7 @@ def bake_line(line, casting, force, report):
 
     with tempfile.TemporaryDirectory() as td:
         best = None
-        seed_base = int(key, 16) % 1000000
+        seed_base = int(key, 16) % 1000000 + SEED_OFFSET
         tries = 1 if engine == 'piper' else MAX_CANDIDATES
         for i in range(tries):
             raw = os.path.join(td, f'raw{i}.wav')
@@ -217,7 +227,8 @@ def bake_line(line, casting, force, report):
             sr, dur = postprocess(raw, params, proc)
             ref = params.get('ref')
             ref_path = (ref if not ref or os.path.isabs(ref) else os.path.join(BAKE, ref)) if ref else None
-            r = qa.analyse(proc, say, ref_wav=ref_path if ref_path and os.path.exists(ref_path) else None)
+            r = qa.analyse(proc, say, ref_wav=ref_path if ref_path and os.path.exists(ref_path) else None,
+                           alt=line.get('say') or text)
             lax = params.get('lax', False)
             sc = qa.score(r, lax=lax)
             bad = qa.bad(r, lax=lax)
@@ -273,8 +284,9 @@ def main():
     ap.add_argument('--speakers', default=None)
     ap.add_argument('--force', action='store_true')
     ap.add_argument('--limit', type=int, default=None)
+    ap.add_argument('--keys', default=None, help='only these clip keys (comma list), e.g. with --force to re-roll bad clips')
     ap.add_argument('--prune', action='store_true',
-                    help='drop clips whose key is neither in the lines file nor in the game's /*CVO*/ block')
+                    help='drop clips whose key is not in the (complete!) lines file')
     args = ap.parse_args()
 
     casting = load_casting()
@@ -282,16 +294,13 @@ def main():
     if args.speakers:
         want = set(args.speakers.split(','))
         lines = [l for l in lines if l['speaker'] in want]
+    if args.keys:
+        wantk = set(args.keys.split(','))
+        lines = [l for l in lines if fnv(l['speaker'] + '|' + l['text']) in wantk]
 
     clips, durs = load_existing(args.out)
     if args.prune:
         keep = {fnv(l['speaker'] + '|' + l['text']) for l in json.load(open(args.inp, encoding='utf-8'))}
-        try:
-            m = re.search(r'/\*CVO\*/(\{.*?\})/\*/CVO\*/', open(os.path.join(ROOT, 'index.html'), encoding='utf-8').read(), re.S)
-            if m:
-                keep |= {k for seq in json.loads(m.group(1)).values() for k, _ in seq}
-        except OSError:
-            pass
         dead = [k for k in clips if k not in keep]
         for k in dead:
             clips.pop(k, None); durs.pop(k, None)
@@ -326,7 +335,14 @@ def main():
               f'{meta["say"][:50]}')
 
     write_voice_clips(args.out, clips, durs)
-    json.dump(report, open(os.path.join(REPORT_DIR, 'bake_report.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    # merge into the existing per-line report (partial runs must not wipe it); drop pruned keys
+    rp = os.path.join(REPORT_DIR, 'bake_report.json')
+    try:
+        full = {r['key']: r for r in json.load(open(rp, encoding='utf-8'))}
+    except (OSError, ValueError):
+        full = {}
+    full.update({r['key']: r for r in report})
+    json.dump([r for k, r in full.items() if k in clips], open(rp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
 
     total_bytes = sum(len(v) for v in clips.values())
     print(f'\nDONE: {n_ok} ok, {n_fail} failed, {len(clips)} total clips, '

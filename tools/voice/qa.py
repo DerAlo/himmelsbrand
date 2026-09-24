@@ -73,6 +73,9 @@ def whisper():
 
 
 def transcribe(x16):
+    # pad 0.5 s silence: Whisper drops the last word of tightly trimmed clips (review: "...an [Flügelspitze]")
+    z = np.zeros(8000, dtype=np.float32)
+    x16 = np.concatenate([z, np.asarray(x16, dtype=np.float32), z])
     segs, _ = whisper().transcribe(x16, language='de', beam_size=5, condition_on_previous_text=False,
                                    without_timestamps=True, vad_filter=False, temperature=0.0)
     return ' '.join(s.text.strip() for s in segs).strip()
@@ -168,7 +171,7 @@ def expected_dur(text):
     return syl / 5.2 + pauses
 
 
-def analyse(path, say, ref_wav=None, want_f0=True, want_mos=True):
+def analyse(path, say, ref_wav=None, want_f0=True, want_mos=True, alt=None):
     x, sr = load(path)
     peak = float(np.max(np.abs(x))) if len(x) else 0.0
     clip = float(np.mean(np.abs(x) > 0.995)) if len(x) else 0.0
@@ -186,6 +189,14 @@ def analyse(path, say, ref_wav=None, want_f0=True, want_mos=True):
     hyp = transcribe(x16[a * 16000 // sr: b * 16000 // sr] if b > a else x16)
     r['asr'] = hyp
     r['wer'], r['cer'] = [round(v, 3) for v in wer_cer(say, hyp)]
+    if alt and alt != say:   # lexicon respelling ("Schifft"): Whisper writes the original ("Shift")
+        w2, c2 = wer_cer(alt, hyp)
+        if c2 < r['cer']: r['wer'], r['cer'] = round(w2, 3), round(c2, 3)
+    sw, hw = norm_text(say).split(), norm_text(hyp).split()
+    r['say_words'], r['hyp_words'] = len(sw), len(hw)
+    # last spoken word missing from the end of the transcript -> clip probably cut off
+    r['tail_rep'] = bool(len(hw) >= 2 and hw[-1] == hw[-2] and not (len(sw) >= 2 and sw[-1] == sw[-2]))
+    r['tail_miss'] = bool(sw and len(sw) > 2 and sw[-1] not in hw[-3:] and sw[-1] not in ' '.join(hw[-3:]))
     if want_mos and speech > 0.3: r['mos'] = round(mos(x16), 3)
     if ref_wav and speech > 0.3:
         r['sim'] = round(float(np.dot(embed(x16), ref_embed(ref_wav))), 3)
@@ -204,6 +215,9 @@ def score(r, lax=False):
     if r.get('gap', 0) > 1.2: s -= 0.8
     if r.get('clip', 0) > 0.002: s -= 0.5
     if r.get('speech', 0) < 0.3: s -= 5
+    s -= 0.4 * max(0, extra_words(r) - 1)
+    if r.get('tail_miss'): s -= 0.3 if lax else 0.6
+    if r.get('tail_rep'): s -= 1.0
     return round(s, 3)
 
 
@@ -217,4 +231,12 @@ def bad(r, lax=False):
     if not short and (dr > 2.1 or dr < 0.4): reasons.append('dur %.2f' % dr)
     if r.get('gap', 0) > 1.5: reasons.append('gap %.1fs' % r['gap'])
     if not short and r.get('mos', 3) < 2.2: reasons.append('mos %.2f' % r.get('mos', 0))
+    xw = extra_words(r)
+    if xw >= (3 if lax else 2): reasons.append('extra words %d' % xw)   # Chatterbox tail babble ("... Hast du...")
+    if not lax and r.get('tail_miss'): reasons.append('tail cut')
+    if r.get('tail_rep'): reasons.append('tail repeat')   # Chatterbox echoes a short last word
     return reasons
+
+
+def extra_words(r):
+    return r.get('hyp_words', 0) - r.get('say_words', 0) if 'hyp_words' in r else 0
