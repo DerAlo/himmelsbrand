@@ -155,6 +155,7 @@
   .debrief-stars { font-size:42px; letter-spacing:9px; color:#3a4a5e; margin-bottom:6px; }
   .debrief-stars .on { color:var(--gold); text-shadow:0 0 18px rgba(255,200,90,.6); }
   .unlock-note { margin-top:12px; color:#7dffb0; letter-spacing:2px; }
+  .debrief-line { font-size:16px; line-height:1.45; margin:0 0 6px; text-align:left; } .debrief-line .dl-spk { color:#ffce8a; font-size:12px; letter-spacing:2px; margin-right:8px; }
   .newrec { color:#ffce8a; font-weight:800; letter-spacing:2px; }
   body.gold-wings .title.brand, body.gold-wings .subbrand { color:var(--gold) !important; -webkit-text-fill-color:var(--gold); }
 
@@ -1225,7 +1226,7 @@ const CUTSCENES = {
 };
 
 // Mission runtime state (populated by setupMission)
-const mission = { active:false, def:null, index:-1, objectives:[], radioQueue:[], radioT:0, done:false, outcome:null,
+const mission = { active:false, def:null, index:-1, objectives:[], done:false, outcome:null,
   reinforceT:0, waveIndex:0 };
 let campaignUnlocked = 1;   // how many HELIOS missions are unlocked (1-based count)
 let bteamUnlocked = 1;      // how many B-Team missions are unlocked
@@ -2046,6 +2047,7 @@ const Voice = (function(){
   function isPaused(){ try{ return state==='paused'; }catch(e){ return false; } }
   function mk(line, o, kind){
     const pl=parseLine(line); const spk=String(pl.spk||''), text=String(pl.text||'');
+    if(o.prio && o.prio!=='crit' && o.prio!=='normal' && o.prio!=='bark'){ console.warn('Voice: unknown prio', o.prio); o=Object.assign({}, o, {prio:'normal'}); }
     const it={ spk, text, hint:String(pl.hint||o.hint||''), key:o.key||voiceKey(spk+'|'+text), kind:kind||o.kind||'radio',
       prio:o.prio||'normal', tag:o.tag||null, ttl:o.ttl, t0:vnow, wait:0, notBefore:vnow+(o.delay||0), pause:o.pause||0,
       gapR:Math.random(), group:o.group!=null?o.group:(++grp), seq:++seq, sub:o.sub!==false && (kind||o.kind||'radio')!=='cutscene',
@@ -2133,7 +2135,8 @@ const Voice = (function(){
       let w=0;   // in-place filter: no per-frame array allocation
       for(let i=0;i<queue.length;i++){ const q=queue[i]; if(busyWithOther(q)) q.wait+=d;
         if(q.prio==='bark' && vnow-q.t0>BARK_MAXAGE){ T('drop', q, {why:'stale'}); continue; }
-        if(q.ttl!=null ? q.wait>q.ttl : (q.prio==='normal' && q.wait>NORMAL_MAXWAIT)){ T('drop', q, {why:'expired'}); continue; }
+        if(q.prio==='normal' && q.wait>(q.ttl!=null?q.ttl:NORMAL_MAXWAIT)){ T('drop', q, {why:'expired'}); continue; }
+        if(q.prio==='crit' && q.ttl!=null && vnow-q.t0>q.ttl){ T('drop', q, {why:'stale'}); continue; }   // urgent callouts: now or never
         queue[w++]=q; }
       queue.length=w;
     }
@@ -2157,9 +2160,16 @@ const Voice = (function(){
     if(ducked && !cur && vnow>lastEnd+0.45){ ducked=false; try{ Audio.voiceDuck(false); }catch(e){} }
   }
   // clock: real time (rawDt from the main loop — not slow-mo), keeps ticking in menu/pause/cutscene.
-  HOOKS.always.push((dt,rawDt)=>tick(rawDt));
+  // Own wall-clock delta: the loop clamps rawDt to 0.05, which would run the voice clock slow below
+  // 20 fps / on launch hitches while the clip itself plays in real time. Cap 1 s (backgrounded tab).
+  let _vLast=0;
+  HOOKS.always.push(()=>{ const n=performance.now(); const d=_vLast ? Math.min(1, Math.max(0, (n-_vLast)/1000)) : 0; _vLast=n; tick(d); });
   HOOKS.reset.push(()=>stop());
-  EV.on('missionEnd', d=>{ if(!d.victory){ queue=queue.filter(q=>q.prio==='crit'); if(cur && cur.prio==='bark') interrupt('defeat'); } });
+  // defeat: story/boss mids and barks must not cheer on over the loss screen; keep cutscenes and the
+  // crash reaction itself (a non-mid line queued in the last second, e.g. Kiebitz calling the rescue)
+  EV.on('missionEnd', d=>{ if(d.victory) return;
+    drop(q=>!(q.kind==='cutscene' || (!q.mid && q.prio!=='bark' && vnow-q.t0<1)));
+    if(cur && (cur.mid || cur.prio==='bark')) interrupt('defeat'); });
   HOOKS.missionStart.push(def=>{ if(def && def.win) for(const l of def.win) prefetch(voiceKey((parseLine(l).spk||'')+'|'+parseLine(l).text)); });
 
   // ---- public API ----
@@ -2220,8 +2230,6 @@ const VOICE_AUTO = [
   [/^WIGGERL\|Ha! Danebn!/, {prio:'bark'}],
   [/^SEPP\|…so\. A Ruah/, {prio:'bark'}],
   [/^SEPP\|JETZ REICHT/, {ttl:2.5}],
-  [/^WAGNER\|Fahrwerk (aus|ein)gefahren\.$/, {tag:'gear', ttl:4}],
-  [/^WAGNER\|(Pylon|Turm) zerstört — \d+ übrig\.$/, {tag:'bossparts', ttl:6}],
 ];
 function voiceAutoOpts(line, o){ if(o && (o.prio||o.tag)) return o; const s=String(line);
   for(const [re,d] of VOICE_AUTO) if(re.test(s)) return Object.assign({}, d, o||{}); return o||{}; }
@@ -2271,11 +2279,7 @@ function voiceScanLiterals(src){
 function voiceDynamicLines(){
   const L=[];
   const add=(line,ctx)=>L.push({line,ctx});
-  add('WAGNER|Fahrwerk ausgefahren.','gear'); add('WAGNER|Fahrwerk eingefahren.','gear');
-  try{ for(const a of ACE_NAMES) add('HELIOS|'+a+' übernimmt.','ace'); }catch(e){}
-  for(const part of ['Pylon','Turm']) for(let k=1;k<=8;k++) add('WAGNER|'+part+' zerstört — '+k+' übrig.','bossParts');
-  for(const [cid,camp] of [['helios',CAMPAIGN],['bteam',BTEAM_CAMPAIGN]]) for(const def of camp) for(const o of (def.objectives||[]))
-    if(o.kind==='destroyGround' && o.label) add('WAGNER|'+o.label+' — erledigt.', cid+':'+def.id+':objective');
+  // (gear / ace / boss-part / "<label> — erledigt." templates are gone from the game: not enumerated any more)
   for(const fn of Voice._providers){ try{ for(const x of (fn()||[])) add(typeof x==='string'?x:x.line, (x&&x.ctx)||'provider'); }catch(e){ console.warn('voice provider failed', e); } }
   return L;
 }
@@ -6254,7 +6258,8 @@ function gameOver(victory){
       if(campaignId==='helios'){ refreshUnlocks(); document.body.classList.toggle('gold-wings', SAVE.unlocks.goldWings); }
       persistSave();
       const hasNext = mission.index < activeCampaign.length-1;
-      const winLine = def.win && def.win[0] ? parseLine(def.win[0]).text : '';
+      // every win line as speaker + text: they keep playing over the debrief, where the #radio subtitle is hidden
+      const winLine = winLinesFor(def).map(l=>parseLine(l)).filter(p=>p.text).map(p=>`<div class="debrief-line">${p.spk?`<span class="dl-spk">${p.spk}</span>`:''}${p.text}</div>`).join('');
       const starRow = `<div class="debrief-stars">`+[0,1,2].map(k=>`<span class="${k<res.stars?'on':''}">${k<res.stars?'★':'☆'}</span>`).join('')+`</div>`;
       const unlockNote = campaignId!=='helios' ? '' :
                        ((!wasAce&&SAVE.unlocks.ace?'<div class="unlock-note">FREIGESCHALTET: ASS-MODUS (Endlos)</div>':'')
@@ -6576,7 +6581,7 @@ let lastRadioT=-99;   // BOSSES: last time ANY radio line was requested (menuTim
 // radio()/queueRadio() just feed the Voice scheduler (2b): it owns subtitle display,
 // clip timing and pacing now, so a line shows for exactly as long as it needs to.
 // opts: {prio:'crit'|'normal'|'bark', tag, ttl, cooldown} — VOICE_AUTO fills in sensible
-// defaults for known repeated lines (barks, gear, boss-part call-outs) even when a call
+// defaults for known repeated lines (flavour barks) even when a call
 // site (owned by another track) passes none.
 function radio(line, opts){
   // line: "SPEAKER|text" or "SPEAKER|text|hint" (see parseLine)
@@ -6588,14 +6593,22 @@ function queueRadio(lines, gap){
   // ones left dead air); now the scheduler paces by actual clip/estimate duration, and gap
   // becomes the extra pause on top of that — converted from the old absolute value so
   // existing call sites (~3.2-3.6s, tuned for a ~2s line) still feel about right.
+  // The natural 0.26-0.68 s turn gap already reads as conversation; the old +0.6 s extra was dead air.
+  // ttl: a briefing waiting behind boss/story lines must not age out.
   if(!lines || !lines.length) return;
-  const extra = gap!=null ? Math.max(0, Math.min(1.2, gap-3.0)) : 0;   // 3.4 -> +0.4 s, 3.6 -> +0.6 s on top of the natural 0.26-0.68 s
-  Voice.lines(lines, {gap:extra});
+  Voice.lines(lines, {gap:0, ttl:40});
 }
-function updateRadio(dt){
-  // legacy no-op: Voice paces + shows/hides subtitles itself via HOOKS.always (real time,
-  // works in menu/pause/cutscene too). Kept so the call site in 15d needs no foreign edit.
+// Touchdown call-outs stay quiet when this landing completes the mission: win[] speaks instead
+// (m0 would otherwise say "Willkommen daheim" twice, or "Techniker werden fluchen" then "nichts zu meckern").
+function landCompletesMission(){
+  if(gameMode!=='campaign' || !mission.active || mission.done) return false;
+  const P=mission.objectives.filter(o=>o.primary);
+  return P.some(o=>o.kind==='land' && !o.done) && P.every(o=>o.done || o.kind==='land');
 }
+function landRadio(line){ if(!landCompletesMission()) radio(line); }
+// win[] lines that praise the landing are dropped after a hard one
+const WIN_SOFT_ONLY=/nichts zu meckern/;
+function winLinesFor(def){ const w=(def&&def.win)||[]; return mission.landHard ? w.filter(l=>!WIN_SOFT_ONLY.test(l)) : w; }
 function renderObjectives(){
   if(!mission.active){ dom.objectives.innerHTML=''; return; }
   dom.objectives.innerHTML = mission.objectives.map(o=>{
@@ -6621,7 +6634,7 @@ function setupMission(index){
     spawns: Object.assign({}, def.spawns, (def.spawnsVariants && def.spawnsVariants[storyChoice]) || {})
   }) : def;
   mission.active=true; mission.def=effDef; mission.index=index; mission.done=false; mission.outcome=null;
-  mission.radioQueue=[]; mission.reinforceT=0; mission.waveIndex=0; mission.failReason=null;
+  mission.reinforceT=0; mission.waveIndex=0; mission.failReason=null;
   mission.spawnDelayT=0; mission.pendingAir=null; mission.landReady=false;
   // progress/rating: wall-clock timing (unaffected by slow-mo) + landing quality
   mission.startT=performance.now(); mission.pausedMs=0; mission.pauseStart=0;
@@ -6753,7 +6766,7 @@ function checkMissionComplete(){
   if(primaries.every(o=>o.done)){
     mission.done=true; mission.active=false; winLocked=true;   // win committed — leftover fire can't turn this into a loss
     banner(campaignId==='bteam'?'PACKMA\'S GHABT! 🍺':'MISSION ERFÜLLT', mission.def.name.toUpperCase());
-    queueRadioNow(mission.def.win);
+    queueRadioNow(winLinesFor(mission.def));
     player.alive=true;
     const wonIndex=mission.index;
     clearVictoryTimer();
@@ -6773,7 +6786,7 @@ function checkMissionComplete(){
     victoryTimer=setTimeout(poll, bk ? (BOSS_WIN_MS[bk]||4200) : 2600);
   }
 }
-function queueRadioNow(lines){ if(!lines) return; Voice.lines(lines, {prio:'crit', gap:0.4}); }   // mission-critical (win lines): never dropped
+function queueRadioNow(lines){ if(!lines) return; Voice.lines(lines, {prio:'crit', gap:0.15}); }   // mission-critical (win lines): never dropped
 // A failed PRIMARY objective (e.g. the escort dies) fails the whole mission.
 function checkMissionFailed(){
   if(!mission.active || mission.done) return;
@@ -6786,8 +6799,7 @@ function checkMissionFailed(){
 }
 
 function updateMission(dt){
-  if(!mission.active){ if(winLocked && mission.radioQueue) updateRadio(dt); return; }   // win lines still play until the debrief
-  updateRadio(dt);
+  if(!mission.active) return;   // (win lines keep playing on their own: Voice runs in every state)
   // Deferred air spawn for runway-start missions: hold enemies until we're airborne.
   if(mission.pendingAir && !player.onGround){
     mission.spawnDelayT-=dt;
@@ -7007,14 +7019,15 @@ function detachFalling(mesh, vel, opts){
 }
 
 // --- callout dedup: ≤2× per mission per attack key, 12s cooldown, silenced within 2.5s of any other radio() line
-function bossCall(b, key, line){
+// line2 (optional): shorter text for the 2nd call, so a repeat does not sound like a stuck record
+function bossCall(b, key, line, line2){
   if(!b || b.dead || menuTime<(b.quietUntil||0)) return false;   // never over the death silence / post-phase STORY window
   b.callCount[key]=b.callCount[key]||0;
   if(b.callCount[key]>=2) return false;
   if((b.callCd[key]||0)>0) return false;
   if(menuTime-lastRadioT<2.5) return false;
   b.callCount[key]++; b.callCd[key]=12;
-  radio(line);
+  radio((b.callCount[key]>1 && line2) ? line2 : line);
   return true;
 }
 function updateBossCallCd(b,dt){ for(const k in b.callCd) b.callCd[k]=Math.max(0,b.callCd[k]-dt); }
@@ -7628,7 +7641,7 @@ function updatePrometheus(dt){
 }
 
 function spawnFirewall(b){
-  bossCall(b,'feuerwand','WAGNER|Brandkammer glüht! Weiße Lichter heißt Feuer, raus aus der Linie!|dringend');
+  bossCall(b,'feuerwand','WAGNER|Brandkammer glüht! Weiße Lichter heißt Feuer, raus aus der Linie!|dringend', 'WAGNER|Wieder weiß! Raus aus der Linie!|dringend');
   const mid=player.obj.position.clone().addScaledVector(player.vel,1.5);
   const right=new THREE.Vector3(1,0,0).applyQuaternion(player.obj.quaternion);
   const pts=[];
@@ -7644,7 +7657,7 @@ function setChamberOpen(b,open){
   if(b.chamberOpen===open) return;
   b.chamberOpen=open; b.exposed=open; if(open) b.winDmg=0;
   EV.emit('bossExposed',{kind:b.kind,open});
-  if(open) bossCall(b,'kammerOffen','WAGNER|Kammer offen! Sechs Sekunden, Geier, alles rein!|dringend');
+  if(open) bossCall(b,'kammerOffen','WAGNER|Kammer offen! Sechs Sekunden, Geier, alles rein!|dringend', 'WAGNER|Wieder offen! Rein da!|dringend');
 }
 function buildFeuertraeger(x,z){
   const g=new THREE.Group();
@@ -7869,7 +7882,7 @@ function bark(ev, list, o){
   }
   const line=pickBark(ev, list); if(!line) return false;
   _barkEvT[ev]=t; if(!o.must) lastBarkT=t;
-  radio(line, {prio:o.must?'crit':'bark'});
+  radio(line, {prio:o.prio||(o.must?'crit':'bark'), ttl:o.ttl});
   return true;
 }
 function barkList(pool){ const c=barkCtx(); return pool[c] || pool[c==='BT'?'BT':(c==='EN'?'H1':(pool.H?'H':'H1'))] || pool.H || null; }
@@ -7915,28 +7928,38 @@ function findMid(on, pred){
 // in one frame, a mid right behind the intro) go through the Voice scheduler (2b), which queues them
 // sequentially by real clip duration instead of cutting each other off. They are flagged mid:true so a
 // win can drop the ones still waiting in favour of win[].
-let _midFreeAt=0;                                 // legacy slot clock (reset per mission; pacing is Voice's job now)
-function sayMid(line){
-  for(const l of [].concat(line)) radio(l, {prio:'crit', mid:true});
+// Pure boss countdown lines ("Noch zwei", "Letzter Turm!") go stale: a newer one replaces a queued older one
+// (tag) and bossExposed/bossKilled drop the rest. Story lines on bossPart rows are left alone.
+const BOSS_COUNT_RE=/\b(noch (einer|zwei|drei)|einer noch|drei no|letzter turm|(turm|pylon) weniger|mast fällt)\b/i;
+const isBossCount=q=>q.tag==='bossCount';
+function sayMid(line, o){
+  for(const l of [].concat(line)){ const x=Object.assign({prio:'crit', mid:true}, o);
+    if(x.bossPart){ delete x.bossPart; if(BOSS_COUNT_RE.test(l)) x.tag='bossCount'; }
+    radio(l, x); }
 }
-function fireMid(m){
+function fireMid(m, o){
   mission._midFired.add(m);
   lastBarkT=nowS();                               // scripted lines push the flavor barks back
   if(m.delay){
-    const gen=missionGen;
-    const h=setTimeout(()=>{ _midTimers=_midTimers.filter(x=>x!==h);
-      if(gen!==missionGen || !mission.active || mission.done || state!=='playing') return; sayMid(m.line); }, m.delay*1000);
-    _midTimers.push(h);
-  } else sayMid(m.line);
+    // pause-aware delay: mission time (pause subtracted); a timer landing in the pause re-arms instead of dropping the line
+    const gen=missionGen, eff=()=>performance.now()-(mission.pausedMs||0), due=eff()+m.delay*1000;
+    const arm=(ms)=>{ const h=setTimeout(()=>{ _midTimers=_midTimers.filter(x=>x!==h); step(); }, ms); _midTimers.push(h); };
+    const step=()=>{
+      if(gen!==missionGen || !mission.active || mission.done) return;
+      if(state==='paused'){ arm(250); return; }
+      const r=due-eff(); if(r>20){ arm(r); return; }
+      if(state!=='playing') return; sayMid(m.line, o); };
+    arm(m.delay*1000);
+  } else sayMid(m.line, o);
 }
 // All mid[] events need a running, undecided mission. A win sets mission.active=false, so nothing
 // after the win speaks; m13 keeps running after the boss dies because its 'land' is primary.
 function storyActive(){ return gameMode==='campaign' && mission.active && !mission.done && !!mission.def; }
 // fires EVERY unfired row that matches (e.g. a line plus its delay:4 answer on the same event)
-function dispatch(on, pred){
+function dispatch(on, pred, o){
   if(!storyActive()) return false;
   let any=false, m;
-  while((m=findMid(on, pred))){ fireMid(m); any=true; }
+  while((m=findMid(on, pred))){ fireMid(m, o); any=true; }
   return any;
 }
 function hasMid(on, pred){ const mid=mission.def&&mission.def.mid; return !!(mid && mid.some(m=>m.on===on && (!pred||pred(m)))); }
@@ -7952,7 +7975,7 @@ function announceDone(o){
 HOOKS.missionStart.push((def)=>{
   mission._midFired=new Set(); missionGen++; clearMidTimers();
   _doneSeen=new Set(); _takeoffSeen=false; _hpLowBarked=_allyBark50=_allyBark25=false;
-  _missionT0=null; _missionP0=0; _midFreeAt=0;
+  _missionT0=null; _missionP0=0;
   if(def.start!=='runway'){ _missionT0=performance.now(); _missionP0=mission.pausedMs||0; dispatch('airborne'); }
 });
 HOOKS.reset.push(()=>{ missionGen++; clearMidTimers(); _missionT0=null; });
@@ -7965,7 +7988,11 @@ EV.on('takeoff', ()=>{
     const f=new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion);
     ally.obj.position.copy(player.obj.position).addScaledVector(f,-320).add(new THREE.Vector3(40,25,0));
   }
-  if(!dispatch('airborne') && storyActive()) bark('takeoff', barkList(BARK_TAKEOFF), {must:true});
+  // briefing still running (quick takeoff): queue behind it instead of cutting into the conversation;
+  // the Kiebitz call is flavour then and may lapse
+  const busy=Voice.busy();
+  if(!dispatch('airborne', null, busy?{prio:'normal', ttl:30}:null) && storyActive())
+    bark('takeoff', barkList(BARK_TAKEOFF), busy?{must:true, prio:'normal', ttl:6}:{must:true});
 });
 EV.on('landReady', ()=>{
   if(dispatch('landReady')) return;
@@ -8000,14 +8027,15 @@ EV.on('allyHit', d=>{
   else if(ratio<0.5 && !_allyBark50){ if(bark('ally50', BARK_ALLY50[k], {cd:1})) _allyBark50=true; }
 });
 // boss events (BOSSES track, bible §4.1): payloads {kind,name} {kind,left} {kind,phase} {kind,open} {kind,frac} {kind}
-// deferred: setupMission spawns the boss BEFORE the missionStart hook creates a fresh _midFired
-EV.on('bossSpawn',  ()=>{ setTimeout(()=>dispatch('bossSpawn'), 0); });
-EV.on('bossPart',   d=>dispatch('bossPart', m=>m.left===d.left));
-EV.on('bossExposed',d=>{ if(d && d.open) dispatch('bossExposed'); });           // fires once: first open only
+// bossSpawn is emitted inside setupMission, before the intro is queued and before the missionStart hook
+// resets _midFired: defer one tick, then queue it as normal so it lands behind the briefing.
+EV.on('bossSpawn',  ()=>{ const def=mission.def; setTimeout(()=>{ if(mission.def===def) dispatch('bossSpawn', null, {prio:'normal', ttl:40}); }, 0); });
+EV.on('bossPart',   d=>dispatch('bossPart', m=>m.left===d.left, {bossPart:true}));
+EV.on('bossExposed',d=>{ if(d && d.open){ Voice.drop(isBossCount); dispatch('bossExposed'); } });   // fires once: first open only
 EV.on('bossPhase',  d=>dispatch('bossPhase', m=>m.phase===d.phase));
 EV.on('bossHp',     d=>{ const f=(d && d.frac!=null) ? d.frac : (d && d.ratio);  // frac is exactly 0.75/0.5/0.25
   if(f!=null) dispatch('bossHp', m=>Math.abs(m.lt-f)<1e-6); });
-EV.on('bossKilled', ()=>dispatch('bossKilled'));
+EV.on('bossKilled', ()=>{ Voice.drop(isBossCount); dispatch('bossKilled'); });
 // polled per frame: mission clock ('time', from takeoff on runway starts), objective progress and
 // completion of objectives that do not emit 'done' themselves (destroyAir, escort, patrol, ...)
 const isMidLine=q=>q.mid;
@@ -8555,10 +8583,10 @@ function landingTouchdown(fwd, wheelClear, onStrip, groundY){
   EV.emit('touchdown',{vs:sink, rating: hard?'hart':(soft?'butterweich':'sauber'), fast, long});
   if(hard){ player.hp=Math.max(1,player.hp-(unlocked?30:18)); shake=Math.max(shake,0.8); damageFlash=Math.max(damageFlash,0.6); Audio.hitTaken();
     banner('HARTE LANDUNG', unlocked?'Fahrwerk nicht verriegelt — Struktur beschädigt':(!onStrip?'Neben der Piste aufgesetzt':(noseFirst?'Bugrad zuerst — Struktur beschädigt':'Struktur beschädigt — aber unten')));
-    radio(bt ? ((player.hero==='wiggerl')?'WIGGERL|Tschuldigung, Resi. Des war ned so gmeint.':'SEPP|Des war ned hart. Des war bodenständig.')
+    landRadio(bt ? ((player.hero==='wiggerl')?'WIGGERL|Tschuldigung, Resi. Des war ned so gmeint.':'SEPP|Des war ned hart. Des war bodenständig.')
              : (Math.random()<0.5?'KIEBITZ|Hart, aber ganz. Die Techniker werden fluchen.':'KIEBITZ|Das hat gerummst. Alles dran?')); }
   else { shake=Math.max(shake, soft?0.06:0.18); banner('AUFGESETZT', (fast||long)?'Zu schnell / zu lang — Strg = Bremsen':(soft?'Butterweich, Geier':'Saubere Landung, Geier'));
-    radio(bt ? 'KIEBITZ|Aufgesetzt. Ich sag\'s ungern: Das war ordentlich.'
+    landRadio(bt ? 'KIEBITZ|Aufgesetzt. Ich sag\'s ungern: Das war ordentlich.'
              : (soft ? 'KIEBITZ|Butterweich. Das schreib ich mir auf.' : 'KIEBITZ|Aufgesetzt. Willkommen daheim, Geier.|froehlich')); }
   tyreScreech(THREE.MathUtils.clamp(0.3+sink/CFG.touchHard,0,1));
   // tyre smoke from the main wheels (or the nose wheel), streaming back
