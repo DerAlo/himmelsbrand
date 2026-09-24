@@ -4758,9 +4758,11 @@ HOOKS.always.push(function(){
   for(let j=0;j<2;j++){   // player jet, then ally jet (no per-frame array)
     const obj = j===0 ? ((typeof player!=='undefined'&&player)?player.obj:null) : ((typeof ally!=='undefined'&&ally)?ally.obj:null);
     if(!obj || !obj.userData.strobes) continue;
-    const ph=(t*2 + obj.userData.strobePhase)%1;
-    const on = ph<0.06 || (ph>0.12 && ph<0.16);   // double-flash pattern like a real anti-collision strobe
-    for(const s of obj.userData.strobes) s.material.opacity = on?1:0;
+    const ph=(t*0.9 + obj.userData.strobePhase)%1;   // one double flash per ~1.1 s like a real anti-collision strobe
+    const on = ph<0.06 || (ph>0.12 && ph<0.16);
+    // own jet sits next to the crosshair: smaller, half-strength flash; the ally keeps full strength
+    const k = j===0 ? 0.5 : 1, sc = j===0 ? 1.2 : 2.6;
+    for(const s of obj.userData.strobes){ s.material.opacity = on?k:0; if(s.scale.x!==sc) s.scale.set(sc,sc,1); }
    }
 });
 
