@@ -4792,7 +4792,7 @@ function efAssets(){
   const RS=lo?40:60, DZ=lo?0.42:0.26, NCH=lo?9:14, LS=lo?16:24, NS=lo?42:56;   // ring / chord / lathe resolution
   // ---- materials (shared; the ally clones the emissive-tinted ones itself) ----------------
   const paint=new THREE.MeshStandardMaterial({ color:0xffffff, vertexColors:true, map:EF_SKIN_TEX, roughnessMap:EF_SKIN_TEX,
-    roughness:0.68, metalness:0.08, envMapIntensity:0.6, side:THREE.DoubleSide });
+    roughness:0.8, metalness:0.08, envMapIntensity:0.6, side:THREE.DoubleSide });
   addRimLight(paint, 0xe2e7ec, 4.0, 0.05);   // neutral and faint: the old blue rim made the jet read as plastic
   const trim=new THREE.MeshStandardMaterial({ color:0xffffff, vertexColors:true, roughness:0.55, metalness:0.35, envMapIntensity:0.8 });
   const nozM=new THREE.MeshStandardMaterial({ color:0xffffff, vertexColors:true, roughness:0.42, metalness:0.75, envMapIntensity:1.0, side:THREE.DoubleSide });
@@ -4934,7 +4934,8 @@ function efAssets(){
     const rings=zs.map(Z=>{ const S=fsec(Z.z), cw=cwAt(Z.z);
       return angs.map(A=>{ const p=fpt(Z.z,A.a,S);
         const seam=(Z.L&&A.a>=Z.L[1]&&A.a<=Z.L[2])||(A.L&&Z.z>=A.L[1]&&Z.z<=A.L[2]);
-        const tub=(Z.z>-6.75&&Z.z<-2.3&&p[1]>0.35&&Math.abs(p[0])<cw-0.03)?0.92:0;   // cockpit tub, seen through the glass
+        const tub=(Z.z>-6.75&&Z.z<-2.3&&p[1]>0.35&&Math.abs(p[0])<cw-0.03)?0.92:   // cockpit tub, seen through the glass
+          (Z.z<-4.55&&p[1]<-0.72)?1:0;   // trunk skin crossing the duct, only ever seen through the intake mouth
         return [p[0],p[1],p[2],seam?0.5:1,tub]; }); });
     putP(loft(rings,{closed:true,cap1:true})); }
 
@@ -4953,7 +4954,7 @@ function efAssets(){
     putP(loft(R,{closed:true,cap0:true,ori:[5,10]}));
     // boundary-layer splitter plate over the mouth + centre divider between the two ducts
     put(paint, prim(new THREE.BoxGeometry(2.0,0.025,0.66),0x6e7379,M4(0,-0.735,-5.29)));
-    put(paint, prim(new THREE.BoxGeometry(0.05,0.62,1.9),0x16181b,M4(0,-1.08,-4.40))); }
+    put(paint, prim(new THREE.BoxGeometry(0.04,0.62,1.2),0x0e1012,M4(0,-1.08,-4.10))); }   // set back: a hint in the gloom, not a sail
 
   // ---- WINGS: 53 deg cranked delta, NACA 5%->3.5%, flaperon + slat seams --------------------
   const WY=-0.05, wLE=s=>s<1.1?-2.0+(s-1.1)*1.9:-2.0+(s-1.1)*1.327, wTE=s=>6.6-(s-1.1)*0.0377;
@@ -4998,13 +4999,13 @@ function efAssets(){
     for(const b of [0.04,Math.PI-0.04]){ const pts=[]; for(let z=-6.9; z<=-1.75; z+=0.3) pts.push(cpt(z,b,0.02)); put(trim,tube(pts,0.03,6,F)); } }
   // Martin-Baker seat (pan, back, headbox + yellow firing handle), pilot, glareshield and HUD
   put(trim, prim(new THREE.BoxGeometry(0.40,0.66,0.12),0x2a2d31,M4(0,0.96,-4.00,-0.26)));
-  put(trim, prim(new THREE.BoxGeometry(0.30,0.24,0.20),0x222529,M4(0,1.28,-3.92,-0.26)));
+  put(trim, prim(new THREE.SphereGeometry(0.5,12,8),0x222529,new THREE.Matrix4().compose(new V3(0,1.28,-3.92),new THREE.Quaternion(),new V3(0.3,0.26,0.2))));   // rounded headbox
   put(trim, prim(new THREE.BoxGeometry(0.10,0.03,0.07),0xa8860e,M4(0,1.42,-3.96,-0.26)));
   put(trim, prim(new THREE.BoxGeometry(0.38,0.28,0.26),0x33372d,M4(0,0.98,-4.24,-0.2)));      // torso in flight suit
-  put(trim, prim(new THREE.SphereGeometry(0.135,12,10),0x6f7478,M4(0,1.20,-4.25)));            // helmet
+  put(trim, prim(new THREE.SphereGeometry(0.145,14,10),0x5f6468,M4(0,1.21,-4.23)));            // helmet
   put(trim, prim(new THREE.SphereGeometry(0.14,12,8),0x101215,new THREE.Matrix4().compose(new V3(0,1.18,-4.31),new THREE.Quaternion(),new V3(0.95,0.55,0.8))));   // visor
-  put(trim, prim(new THREE.BoxGeometry(0.70,0.10,0.45),0x15171a,M4(0,0.82,-5.45)));
-  put(trim, prim(new THREE.BoxGeometry(0.26,0.18,0.02),0x1d2024,M4(0,0.98,-5.62,-0.35)));
+  put(trim, prim(new THREE.CylinderGeometry(0.34,0.34,0.5,14,1,false,-Math.PI/2,Math.PI),0x15171a,new THREE.Matrix4().compose(new V3(0,0.80,-5.45),new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI/2,0,0)),new V3(1,1,0.45))));   // glareshield hood
+  put(trim, prim(new THREE.BoxGeometry(0.22,0.16,0.012),0x2a3036,M4(0,1.02,-5.66,-0.35)));   // HUD combiner
 
   // ---- NOZZLES: lathe with petal scallops and heat-tint gradient, glowing burner face ----------
   { const NP=14, prof=[[0.60,7.0,0x5f6368],[0.635,7.55,0x62666b],[0.625,8.05,0x5a5b5c],[0.605,8.12,0x4a4642],[0.575,8.42,0x4e4238],
