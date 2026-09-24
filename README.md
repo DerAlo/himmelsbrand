@@ -101,6 +101,6 @@ Manche Missionen beginnen auf der Rollbahn und/oder verlangen eine Landung; Miss
 
 ## Mitwirkende & Lizenzen
 
-Spiel: Alfons Riedhammer. Three.js (MIT). Sprachsynthese: Chatterbox TTS (MIT, Resemble AI), Piper (MIT). Referenzstimmen und ihre Lizenzen: siehe [`tools/voice/README.md`](tools/voice/README.md) und „Mitwirkende & Lizenzen“ im Spiel.
+Spiel: Alfons Riedhammer. Three.js (MIT). Sprachsynthese: Chatterbox TTS (MIT, Resemble AI), Piper (MIT). Stimmreferenzen u. a. aus gemeinfreien LibriVox-Lesungen (FritzSavira, marham63, Christian Al-Kadi, Boris, Carsten), Thorsten-Voice (CC0), Kerstin (CC0) und dem M-AILABS Speech Dataset. Alle Referenzstimmen und ihre Lizenzen: siehe [`tools/voice/README.md`](tools/voice/README.md) und „Mitwirkende & Lizenzen“ im Spiel.
 
 🤖 Entwickelt mit [Claude Code](https://claude.com/claude-code)

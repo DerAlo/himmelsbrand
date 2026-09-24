@@ -14,7 +14,7 @@ Kiebitz. Zwischen den Missionen taucht **Hauptmann Lärche** auf, eine Überlebe
 der erste Angriffsbefehl an HELIOS sei nicht von der eigenen Seite gekommen.
 
 Akt II dreht den Twist: Flugschreiber-Daten zeigen, dass der Befehl zwölf Stunden *vor* dem
-„Störfall" geschrieben wurde, signiert von **Konrad Keller** — ein Name, den Wagner persönlich
+„Störfall" geschrieben wurde, signiert von **Hartmut Keller** — ein Name, den Wagner persönlich
 kennt. HELIOS war nie der Angreifer, sondern ein Schild um **PROMETHEUS**, Kellers eigentliches
 Projekt. Parallel entwickelt sich eine Slow-Burn-Romanze Geier↔Lärche (`bond1`→`bond2`→`bond3`→
 `confession`), bewusst geschlechtsneutral geschrieben.
