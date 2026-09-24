@@ -1330,7 +1330,9 @@ function terrainHeightRaw(x, z){
   const continent = Noise.noise2(x*0.00018, z*0.00018);       // large regions
   const mountainMask = Math.max(0, Noise.noise2(x*0.00035+100, z*0.00035-50)); // where mountains rise
   let mtn = Noise.noise2(x*0.0009, z*0.0009);
-  mtn = 1 - Math.abs(mtn);                                     // ridged
+  // ridged, with a soft abs: the hard |n| crease was thinner than one 20.8 m terrain vertex,
+  // so every crest rendered as an evenly spaced comb of spikes. Rounds the top ~45 m wide.
+  mtn = 1 - Math.sqrt(mtn*mtn + 0.008);
   mtn = mtn*mtn;
   const hills = Noise.noise2(x*0.0022, z*0.0022);
   const detail = Noise.noise2(x*0.008, z*0.008);
@@ -2354,7 +2356,7 @@ addEventListener('resize', resize); resize();
 // Resolution scaling per GFX level: pixel-ratio cap (device pixels rendered), reacts live.
 // The cap alone does nothing on 1x desktop screens, so low also renders below native (upscaled).
 const PIXEL_RATIO_CAP = { high:2, medium:1.5, low:1 };
-const RENDER_SCALE = { high:1, medium:1, low:0.8 };
+const RENDER_SCALE = { high:1, medium:0.9, low:0.8 };   // medium: ~19 % fewer pixels, so the level is noticeably cheaper
 function applyGfxPixelRatio(level){
   renderer.setPixelRatio(Math.min(devicePixelRatio||1, PIXEL_RATIO_CAP[level]||1)*(RENDER_SCALE[level]||1));
   resize();
@@ -2447,7 +2449,13 @@ if (typeof THREE.EffectComposer==='function' && typeof THREE.RenderPass==='funct
       // stencilBuffer:true makes r128 allocate DEPTH24_STENCIL8 instead of a 16-bit depth
       // buffer. Without it the runway decals z-fought away entirely under post-FX.
       { minFilter:THREE.LinearFilter, magFilter:THREE.LinearFilter, format:THREE.RGBAFormat, stencilBuffer:true });
-    _ct.samples=Math.min(8, renderer.getContext().getParameter(renderer.getContext().MAX_SAMPLES)||4);   // the shoreline is a thin high-contrast silhouette: 8 samples measurably calm it
+    const _maxS=renderer.getContext().getParameter(renderer.getContext().MAX_SAMPLES)||4;
+    // the shoreline is a thin high-contrast silhouette: 8 samples measurably calm it; low trades some for bandwidth
+    const MSAA_SAMPLES={ high:8, medium:8, low:4 };
+    _ct.samples=Math.min(MSAA_SAMPLES[GFX.level()]||8, _maxS);
+    // the composer renders into its clone of _ct (renderTarget2 = readBuffer); dispose makes r128 re-allocate on next bind
+    GFX.onChange(function(level){ const s=Math.min(MSAA_SAMPLES[level]||8, _maxS);
+      for(const rt of [composer.renderTarget1, composer.renderTarget2]) if(rt.samples!==s){ rt.samples=s; rt.dispose(); } });
   }
   composer = _ct ? new THREE.EffectComposer(renderer, _ct) : new THREE.EffectComposer(renderer);
   composer.addPass(new THREE.RenderPass(scene,camera));
@@ -2456,6 +2464,12 @@ if (typeof THREE.EffectComposer==='function' && typeof THREE.RenderPass==='funct
   gradePass=new THREE.ShaderPass(GradeShader);
   gradePass.renderToScreen=true;
   composer.addPass(gradePass);
+  if(_ct){
+    // r128 resolves MSAA with COLOR|DEPTH|STENCIL; nothing reads the resolved depth/stencil, and on
+    // ANGLE/D3D11 the depth-stencil blit costs ~3x the whole post chain. Its only caller is that resolve.
+    const gl=renderer.getContext(), _blit=gl.blitFramebuffer.bind(gl);
+    gl.blitFramebuffer=function(a,b,c,d,e,f,g,h,mask,filter){ mask&=gl.COLOR_BUFFER_BIT; if(mask) _blit(a,b,c,d,e,f,g,h,mask,filter); };
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -3236,6 +3250,9 @@ water.rotation.x=-Math.PI/2;
 // offset completely.
 water.position.y=CFG.waterLevel-0.4;
 waterMat.polygonOffset=true; waterMat.polygonOffsetFactor=-3; waterMat.polygonOffsetUnits=-6;
+// First among the transparents: the clouds (-10/-11) write no depth, so a later water draw
+// painted the sea over every low cloud and cut the cloud layer off along each coastline.
+water.renderOrder=-20;
 scene.add(water);
 
 /* ---------------------------------------------------------------------------
@@ -4084,11 +4101,15 @@ function makeParticleSystem(max, additive){
       varying float vFogDepth;
       varying float vAlpha;
       varying vec2 vRot;
+      varying float vNear;
       void main(){
         vColor=pcolor; vAlpha=pmisc.x; vRot=vec2(cos(pmisc.y),sin(pmisc.y));
         vec4 mv=modelViewMatrix*vec4(position,1.0);
         vFogDepth=-mv.z;
-        gl_PointSize = min(psize * (scale / max(0.001,-mv.z)), 600.0);
+        float px=psize*(scale/max(0.001,-mv.z));
+        // fade near the camera and when one sprite would fill the view (flying into a blast/pall)
+        vNear=smoothstep(4.0,35.0,-mv.z)*(1.0-0.7*smoothstep(0.6,2.0,px/(2.0*scale)));
+        gl_PointSize = min(px, min(1.1*scale, 700.0));   // cap ~55 % of view height
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader:`
@@ -4100,11 +4121,12 @@ function makeParticleSystem(max, additive){
       varying float vFogDepth;
       varying float vAlpha;
       varying vec2 vRot;
+      varying float vNear;
       void main(){
         vec2 pc=gl_PointCoord-0.5;
         pc=vec2(vRot.x*pc.x-vRot.y*pc.y, vRot.y*pc.x+vRot.x*pc.y)+0.5;
         vec4 tex=texture2D(pointTexture, pc);
-        float a=tex.a*vAlpha;
+        float a=tex.a*vAlpha*vNear;
         if(a<0.015) discard;
         gl_FragColor=vec4(vColor*tex.rgb${additive?"":"*tint"}, a);
         float fogFactor=1.0 - exp(-fogDensity*fogDensity*vFogDepth*vFogDepth);
@@ -4694,11 +4716,9 @@ function buildEurofighter(withLight){
     const cf=decalPlane(TEX_CROSS,0.85,0.85,crossMat); cf.rotation.y=sx*Math.PI/2; cf.position.set(sx*1.14,0.10,2.6); collectMerge(cf,mrg);
     const st=decalPlane(TEX_STENCIL,1.5,0.38,stencilMat); st.rotation.y=sx*Math.PI/2; st.position.set(sx*1.12,0.62,-2.4); collectMerge(st,mrg);
    }
-  // The two sides need MIRRORED textures: a plane turned to face the other way shows its
-  // texture reversed, which had the tail number reading backwards from port.
-  const texNumFlip=TEX_TAILNUM.clone(); texNumFlip.needsUpdate=true;
-  texNumFlip.wrapS=THREE.RepeatWrapping; texNumFlip.repeat.x=-1; texNumFlip.offset.x=1;
-  const tailNum=decalPlane(texNumFlip,1.15,1.15); tailNum.rotation.y=-Math.PI/2;
+  // Each plane is rotated to face outward, so both sides read correctly with the same texture
+  // (a mirrored per-jet clone made port read backwards and leaked one GPU texture per wingman spawn).
+  const tailNum=decalPlane(TEX_TAILNUM,1.15,1.15); tailNum.rotation.y=-Math.PI/2;
   tailNum.position.set(-0.13,1.55,4.75); collectMerge(tailNum,mrg);
   const tailNum2=decalPlane(TEX_TAILNUM,1.15,1.15); tailNum2.rotation.y=Math.PI/2;
   tailNum2.position.set(0.03,1.55,4.75); collectMerge(tailNum2,mrg);
@@ -4798,9 +4818,11 @@ HOOKS.always.push(function(){
   for(let j=0;j<2;j++){   // player jet, then ally jet (no per-frame array)
     const obj = j===0 ? ((typeof player!=='undefined'&&player)?player.obj:null) : ((typeof ally!=='undefined'&&ally)?ally.obj:null);
     if(!obj || !obj.userData.strobes) continue;
-    const ph=(t*2 + obj.userData.strobePhase)%1;
-    const on = ph<0.06 || (ph>0.12 && ph<0.16);   // double-flash pattern like a real anti-collision strobe
-    for(const s of obj.userData.strobes) s.material.opacity = on?1:0;
+    const ph=(t*0.9 + obj.userData.strobePhase)%1;   // one double flash per ~1.1 s like a real anti-collision strobe
+    const on = ph<0.06 || (ph>0.12 && ph<0.16);
+    // own jet sits next to the crosshair: smaller, half-strength flash; the ally keeps full strength
+    const k = j===0 ? 0.5 : 1, sc = j===0 ? 1.2 : 2.6;
+    for(const s of obj.userData.strobes){ s.material.opacity = on?k:0; if(s.scale.x!==sc) s.scale.set(sc,sc,1); }
    }
 });
 
@@ -6571,7 +6593,9 @@ function applyTimeOfDay(tod){
   for(const m of particleMaterials){ if(m.uniforms.fogColor) m.uniforms.fogColor.value.copy(scene.fog.color); }
   // the surf tint is added after lighting, so it needs the light level explicitly
   if(waterMat.userData.shader) waterMat.userData.shader.uniforms.uLightLevel.value = THREE.MathUtils.clamp(c.hemi/0.50, 0.07, 1.0);
-  buildEnvMap();      // the sky drives the reflections, so re-bake it when the sky changes
+  // the moon's direct specular on the glossy water clipped to white around the chase jet: widen + dim the path
+  waterMat.roughness = c.moon ? 0.55 : 0.30;
+  buildEnvMap();     // the sky drives the reflections, so re-bake it when the sky changes
 }
 
 /* ---------------------------------------------------------------------------
