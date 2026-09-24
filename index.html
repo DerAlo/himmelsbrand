@@ -78,6 +78,7 @@
 
   /* ---- Campaign / menu / briefing ---- */
   .screen { overflow-y:auto; }
+  #cutscene { justify-content:flex-start; } #cutscene > .brief { margin:auto 0; }   /* long cutscenes (choice) scroll from the top instead of clipping the title */
   .screen::-webkit-scrollbar{ width:8px; } .screen::-webkit-scrollbar-thumb{ background:rgba(255,255,255,.2); border-radius:4px; }
   h1.title.brand { font-size:88px; letter-spacing:14px;
     background:linear-gradient(180deg,#ffd98a 0%,#ff7a3c 55%,#c02020 100%); -webkit-background-clip:text; background-clip:text; color:transparent;
@@ -3754,6 +3755,7 @@ function showCutscene(key, after){
   if(cs && cs.route){ key=cs.route[storyChoice]||cs.route.human; cs=CUTSCENES[key]||BTEAM_CUTSCENES[key]; }   // epilog -> epilog_trust/_human (own VO ids)
   if(!cs){ after&&after(); return; }
   state='cutscene';
+  if(mission.radioQueue) mission.radioQueue.length=0; radioHideT=0; dom.radio.classList.remove('show');   // no leftover radio line over the cutscene VO
   document.getElementById('gameover').classList.add('hidden');
   document.getElementById('cut-chapter').textContent=cs.chapter||'';
   const choicesEl=document.getElementById('cut-choices'); choicesEl.innerHTML='';
@@ -4393,7 +4395,8 @@ function updateBoss(dt){
      bossSpawn {kind,name}  bossPart {kind,left}  bossPhase {kind,phase}
      bossExposed {kind,open}  bossHp {kind,frac: exactly 0.75|0.5|0.25}  bossKilled {kind}   BOSSES
    Radio opts passed on: mid[] single lines {prio:'crit'}, barks {prio:'bark'}, landing clearance and
-   the takeoff call {prio:'crit'}. mid[] arrays and same-frame bursts are queued 3.4 s apart.
+   the takeoff call {prio:'crit'}. story lines never cut each other: a line that
+   arrives < 3.4 s after the previous one (or behind queued intro lines) is queued {t,line,mid:true}.
    --------------------------------------------------------------------------- */
 let missionGen=0;              // bumped on every mission (re)start/reset — invalidates stale delayed mid[] lines
 let _midTimers=[];             // open setTimeout handles of delayed mid[] lines (cleared on start/reset)
@@ -4473,20 +4476,23 @@ function findMid(on, pred){
   for(const m of mid){ if(m.on===on && (!pred||pred(m)) && !mission._midFired.has(m)) return m; }
   return null;
 }
-// Lines that trigger in the same frame (several mid[] rows on one event, or bossPart+bossPhase+bossExposed
-// emitted together) would overwrite each other: the first speaks, the rest queue 3.4 s apart. Queued
-// rows carry mid:true so a win can drop them in favour of win[].
+// radio() replaces the current line at once, so story lines that trigger close together (several mid[]
+// rows on one event, bossPart+bossPhase+bossExposed in one frame, a mid right behind the intro) would cut
+// each other off. sayMid keeps a slot clock: a line speaks now if the channel is free, otherwise it is
+// queued 3.4 s after the previous story line / the last queued intro line. Queued rows carry mid:true so
+// a win can drop them in favour of win[].
 const MID_GAP=3.4;
-let _burstT=-1, _burstNext=0;
+let _midFreeAt=0;                                 // nowS() from which the next story line may speak
 function sayMid(line){
   const t=nowS(), lines=[].concat(line);
-  if(t-_burstT < 0.05){
-    for(const l of lines){ mission.radioQueue.push({t:_burstNext, line:l, mid:true}); _burstNext+=MID_GAP; }
-    return;
+  let at=Math.max(t, _midFreeAt);
+  for(const q of mission.radioQueue) if(!q.mid) at=Math.max(at, t+q.t+MID_GAP);   // wait behind intro lines
+  for(const l of lines){
+    const d=at-t;
+    if(d<0.05) radio(l, {prio:'crit'}); else mission.radioQueue.push({t:d, line:l, mid:true});
+    at+=MID_GAP;
   }
-  _burstT=t;
-  if(lines.length>1){ let q=0.3; for(const l of lines){ mission.radioQueue.push({t:q, line:l, mid:true}); q+=MID_GAP; } _burstNext=q; }
-  else { radio(lines[0], {prio:'crit'}); _burstNext=MID_GAP; }
+  _midFreeAt=at;
 }
 function fireMid(m){
   mission._midFired.add(m);
@@ -4521,7 +4527,7 @@ function announceDone(o){
 HOOKS.missionStart.push((def)=>{
   mission._midFired=new Set(); missionGen++; clearMidTimers();
   _doneSeen=new Set(); _takeoffSeen=false; _hpLowBarked=_allyBark50=_allyBark25=false;
-  _missionT0=null; _missionP0=0;
+  _missionT0=null; _missionP0=0; _midFreeAt=0;
   if(def.start!=='runway'){ _missionT0=performance.now(); _missionP0=mission.pausedMs||0; dispatch('airborne'); }
 });
 HOOKS.reset.push(()=>{ missionGen++; clearMidTimers(); _missionT0=null; });
@@ -4582,6 +4588,11 @@ HOOKS.update.push(()=>{
     if(o.done && !_doneSeen.has(o.id) && o.kind!=='takeoff' && o.kind!=='land' && o.kind!=='boss') announceDone(o);
   }
 });
+// Story boss names (def.bossName) win over the generic builder name; idempotent, harmless if BOSSES sets it too.
+HOOKS.update.push(()=>{ if(boss && mission.def && mission.def.bossName && boss.name!==mission.def.bossName){ boss.name=mission.def.bossName; updateBossBar(); } });
+// The win dialogue is 2-3 lines spaced 3.2 s, but gameOver(true) flips state at 2.6 s and updateMission stops:
+// keep draining the queued win lines over the debrief so the second/third line is actually heard.
+HOOKS.always.push((dt, rawDt)=>{ if(state==='gameover' && winLocked && mission.radioQueue && (mission.radioQueue.length || radioHideT>0)) updateRadio(rawDt||dt); });
 
 /* ---------------------------------------------------------------------------
    16. UPDATE — physics, AI, weapons
