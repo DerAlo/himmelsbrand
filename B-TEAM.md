@@ -2,7 +2,10 @@
 
 > Eigene, in sich abgeschlossene **Komödien-Kampagne** neben der ernsten HIMMELSBRAND-Story.
 > Eigener Menü-Button, eigener Ton. Die HELIOS/Lärche-Story bleibt komplett unangetastet.
-> **Status: DESIGN — noch kein Code. Dient als Diskussionsgrundlage.**
+> **Status: UMGESETZT.** Alle 7 Missionen (`b0`–`b6`), Sepp/Wiggerl/Wagner/„die Stimme", Grantl-Modus,
+> Dusel, Brotzeit und der Bierkisten-Running-Gag existieren im Code. Diese Bibel ist weiterhin die
+> kanonische Ton-/Charakter-Referenz; Abschnitt 11 dokumentiert, wie die Cutscenes & Funk-Trigger
+> tatsächlich verdrahtet sind. Die ursprünglichen Rückfragen am Ende sind erledigt und historisch.
 
 ---
 
@@ -118,9 +121,32 @@ Alles baut auf bereits vorhandenen Systemen auf:
 - Trinken **cartoonhaft & mit Zwinkern**, nie realistisch/verherrlichend; Brotzeit hat Gameplay-Kosten (Risiko).
 - Geschlecht/Herkunft der Spielfigur wird nicht zum Witz auf Kosten anderer — man lacht **mit** Sepp & Wiggerl, nicht **über** eine Gruppe.
 
+## 11. Umsetzung: Cutscenes & Story-Trigger (Story-Track)
+
+Zwischen den Missionen laufen kurze Interstitials aus `BTEAM_CUTSCENES` (gleiche Engine wie die
+Haupt-`CUTSCENES`, `showCutscene` liest beide Objekte): `bt_draft` (vor b0, Wagner übernimmt das B-Team),
+`bt_groove` (nach b2, die zwei finden ihren Rhythmus), `bt_kiste` (nach b3 — die geborgene Bierkiste wird
+„konfisziert"), `bt_final` (nach b5, die Nacht vorm Finale — „nicht vorher aufmachen"), `bt_ende` (nach b6,
+der Zapfhahn geht auf — Kampagnen-Epilog).
+
+Funk-Zwischentrigger laufen über dieselbe Sektion „15f. STORY TRIGGERS + BARKS" wie bei HELIOS
+(`mid:[...]` pro Mission, `EV`-gestützt). Beispiele: **b3** „Die verschollene Kiste" feuert eine
+`SEPP`-Zeile bei `{on:'done',obj:'convoy'}` und eine `STIMME`-Zeile bei `{on:'done',obj:'crate'}`
+(Bierkiste geborgen). **b6** „O'zapft is!" hat die dichteste Tabelle: `bossSpawn` (KI meldet Sieg-Prognose,
+dann Selbstzweifel), drei `bossPart`-Stufen (Turmzähler + die KI entdeckt die Bierkiste an Bord der
+Festung — Auslöser für den Running Gag im Finale), `bossExposed` und ein `bossHp`-Schwellenwert
+(`lt:0.25`, die KI kapituliert: „IHR SEID … BAYERN."). `b6` trägt außerdem `bossName:'HIMMELSZELT ·
+FLIEGENDE FESTUNG'` (Anzeige-String am Bosslebensbalken — Feld gehört laut Design-Bibel zu STORY, das
+`boss:`-Kind-Feld selbst bleibt Sache des BOSSES-Tracks).
+
+**Wichtig für BOSSES:** die `bossSpawn`/`bossPart`/`bossExposed`/`bossHp`-Zeilen in `b6.mid` sind bereits
+geschrieben, feuern aber erst, sobald `updateBoss`/`checkBossExpose` die passenden `EV.emit(...)`-Events
+auslösen (Kontrakt in `STORY.md` und `HANDOFF.md` A7 dokumentiert) — bis dahin bleiben sie stumm, das ist
+erwarteter Zwischenstand, kein Bug.
+
 ---
 
-## 🟢 Was ich von dir bräuchte (Feedback)
+## 🟢 Was ich von dir bräuchte (Feedback) — *historisch, alle Punkte inzwischen umgesetzt/entschieden*
 
 1. **Namen ok?** Sepp „Brummbär" Huber & Wiggerl „Radi" Brandtner — passt, oder andere Vorschläge?
 2. **Mechaniken:** Grantl-Modus + Dusel + Brotzeit — alle drei, oder etwas streichen/ergänzen?
