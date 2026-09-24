@@ -2402,6 +2402,12 @@ if (typeof THREE.EffectComposer==='function' && typeof THREE.RenderPass==='funct
   gradePass=new THREE.ShaderPass(GradeShader);
   gradePass.renderToScreen=true;
   composer.addPass(gradePass);
+  if(_ct){
+    // r128 resolves MSAA with COLOR|DEPTH|STENCIL; nothing reads the resolved depth/stencil, and on
+    // ANGLE/D3D11 the depth-stencil blit costs ~3x the whole post chain. Its only caller is that resolve.
+    const gl=renderer.getContext(), _blit=gl.blitFramebuffer.bind(gl);
+    gl.blitFramebuffer=function(a,b,c,d,e,f,g,h,mask,filter){ mask&=gl.COLOR_BUFFER_BIT; if(mask) _blit(a,b,c,d,e,f,g,h,mask,filter); };
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -3182,6 +3188,9 @@ water.rotation.x=-Math.PI/2;
 // offset completely.
 water.position.y=CFG.waterLevel-0.4;
 waterMat.polygonOffset=true; waterMat.polygonOffsetFactor=-3; waterMat.polygonOffsetUnits=-6;
+// First among the transparents: the clouds (-10/-11) write no depth, so a later water draw
+// painted the sea over every low cloud and cut the cloud layer off along each coastline.
+water.renderOrder=-20;
 scene.add(water);
 
 /* ---------------------------------------------------------------------------
