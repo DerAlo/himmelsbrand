@@ -7205,7 +7205,7 @@ function killFeuertraeger(){
 }
 function killBoss(){
   if(!boss || boss.dead) return;
-  boss.dead=true; boss.exposed=false; boss.deadAt=menuTime;
+  boss.dead=true; boss.exposed=false; boss.deadAt=menuTime; boss.hudMsgT=0;
   // pre-kill fight chatter (story mid lines, normal/bark callouts) is stale now: fade it out so the
   // bossKilled / win[] lines come next instead of 2-5 s later
   Voice.drop(q=>q.mid || q.prio!=='crit', true);
@@ -7219,6 +7219,7 @@ function killBoss(){
 
 function bossPhaseLabel(left){
   const b=boss;
+  if(b.dead) return 'ZERSTÖRT';
   if(b.kind==='kronos') return left>0 ? `${left} × TURM BRECHEN, DANN DER BAUCH` : '① BAUCH OFFEN — KERN VERSENKEN';
   if(b.kind==='auge'){
     if(left>0) return `${left} × MAST BRECHEN (Blende)`;
@@ -7248,7 +7249,7 @@ function updateBossBar(){
   const wk=Math.round(barW*10);
   if(boss._barWk!==wk){ boss._barWk=wk; boss._barW=(wk/10).toFixed(1)+'%'; _bbFill.style.width=boss._barW; }
   const hud=(boss.hudMsgT>0 && boss.hudMsg) ? boss.hudMsg : null;
-  const lk=left*64 + boss.phase*8 + (boss.lamOpen>0.5?4:0) + (boss.chamberOpen?2:0);
+  const lk=left*64 + boss.phase*8 + (boss.lamOpen>0.5?4:0) + (boss.chamberOpen?2:0) + (boss.dead?1:0);
   if(boss._barLk!==lk || boss._barLh!==hud){
     boss._barLk=lk; boss._barLh=hud;
     const label = boss.name + '  —  ' + (hud || bossPhaseLabel(left));
@@ -7261,7 +7262,9 @@ function updateBoss(dt){
   checkBossExpose();
   updateBossCallCd(boss,dt);
   if(boss.hudMsgT>0) boss.hudMsgT-=dt;
-  if(boss.dead){ bossLock.live=false; if(boss.deathUpdate) boss.deathUpdate(dt); updateBossBar(); return; }
+  if(boss.dead){ bossLock.live=false; if(boss.deathUpdate) boss.deathUpdate(dt); updateBossBar();
+    if(menuTime-(boss.deadAt||0)>0.8) dom.bosswrap.classList.remove('show');   // 'ZERSTÖRT' reads briefly, then the bar leaves the death sequence
+    return; }
   if(boss.kind==='kronos') updateKronos(dt);
   else if(boss.kind==='prometheus') updatePrometheus(dt);
   else if(boss.kind==='feuertraeger') updateFeuertraeger(dt);
