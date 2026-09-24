@@ -6137,6 +6137,8 @@ function showScreen(id){
   // The DOM HUD readouts should only show during actual gameplay (id===null means
   // "no menu overlay" = in game or paused). Gate them with a body class.
   document.body.classList.toggle('in-game', id===null);
+  // controls hint only on the main menu (STEUERUNG/PAUSE list the controls; in game it covers terrain + radar label)
+  const cr=document.getElementById('credit'); if(cr) cr.style.display = id==='menu' ? '' : 'none';
 }
 function gotoMenu(){
   state='menu'; gameMode='menu'; mission.active=false;
