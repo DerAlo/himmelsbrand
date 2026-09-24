@@ -4393,7 +4393,7 @@ function updateBoss(dt){
      bossSpawn {kind,name}  bossPart {kind,left}  bossPhase {kind,phase}
      bossExposed {kind,open}  bossHp {kind,frac: exactly 0.75|0.5|0.25}  bossKilled {kind}   BOSSES
    Radio opts passed on: mid[] single lines {prio:'crit'}, barks {prio:'bark'}, landing clearance and
-   the takeoff call {prio:'crit'}. mid[] arrays go through queueRadio(lines,3.4).
+   the takeoff call {prio:'crit'}. mid[] arrays and same-frame bursts are queued 3.4 s apart.
    --------------------------------------------------------------------------- */
 let missionGen=0;              // bumped on every mission (re)start/reset — invalidates stale delayed mid[] lines
 let _midTimers=[];             // open setTimeout handles of delayed mid[] lines (cleared on start/reset)
@@ -4473,9 +4473,20 @@ function findMid(on, pred){
   for(const m of mid){ if(m.on===on && (!pred||pred(m)) && !mission._midFired.has(m)) return m; }
   return null;
 }
+// Lines that trigger in the same frame (several mid[] rows on one event, or bossPart+bossPhase+bossExposed
+// emitted together) would overwrite each other: the first speaks, the rest queue 3.4 s apart. Queued
+// rows carry mid:true so a win can drop them in favour of win[].
+const MID_GAP=3.4;
+let _burstT=-1, _burstNext=0;
 function sayMid(line){
-  if(Array.isArray(line)) queueRadio(line, 3.4);
-  else radio(line, {prio:'crit'});
+  const t=nowS(), lines=[].concat(line);
+  if(t-_burstT < 0.05){
+    for(const l of lines){ mission.radioQueue.push({t:_burstNext, line:l, mid:true}); _burstNext+=MID_GAP; }
+    return;
+  }
+  _burstT=t;
+  if(lines.length>1){ let q=0.3; for(const l of lines){ mission.radioQueue.push({t:q, line:l, mid:true}); q+=MID_GAP; } _burstNext=q; }
+  else { radio(lines[0], {prio:'crit'}); _burstNext=MID_GAP; }
 }
 function fireMid(m){
   mission._midFired.add(m);
@@ -4490,11 +4501,12 @@ function fireMid(m){
 // All mid[] events need a running, undecided mission. A win sets mission.active=false, so nothing
 // after the win speaks; m13 keeps running after the boss dies because its 'land' is primary.
 function storyActive(){ return gameMode==='campaign' && mission.active && !mission.done && !!mission.def; }
+// fires EVERY unfired row that matches (e.g. a line plus its delay:4 answer on the same event)
 function dispatch(on, pred){
   if(!storyActive()) return false;
-  const m=findMid(on, pred);
-  if(m){ fireMid(m); return true; }
-  return false;
+  let any=false, m;
+  while((m=findMid(on, pred))){ fireMid(m); any=true; }
+  return any;
 }
 function hasMid(on, pred){ const mid=mission.def&&mission.def.mid; return !!(mid && mid.some(m=>m.on===on && (!pred||pred(m)))); }
 function clearMidTimers(){ for(const h of _midTimers) clearTimeout(h); _midTimers=[]; }
@@ -4561,6 +4573,7 @@ EV.on('bossKilled', ()=>dispatch('bossKilled'));
 // polled per frame: mission clock ('time', from takeoff on runway starts), objective progress and
 // completion of objectives that do not emit 'done' themselves (destroyAir, escort, patrol, ...)
 HOOKS.update.push(()=>{
+  if(mission.done && mission.radioQueue && mission.radioQueue.some(q=>q.mid)) mission.radioQueue=mission.radioQueue.filter(q=>!q.mid);
   if(!storyActive()) return;
   const t=missionClock();
   if(t>=0) dispatch('time', m=>t>=m.t);
