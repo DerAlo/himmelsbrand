@@ -1460,11 +1460,12 @@ function resize(){
   hudCanvas.width = Math.round(innerWidth*_hdpr); hudCanvas.height = Math.round(innerHeight*_hdpr);
   hudCanvas.style.width = innerWidth+'px'; hudCanvas.style.height = innerHeight+'px';
   hctx.setTransform(_hdpr, 0, 0, _hdpr, 0, 0);   // HUD code keeps drawing in CSS units
-  for(const m of particleMaterials) m.uniforms.scale.value=innerHeight*0.5;
+  const _d=renderer.getDrawingBufferSize(new THREE.Vector2());
+  // gl_PointSize is in device pixels: scale by the drawing buffer (render scale / pixel ratio), not CSS px
+  for(const m of particleMaterials) m.uniforms.scale.value=_d.y*0.5;
   if(composer){
     // The composer owns a custom target, so its internal _pixelRatio is 1: it must be
     // sized in DEVICE pixels or it silently renders at CSS resolution and upscales.
-    const _d=renderer.getDrawingBufferSize(new THREE.Vector2());
     composer.setSize(_d.x, _d.y);
    }
 }
@@ -1503,6 +1504,8 @@ function monitorAutoQuality(rawDt){
   }
 }
 HOOKS.always.push((dt,rawDt)=>monitorAutoQuality(rawDt));
+// particle materials are built after the first resize(): sync their point scale once
+{ const _v=new THREE.Vector2(); HOOKS.reset.push(()=>{ const h=renderer.getDrawingBufferSize(_v).y*0.5; for(const m of particleMaterials) m.uniforms.scale.value=h; }); }
 
 /* ---- Post-FX: bloom + film grade (graceful fallback to plain render if the CDN lib is missing) ---- */
 const GradeShader = {
@@ -2212,7 +2215,10 @@ void main(){
   float lit = diff*mix(0.52, 1.0, vH);                                      // bellies + lower puffs sit in shade
   vec3 col = mix(uShadeColor, uLitColor, lit);
   float fwd = pow(max(vPhase,0.0), 5.0);
-  col += uSunColor*fwd*(1.0-dens)*(1.0-dens)*0.32;                           // silver lining: thin edges glow backlit
+  // silver lining only on the rim that faces the sun on screen: a glow on every puff edge
+  // shows up as bright contour rings where upper puffs overlap lower ones
+  vec2 sl = vSunL.xy; float rimSun = smoothstep(0.1, 0.8, dot(vR, sl/max(length(sl),1e-3)));
+  col += uSunColor*fwd*(1.0-dens)*(1.0-dens)*rimSun*0.36;                    // silver lining: thin edges glow backlit
   col += uSunColor*fwd*0.08;
   float fogFactor = 1.0 - exp(-uFogDensity*uFogDensity*vDist*vDist);        // matches THREE.FogExp2 falloff
   col = mix(col, uFogColor, fogFactor*0.92);
@@ -4171,7 +4177,7 @@ function applyTimeOfDay(tod){
   hemi.color.setHex(c.hemiSky);
   cloudMat.uniforms.uLitColor.value.setHex(c.cloud);
   cloudMat.uniforms.uShadeColor.value.setHex(c.cloudShade);
-  cloudMat.uniforms.uSunColor.value.setHex(c.sunTint);
+  cloudMat.uniforms.uSunColor.value.setHex(c.sunTint).multiplyScalar(c.moon?0.35:1);   // moonlight: faint lining only
   cirrusMat.uniforms.uTint.value.setHex(c.cirrusTint);
   cirrusMat.uniforms.uOpacity.value=c.cirrusOp;
   // particle fog uniforms follow
