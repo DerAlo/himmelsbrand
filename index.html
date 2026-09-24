@@ -1470,14 +1470,50 @@ function resize(){
 }
 addEventListener('resize', resize); resize();
 
+// Resolution scaling per GFX level: pixel-ratio cap (device pixels rendered), reacts live.
+// The cap alone does nothing on 1x desktop screens, so low also renders below native (upscaled).
+const PIXEL_RATIO_CAP = { high:2, medium:1.5, low:1 };
+const RENDER_SCALE = { high:1, medium:1, low:0.8 };
+function applyGfxPixelRatio(level){
+  renderer.setPixelRatio(Math.min(devicePixelRatio||1, PIXEL_RATIO_CAP[level]||1)*(RENDER_SCALE[level]||1));
+  resize();
+}
+GFX.onChange(applyGfxPixelRatio);
+applyGfxPixelRatio(GFX.level());   // the hardcoded cap above may differ from a persisted/auto level
+
+// Auto-quality monitor: only while GFX.quality==='auto' and actually playing, watch a rolling
+// ~6s window of real frame times; if the slow tail (p90) stays above 24ms, drop one GFX level
+// ONCE per window and keep watching (a second sustained bad window can drop again).
+// Allocation-free: frame times go into a fixed ring, evaluated once per second.
+const _fwMs=new Float32Array(1024), _fwSort=new Float32Array(1024);
+let _fwN=0, _fwHead=0, _fwSpan=0, _fwEval=0;
+function monitorAutoQuality(rawDt){
+  if(GFX.quality!=='auto' || state!=='playing' || document.hidden){ _fwN=0; _fwSpan=0; _fwEval=0; return; }
+  _fwMs[_fwHead]=rawDt*1000; _fwHead=(_fwHead+1)&1023; if(_fwN<1024) _fwN++;
+  _fwSpan+=rawDt; _fwEval+=rawDt;
+  if(_fwSpan<6 || _fwEval<1) return;   // need a full ~6s sample, then re-check every second
+  _fwEval=0;
+  const n=Math.min(_fwN, 360);   // last 360 frames = 6 s at 60 fps (a longer window when slower)
+  for(let k=0;k<n;k++) _fwSort[k]=_fwMs[(_fwHead-1-k+1024)&1023];
+  const w=_fwSort.subarray(0,n); w.sort();
+  const p90=w[Math.floor(n*0.9)];
+  if(p90>24){
+    if(GFX.autoDowngrade()) console.info('GFX auto-downgrade: p90 frame time '+p90.toFixed(1)+'ms -> '+GFX.level());
+    _fwN=0; _fwSpan=0;   // restart the window: judge the new level on fresh frames only
+  }
+}
+HOOKS.always.push((dt,rawDt)=>monitorAutoQuality(rawDt));
+
 /* ---- Post-FX: bloom + film grade (graceful fallback to plain render if the CDN lib is missing) ---- */
 const GradeShader = {
   uniforms:{ tDiffuse:{value:null}, uTime:{value:0.0}, uSat:{value:1.07}, uVig:{value:0.13},
     uAber:{value:0.0}, uGrain:{value:0.0}, uExp:{value:1.02}, uKnee:{value:0.86},
-    uLift:{value:new THREE.Color(0x0b1220)}, uWarm:{value:new THREE.Color(0x231708)} },
+    uLift:{value:new THREE.Color(0x0b1220)}, uWarm:{value:new THREE.Color(0x231708)},
+    uGlare:{value:new THREE.Vector3(0.5,0.5,0.0)}, uGlareCol:{value:new THREE.Color(0xfff2d8)}, uAsp:{value:1.78} },
   vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
   fragmentShader:`varying vec2 vUv; uniform sampler2D tDiffuse; uniform float uTime; uniform float uSat; uniform float uVig;
     uniform float uAber; uniform float uGrain; uniform vec3 uLift; uniform vec3 uWarm; uniform float uExp; uniform float uKnee;
+    uniform vec3 uGlare; uniform vec3 uGlareCol; uniform float uAsp;
     const vec3 LUM = vec3(0.2126, 0.7152, 0.0722);
     void main(){
       // NO transfer curve here. In r128 a material's output encoding comes from the
@@ -1486,6 +1522,16 @@ const GradeShader = {
       // pass was therefore a SECOND encode — measured: +22 luminance, saturation halved
       // (0.354 -> 0.156). Grade in the values as they arrive.
       vec3 col = texture2D(tDiffuse, vUv).rgb * uExp;
+      if(uGlare.z>0.002){                    // sun glare (4b computes screen pos + occlusion): veil, streak, ghosts
+        vec2 A=vec2(uAsp,1.0), sv=uGlare.xy, dv=(vUv-sv)*A, ax=vec2(0.5)-sv;
+        float gl=0.05 + 0.10*exp(-dot(dv,dv)*3.0);
+        gl += exp(-abs(dv.y)*90.0)*exp(-abs(dv.x)*2.4)*0.30;
+        vec2 g1=(vUv-(sv+ax*0.70))*A, g2=(vUv-(sv+ax*1.35))*A, g3=(vUv-(sv+ax*2.00))*A;
+        vec3 gh = vec3(1.0,0.75,0.45)*smoothstep(0.050,0.030,length(g1))*0.07
+                + vec3(0.55,0.85,1.0)*smoothstep(0.024,0.014,length(g2))*0.10
+                + vec3(0.7,1.0,0.75)*(smoothstep(0.110,0.095,length(g3))-smoothstep(0.095,0.080,length(g3)))*0.05;
+        col += (uGlareCol*gl + gh*uGlareCol)*uGlare.z;
+      }
       // Soft shoulder on LUMINANCE only, so highlights roll off without losing chroma.
       float l = dot(col, LUM);
       if(l > uKnee){
@@ -1527,25 +1573,73 @@ if (typeof THREE.EffectComposer==='function' && typeof THREE.RenderPass==='funct
    4. SKY, SUN, LIGHTING
    --------------------------------------------------------------------------- */
 const sunDir = new THREE.Vector3(0.5, 0.55, 0.4).normalize();
+// Analytic "scattering look" sky: zenith->horizon gradient, horizon haze that converges on the
+// live fog colour (so distant terrain and the world edge melt into the sky), Mie halo + dusk
+// horizon glow toward the sun, smooth-noise distant cloud bank lit from the sun side, and at
+// night a moon disc with maria, point stars (colour + magnitude spread) and a milky-way glow.
 const skyMat = new THREE.ShaderMaterial({
   side: THREE.BackSide, depthWrite:false, fog:false,
   uniforms:{ top:{value:new THREE.Color(0x2c66c9)}, bot:{value:new THREE.Color(0xd6ecff)}, sun:{value:sunDir.clone()},
-    sunTint:{value:new THREE.Color(0xfff2d8)}, stars:{value:0.0}, uTime:{value:0.0} },
+    sunTint:{value:new THREE.Color(0xfff2d8)}, stars:{value:0.0}, uTime:{value:0.0}, cloudBank:{value:0.35},
+    fogCol:{value:new THREE.Color(0xa8c8e8)}, uHaze:{value:0.8}, uMie:{value:0.5}, uMoon:{value:0.0}, uWhite:{value:0.0},
+    bankLit:{value:new THREE.Color(0xffffff)}, bankShade:{value:new THREE.Color(0x9fb2c8)} },
   vertexShader:`varying vec3 vD; void main(){ vD=normalize(position); gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
-  fragmentShader:`varying vec3 vD; uniform vec3 top; uniform vec3 bot; uniform vec3 sun; uniform vec3 sunTint; uniform float stars; uniform float uTime;
-    float hash13(vec3 p){ return fract(sin(dot(p,vec3(12.9898,78.233,37.719)))*43758.5453); }
-    void main(){ vec3 d=normalize(vD); float h=clamp(d.y*1.1+0.15,0.0,1.0); vec3 c=mix(bot,top,pow(h,0.7));
+  fragmentShader:`varying vec3 vD; uniform vec3 top; uniform vec3 bot; uniform vec3 sun; uniform vec3 sunTint; uniform float stars; uniform float uTime; uniform float cloudBank;
+    uniform vec3 fogCol; uniform float uHaze; uniform float uMie; uniform float uMoon; uniform float uWhite; uniform vec3 bankLit; uniform vec3 bankShade;
+    float hash13(vec3 p){ p=fract(p*0.1031); p+=dot(p,p.zyx+31.32); return fract((p.x+p.y)*p.z); }
+    float vnoise(vec3 p){ vec3 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+      return mix(mix(mix(hash13(i),hash13(i+vec3(1,0,0)),f.x), mix(hash13(i+vec3(0,1,0)),hash13(i+vec3(1,1,0)),f.x),f.y),
+                 mix(mix(hash13(i+vec3(0,0,1)),hash13(i+vec3(1,0,1)),f.x), mix(hash13(i+vec3(0,1,1)),hash13(i+vec3(1,1,1)),f.x),f.y), f.z); }
+    void main(){
+      vec3 d=normalize(vD); vec3 sN=normalize(sun);
+      float s=max(dot(d,sN),0.0);
+      float h=clamp(d.y*1.1+0.15,0.0,1.0); vec3 c=mix(bot,top,pow(h,0.7));
+      // horizon haze: optical depth grows toward the horizon; in-scatter warms the sunward side
+      float hz=exp(-max(d.y,0.0)*9.0);
+      vec3 hazeC=fogCol + sunTint*pow(s,5.0)*uMie*0.45;
+      c=mix(c, hazeC, hz*uHaze);
+      c += sunTint*pow(s,3.0)*hz*uMie*0.22;                                          // dusk: glowing sunward horizon
+      // distant cloud bank (flat layered smooth noise, no extra draw calls)
+      float bandMask=smoothstep(0.20,0.015,d.y)*smoothstep(-0.03,0.01,d.y);
+      if(bandMask*cloudBank>0.001){
+        vec3 bp=vec3(d.x*7.0+uTime*0.0015, d.y*60.0, d.z*7.0);
+        float n=vnoise(bp)*0.55+vnoise(bp*2.3+3.1)*0.30+vnoise(bp*5.3+7.7)*0.15;
+        float bank=smoothstep(0.50,0.74,n)*bandMask*cloudBank;
+        float sideLit=pow(max(dot(normalize(d.xz+vec2(1e-4)),normalize(sN.xz+vec2(1e-4))),0.0),2.0);
+        vec3 bc=mix(bankShade,bankLit,0.45+0.55*sideLit) + sunTint*pow(s,6.0)*0.35;
+        c=mix(c, mix(bc,hazeC,0.35), bank*0.85);
+      }
+      if(uMoon>0.5){                                                                  // moon: shaded disc with maria + soft halo
+        vec3 tu=normalize(cross(sN,vec3(0.0,1.0,0.0))); vec3 tv=cross(tu,sN);
+        vec2 mq=vec2(dot(d,tu),dot(d,tv))/0.024; float mr=length(mq);
+        if(mr<1.05 && dot(d,sN)>0.0){
+          float mare=vnoise(vec3(mq*2.6,1.0))*0.6+vnoise(vec3(mq*6.5,5.0))*0.4;
+          float limb=sqrt(max(0.0,1.0-mr*mr));
+          vec3 mc=vec3(0.93,0.95,1.0)*(0.70+0.30*smoothstep(0.38,0.66,mare))*(0.55+0.45*limb)*0.80;
+          c=mix(c, mc, smoothstep(1.0,0.94,mr));
+        }
+        c += sunTint*(pow(s,500.0)*0.22 + pow(s,30.0)*0.06);
+      } else {
+        c += sunTint*smoothstep(0.9993,0.99975,s)*2.2;                                // sun disc (bloom makes it glow)
+        c += sunTint*( pow(s,180.0)*0.45 + (pow(s,8.0)*0.10 + pow(s,40.0)*0.16)*uMie );  // tight core + Mie halo
+      }
+      if(stars>0.001 && d.y>-0.02){
+        vec3 sp=d*170.0; vec3 cell=floor(sp); float r=hash13(cell);
+        vec3 jit=vec3(hash13(cell+7.1),hash13(cell+3.7),hash13(cell+1.3))*0.6+0.2;
+        float dd=length(fract(sp)-jit);
+        vec3 mw=normalize(vec3(0.45,0.6,0.25));
+        float band=exp(-pow(dot(d,mw)*3.2,2.0));
+        float on=step(mix(0.955,0.86,band),r);
+        float mag=pow(hash13(cell+11.0),5.0);
+        float tw=0.65+0.35*sin(uTime*(1.3+3.0*r)+r*57.0);
+        vec3 scol=mix(vec3(1.0,0.86,0.72),vec3(0.78,0.87,1.0),hash13(cell+5.0));
+        float horizon=smoothstep(-0.02,0.12,d.y);
+        c += scol*on*smoothstep(0.30,0.04,dd)*(0.45+1.7*mag)*tw*stars*horizon*(1.0-uWhite);
+        float mwn=vnoise(d*7.0)*0.6+vnoise(d*19.0)*0.4;
+        c += vec3(0.10,0.11,0.17)*band*smoothstep(0.30,0.8,mwn)*stars*1.0*horizon*(1.0-uWhite);
+      }
+      c=mix(c, fogCol, uWhite);                                                       // inside a cloud: sky goes milky too
       c += (hash13(floor(d*900.0))-0.5)*0.008;                                        // dither: kills gradient banding
-      float s=max(dot(d,normalize(sun)),0.0);
-      c += sunTint*smoothstep(0.9993,0.99975,s)*2.2;                                  // sun disc (bloom makes it glow)
-      c += sunTint*( pow(s,180.0)*0.45 + pow(s,14.0)*pow(1.0-abs(d.y),3.0)*0.10 );    // tight inner glow + restrained horizon flare
-      if(stars>0.001){                                                                 // night: twinkling stars + milky band
-        vec3 g=floor(d*420.0); float r=hash13(g);
-        float tw=0.55+0.45*sin(uTime*2.5+r*44.0);
-        float band=exp(-pow(dot(d,normalize(vec3(0.45,0.6,0.25)))*3.4,2.0));
-        float st=step(0.9972,r)*tw + step(0.993,r)*band*0.6*tw;
-        c += vec3(0.85,0.9,1.0)*st*stars;
-       }
       gl_FragColor=vec4(c,1.0);}`
 });
 const sky = new THREE.Mesh(new THREE.SphereGeometry(9000, 32, 16), skyMat);
@@ -1602,6 +1696,166 @@ function buildEnvMap(){
   // GL texture + framebuffers. Measured: 2.36 MB leaked per time-of-day change.
   if(prevRT) prevRT.dispose();
 }
+
+/* ---------------------------------------------------------------------------
+   4b. SHADOWS / ATMOSPHERE
+   Sun shadow map (texel-snapped frustum riding along with the player) + the
+   markShadows sweep that keeps other tracks' rebuilt objects correctly flagged,
+   and the aerial-perspective fog (height falloff + in-cloud whiteout), driven
+   ONLY through scene.fog + the built-in three fog uniforms every material with
+   fog:true already receives automatically — see contracts.
+   --------------------------------------------------------------------------- */
+const SHADOW_CFG = {
+  high:  { size:2048, half:820, type:THREE.PCFSoftShadowMap, bias:-0.00018, normalBias:0.6 },
+  medium:{ size:1024, half:620, type:THREE.PCFShadowMap,     bias:-0.00030, normalBias:0.8 },
+};
+const sunTarget = new THREE.Object3D(); scene.add(sunTarget);
+sun.target = sunTarget;
+sun.shadow.camera.near = 60; sun.shadow.camera.far = 2600;
+
+function applyShadowLevel(level){
+  const cfg = SHADOW_CFG[level];
+  if(!cfg){ renderer.shadowMap.enabled=false; sun.castShadow=false; return; }   // low: off, blob shadows remain the fallback
+  renderer.shadowMap.enabled=true; renderer.shadowMap.type=cfg.type;
+  sun.castShadow=true; sun.shadow.bias=cfg.bias; sun.shadow.normalBias=cfg.normalBias;
+  if(sun.shadow.mapSize.width!==cfg.size){ sun.shadow.mapSize.set(cfg.size,cfg.size); if(sun.shadow.map){ sun.shadow.map.dispose(); sun.shadow.map=null; } }
+  sun.shadow.camera.left=-cfg.half; sun.shadow.camera.right=cfg.half; sun.shadow.camera.top=cfg.half; sun.shadow.camera.bottom=-cfg.half;
+  sun.shadow.camera.updateProjectionMatrix();
+}
+applyShadowLevel(GFX.level());
+GFX.onChange(applyShadowLevel);
+
+// The frustum rides with the player, snapped to whole shadow-map texels so the shadow
+// doesn't shimmer as the light (repositioned every frame to stay centred) glides along.
+function updateSunShadow(){
+  if(!sun.castShadow || !player.obj) return;
+  const cfg=SHADOW_CFG[GFX.level()]; if(!cfg) return;
+  const texel=(cfg.half*2)/cfg.size;
+  const px=Math.round(player.obj.position.x/texel)*texel;
+  const pz=Math.round(player.obj.position.z/texel)*texel;
+  const py=Math.round((terrainHeight(px,pz)+50)/texel)*texel;
+  sunTarget.position.set(px,py,pz);
+  sun.position.set(px,py,pz).addScaledVector(sunDir,1400);
+}
+HOOKS.always.push(()=>updateSunShadow());
+
+// markShadows: flag a subtree to cast/receive (called after building or rebuilding an
+// object). This track re-applies it on a cheap periodic sweep so aircraft/terrain/ground
+// targets rebuilt by other tracks stay correctly flagged without editing their code.
+// Unlit/transparent/additive bits (flames, nav lights, glowing eyes, decals, canopy glass)
+// never cast: they would drop solid shadows and each costs an extra shadow-pass draw call.
+// Flat PlaneGeometry decals (runway markings) never cast either.
+function _castsShadow(o){
+  const m=o.material; if(!m) return false; if(Array.isArray(m)) return true;
+  if(m.isMeshBasicMaterial || m.transparent || m.blending===THREE.AdditiveBlending || m.isShaderMaterial || m.isPointsMaterial) return false;
+  return !(o.geometry && o.geometry.type==='PlaneGeometry');
+}
+function markShadows(obj, cast, receive){
+  if(!obj) return;
+  obj.traverse(o=>{ if(o.isMesh){ o.castShadow=!!cast && _castsShadow(o); o.receiveShadow=!!receive; } });
+}
+let _shadowSweepT=0;
+function sweepShadows(dt){
+  _shadowSweepT-=dt; if(_shadowSweepT>0) return; _shadowSweepT=0.5;
+  for(const m of chunks.values()) markShadows(m, false, true);                 // terrain: receive only (casting all chunks would be expensive and adds little)
+  if(runwayMesh) markShadows(runwayMesh, true, true);
+  if(player.obj) markShadows(player.obj, true, false);
+  if(typeof ally!=='undefined' && ally && ally.obj) markShadows(ally.obj, true, true);
+  if(typeof boss!=='undefined' && boss && boss.obj) markShadows(boss.obj, true, true);
+  for(const e of enemies) markShadows(e.obj, true, false);
+  for(const gt of groundTargets) markShadows(gt.obj, true, true);
+}
+HOOKS.always.push((dt)=>sweepShadows(dt));
+
+// Aerial perspective: distance haze tinted per-TOD (curFogBase/fogColorBase, set by
+// applyTimeOfDay) with a height falloff (thin/clear air near mountain tops, hazier in
+// valleys) plus a smoothed in-cloud whiteout when the player is inside a cumulus cluster
+// (cloudClusters comes from section 6). Writing scene.fog.density/color is the ONLY thing
+// this does for the rest of the scene — every material with fog:true (terrain, water,
+// models, particle ShaderMaterials) gets it for free via three's own per-frame fog uniform
+// refresh, so it works for ANY material without touching shader chunks globally. The cloud/
+// cirrus billboards (section 6) do their own manual fog math (no USE_FOG dependency, since
+// they need a custom near-camera fade term too), so their uFogColor/uFogDensity uniforms are
+// mirrored from scene.fog right here each frame.
+let curFogBase=0.000085;
+const fogColorBase=new THREE.Color(0xa8c8e8);
+const WHITEOUT_COLOR=new THREE.Color(0xf4f8ff);
+let _cloudFog=0;
+const _fogColorTmp=new THREE.Color();
+const _camFwd=new THREE.Vector3();
+const fogScatterColor=new THREE.Color(0xfff2d8);   // per TOD (applyTimeOfDay)
+let fogScatter=0.3;
+function applyAtmosphere(dt){
+  if(!player.obj) return;
+  const p=player.obj.position;
+  const gy=Math.max(terrainHeight(p.x,p.z), CFG.waterLevel);
+  const alt=THREE.MathUtils.clamp(p.y-gy,0,2600);
+  const heightMul=THREE.MathUtils.lerp(1.2,0.8, alt/2600);          // never thin enough to expose the world edge from altitude
+  let inside=0;
+  if(typeof cloudClusters!=='undefined'){
+    for(let i=0;i<cloudActiveN;i++){ const c=cloudClusters[i];
+      const dx=c.x-p.x, dy=(c.y-p.y)*1.5, dz=c.z-p.z;
+      const d=Math.sqrt(dx*dx+dy*dy+dz*dz), r=c.r;
+      if(d<r) inside=Math.max(inside, 1-d/r);
+    }
+  }
+  _cloudFog += (inside-_cloudFog)*Math.min(1, dt*5);
+  scene.fog.density = curFogBase*heightMul + _cloudFog*0.0021;
+  _fogColorTmp.copy(fogColorBase).lerp(WHITEOUT_COLOR, _cloudFog*0.85);
+  skyMat.uniforms.fogCol.value.copy(_fogColorTmp); skyMat.uniforms.uWhite.value=_cloudFog*0.8;
+  // sun in-scatter: haze looking into the sun glows in the sun tint (the sky does the same per pixel)
+  camera.getWorldDirection(_camFwd);
+  const sf=Math.pow(Math.max(0,_camFwd.dot(sunDir)),3)*fogScatter*(1-_cloudFog);
+  if(sf>0.001) _fogColorTmp.lerp(fogScatterColor, sf);
+  scene.fog.color.copy(_fogColorTmp);
+  if(typeof cloudMat!=='undefined'){
+    cloudMat.uniforms.uFogColor.value.copy(scene.fog.color); cloudMat.uniforms.uFogDensity.value=scene.fog.density;
+    cirrusMat.uniforms.uFogColor.value.copy(scene.fog.color); cirrusMat.uniforms.uFogDensity.value=scene.fog.density;
+  }
+  // particle ShaderMaterials (section 7) captured the density as a plain number at build time
+  for(const m of particleMaterials){ const u=m.uniforms; if(u.fogDensity) u.fogDensity.value=scene.fog.density; if(u.fogColor && u.fogColor.value!==scene.fog.color) u.fogColor.value.copy(scene.fog.color); }
+}
+HOOKS.always.push((dt)=>applyAtmosphere(dt));
+
+// Sun visibility (terrain march + cloud clusters, smoothed) drives the sun-glow sprite and,
+// at high, the analytic glare in the grade pass. Runs after updateCamera (preRender).
+const _sunScr=new THREE.Vector3();
+let _sunVis=1, glareStrength=0.6, sunSpriteOp=1;   // glareStrength/sunSpriteOp: per TOD (applyTimeOfDay)
+function sunOcclusion(){
+  const o=camera.position; let vis=1;
+  for(let t=120;t<4200;t*=1.35){                                   // terrain between camera and sun
+    const x=o.x+sunDir.x*t, y=o.y+sunDir.y*t, z=o.z+sunDir.z*t;
+    if(terrainHeight(x,z)>y){ return 0; }
+  }
+  if(typeof cloudClusters!=='undefined'){
+    for(let i=0;i<cloudActiveN;i++){ const c=cloudClusters[i];
+      const dx=c.x-o.x, dy=c.y-o.y, dz=c.z-o.z, along=dx*sunDir.x+dy*sunDir.y+dz*sunDir.z;
+      if(along<0) continue;
+      const perp2=dx*dx+dy*dy+dz*dz-along*along, r=c.r*0.85;
+      if(perp2<r*r) vis*=0.12+0.88*Math.sqrt(perp2)/r;
+    }
+  }
+  return vis;
+}
+function updateSunGlare(rawDt){
+  const target=sunOcclusion();
+  _sunVis+=(target-_sunVis)*Math.min(1,rawDt*6);
+  sunSprite.material.opacity=sunSpriteOp*(0.3+0.7*_sunVis);
+  if(!gradePass) return;
+  const u=gradePass.uniforms;
+  let s=0;
+  if(GFX.level()==='high' && _sunVis>0.01){
+    _sunScr.copy(camera.position).addScaledVector(sunDir,1000).project(camera);
+    if(_sunScr.z<1 && Math.abs(_sunScr.x)<1.4 && Math.abs(_sunScr.y)<1.4){
+      const edge=Math.max(Math.abs(_sunScr.x),Math.abs(_sunScr.y));
+      s=glareStrength*_sunVis*THREE.MathUtils.clamp((1.4-edge)/0.5,0,1);
+      u.uGlare.value.set(_sunScr.x*0.5+0.5,_sunScr.y*0.5+0.5,s);
+      u.uAsp.value=camera.aspect;
+    }
+  }
+  u.uGlare.value.z=s;
+}
+HOOKS.preRender.push((rawDt)=>updateSunGlare(rawDt));
 
 /* ---------------------------------------------------------------------------
    5. TERRAIN (chunked, procedural, vertex-colored)
@@ -1854,36 +2108,245 @@ waterMat.polygonOffset=true; waterMat.polygonOffsetFactor=-3; waterMat.polygonOf
 scene.add(water);
 
 /* ---------------------------------------------------------------------------
-   6. CLOUDS (sprite puffs, wrap around player = infinite)
+   6. CLOUDS — instanced billboard puffs (cumulus clusters + flat high cirrus),
+   one draw call per layer. Puff shapes come from a procedural 2x2 atlas of
+   cauliflower-like puffs (flat bases). Each puff is billboarded in the vertex
+   shader; per-instance data rides in the instance matrix (col0.x = width,
+   col1.y = height, col2.x = atlas seed, col2.z = belly 0..1) so clusters can be
+   re-sorted back-to-front every frame without extra attribute buffers.
+   Lighting: wrapped lambert on a fake sphere normal, darker bellies, and a
+   forward-scatter "silver lining" on the thin edges when looking toward the sun.
+   Fog is done by hand (uFogColor/uFogDensity mirrored from scene.fog in 4b), plus
+   a far fade at the wrap distance (no popping) and a near fade (fly-through).
+   GFX level = number of active clusters (buffers allocated once at max size).
    --------------------------------------------------------------------------- */
-const cloudTex = radialTexture('rgba(255,255,255,0.95)','rgba(255,255,255,0.55)');
-const clouds=[]; const CLOUD_N=46, CLOUD_SPAN=8000;
-const cloudGroup=new THREE.Group(); scene.add(cloudGroup);
-function seedClouds(cx,cz){
-  for(let i=0;i<CLOUD_N;i++){
-    const g=new THREE.Group();
-    const puffs=3+((Math.random()*4)|0);
-    for(let p=0;p<puffs;p++){
-      const s=new THREE.Sprite(new THREE.SpriteMaterial({ map:cloudTex, color:0xffffff, transparent:true, opacity:0.85, depthWrite:false, fog:true }));
-      s.renderOrder=-10;   // backdrop: never punch through nearer smoke/fire
-      const sc=260+Math.random()*380; s.scale.set(sc,sc*0.6,1);
-      s.position.set((Math.random()-0.5)*520,(Math.random()-0.5)*120,(Math.random()-0.5)*520);
-      g.add(s);
+function makePuffAtlas(){
+  const S=512, T=256, c=document.createElement('canvas'); c.width=c.height=S; const g=c.getContext('2d');
+  let sd=7; const rnd=()=>{ sd=(sd*16807)%2147483647; return (sd-1)/2147483646; };
+  const blob=(px,py,rr,a0)=>{ const grd=g.createRadialGradient(px,py,0,px,py,rr);
+    grd.addColorStop(0,'rgba(255,255,255,'+a0+')'); grd.addColorStop(0.55,'rgba(255,255,255,'+(a0*0.7)+')'); grd.addColorStop(1,'rgba(255,255,255,0)');
+    g.fillStyle=grd; g.fillRect(px-rr,py-rr,rr*2,rr*2); };
+  for(let t=0;t<4;t++){
+    const ox=(t&1)*T, oy=(t>>1)*T, cx=ox+T/2, base=oy+T*0.66;
+    const A=T*(0.30+rnd()*0.06), B=T*(0.24+rnd()*0.12);          // dome half-width / height
+    g.save(); g.beginPath(); g.rect(ox,oy,T,T); g.clip();
+    for(let i=0;i<9;i++){ const u=-0.9+1.8*i/8, rr=T*(0.07+rnd()*0.05); blob(cx+u*A, base-rr*0.5, rr, 0.45); }   // flat base row
+    for(let i=0;i<80;i++){                                         // dome body
+      let u,v; do{ u=rnd()*2-1; v=rnd(); }while(u*u+v*v>1);
+      const rr=T*(0.05+rnd()*0.09)*(1-0.35*v); blob(cx+u*A*0.85, base-v*B*0.85-rr*0.3, rr, 0.40);
     }
-    g.position.set(cx+(Math.random()-0.5)*CLOUD_SPAN, 700+Math.random()*1800, cz+(Math.random()-0.5)*CLOUD_SPAN);
-    g.userData.drift=(Math.random()-0.5)*6;
-    clouds.push(g); cloudGroup.add(g);
+    for(let i=0;i<70;i++){                                         // cauliflower bumps on the rim
+      const th=rnd()*Math.PI, k=0.86+rnd()*0.16, rr=T*(0.022+rnd()*0.04);
+      blob(cx+Math.cos(th)*A*k, base-Math.sin(th)*B*k-rr*0.2, rr, 0.5);
+    }
+    g.globalCompositeOperation='destination-in';                   // flat soft base + transparent tile border (no bleeding)
+    const b=g.createLinearGradient(0,base+T*0.01,0,base+T*0.09);
+    b.addColorStop(0,'rgba(0,0,0,1)'); b.addColorStop(1,'rgba(0,0,0,0)');
+    g.fillStyle=b; g.fillRect(ox,oy,T,T);
+    const m=g.createRadialGradient(cx,oy+T/2,T*0.42,cx,oy+T/2,T*0.5);
+    m.addColorStop(0,'rgba(0,0,0,1)'); m.addColorStop(1,'rgba(0,0,0,0)');
+    g.fillStyle=m; g.fillRect(ox,oy,T,T);
+    g.restore(); g.globalCompositeOperation='source-over';
   }
+  const tex=new THREE.CanvasTexture(c); tex.anisotropy=2; return tex;
+}
+function makeCirrusTex(){
+  const W=256, H=128, c=document.createElement('canvas'); c.width=W; c.height=H; const g=c.getContext('2d');
+  let sd=11; const rnd=()=>{ sd=(sd*16807)%2147483647; return (sd-1)/2147483646; };
+  for(let i=0;i<90;i++){
+    const x=W*(0.12+rnd()*0.76), y=H*(0.2+rnd()*0.6), rx=W*(0.05+rnd()*0.16), ry=H*(0.015+rnd()*0.05);
+    g.save(); g.translate(x,y); g.rotate((rnd()-0.5)*0.35); g.scale(rx/ry,1);
+    const grd=g.createRadialGradient(0,0,0,0,0,ry);
+    grd.addColorStop(0,'rgba(255,255,255,0.22)'); grd.addColorStop(1,'rgba(255,255,255,0)');
+    g.fillStyle=grd; g.fillRect(-ry,-ry,ry*2,ry*2); g.restore();
+  }
+  g.globalCompositeOperation='destination-in';
+  const m=g.createRadialGradient(W/2,H/2,H*0.2,W/2,H/2,H*0.5);
+  m.addColorStop(0,'rgba(0,0,0,1)'); m.addColorStop(1,'rgba(0,0,0,0)');
+  g.save(); g.translate(W/2,H/2); g.scale(2,1); g.translate(-W/2,-H/2); g.fillStyle=m; g.fillRect(0,0,W,H); g.restore();
+  return new THREE.CanvasTexture(c);
+}
+const cloudTex = makePuffAtlas();
+const cirrusTex = makeCirrusTex();
+const CLOUD_SPAN = 8000;
+const CLOUD_CLUSTERS = 64, CIRRUS_CLUSTERS = 16;
+const CLOUD_MAX = 520, CIRRUS_MAX = 48;
+const CLOUD_LEVEL  = { high:64, medium:42, low:22 };   // active cumulus clusters
+const CIRRUS_LEVEL = { high:16, medium:10, low:0 };    // active cirrus clusters
+
+const CLOUD_VS = `
+varying vec2 vUv; varying vec2 vR; varying float vH; varying float vDist; varying float vFade; varying float vPhase; varying vec3 vSunL;
+uniform vec3 sunDir; uniform vec2 uCenter; uniform float uHalf;
+void main(){
+  vec3 center = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
+  float sx = instanceMatrix[0][0], sy = instanceMatrix[1][1];
+  float seed = instanceMatrix[2][0], belly = instanceMatrix[2][2];
+  vec3 right = vec3(viewMatrix[0].x, viewMatrix[1].x, viewMatrix[2].x);
+  vec3 up    = vec3(viewMatrix[0].y, viewMatrix[1].y, viewMatrix[2].y);
+  vec3 back  = vec3(viewMatrix[0].z, viewMatrix[1].z, viewMatrix[2].z);
+  vec3 world = center + right*position.x*sx + up*position.y*sy;
+  float tile = floor(seed*4.0); float flip = fract(seed*4.0) > 0.5 ? -1.0 : 1.0;
+  vec2 u = vec2(0.5 + (uv.x-0.5)*flip, uv.y);
+  vUv = (u + vec2(mod(tile,2.0), 1.0 - floor(tile/2.0))) * 0.5;   // canvas y is flipped vs uv
+  vR = position.xy*2.0;
+  vH = clamp(belly*0.6 + uv.y*0.4, 0.0, 1.0);
+  vSunL = vec3(dot(sunDir,right), dot(sunDir,up), dot(sunDir,back));
+  vPhase = dot(normalize(center - cameraPosition), sunDir);
+  float m = max(abs(center.x-uCenter.x), abs(center.z-uCenter.y));
+  vFade = 1.0 - smoothstep(uHalf*0.70, uHalf*0.97, m);
+  vec4 mv = viewMatrix*vec4(world,1.0);
+  vDist = -mv.z;
+  gl_Position = projectionMatrix*mv;
+}`;
+const CLOUD_FS = `
+varying vec2 vUv; varying vec2 vR; varying float vH; varying float vDist; varying float vFade; varying float vPhase; varying vec3 vSunL;
+uniform sampler2D map; uniform vec3 uLitColor; uniform vec3 uShadeColor; uniform vec3 uSunColor; uniform float uOpacity;
+uniform vec3 uFogColor; uniform float uFogDensity;
+void main(){
+  float dens = texture2D(map, vUv).a;
+  float nearFade = smoothstep(40.0, 230.0, vDist);                        // soft fade flying through, no hard pop
+  float a = dens*uOpacity*vFade*nearFade;
+  if(a<0.004) discard;
+  vec3 n = vec3(vR, sqrt(max(0.0, 1.0-dot(vR,vR))));
+  float diff = clamp(dot(n, vSunL)*0.38+0.62, 0.0, 1.0);                  // wrapped lambert on a fake sphere
+  float lit = diff*mix(0.52, 1.0, vH);                                      // bellies + lower puffs sit in shade
+  vec3 col = mix(uShadeColor, uLitColor, lit);
+  float fwd = pow(max(vPhase,0.0), 5.0);
+  col += uSunColor*fwd*(1.0-dens)*(1.0-dens)*0.32;                           // silver lining: thin edges glow backlit
+  col += uSunColor*fwd*0.08;
+  float fogFactor = 1.0 - exp(-uFogDensity*uFogDensity*vDist*vDist);        // matches THREE.FogExp2 falloff
+  col = mix(col, uFogColor, fogFactor*0.92);
+  gl_FragColor = vec4(col, a);
+}`;
+const CIRRUS_VS = `
+varying vec2 vUv; varying float vDist; varying float vFade;
+uniform vec2 uCenter; uniform float uHalf;
+void main(){
+  vUv = uv;
+  vec4 wp = modelMatrix*instanceMatrix*vec4(position.x, 0.0, -position.y, 1.0);   // flat, horizontal sheets
+  float m = max(abs(wp.x-uCenter.x), abs(wp.z-uCenter.y));
+  vFade = 1.0 - smoothstep(uHalf*0.70, uHalf*0.97, m);
+  vec3 toC = wp.xyz - cameraPosition;
+  vFade *= smoothstep(0.02, 0.22, abs(toC.y)/max(length(toC),1.0));          // fade out edge-on
+  vec4 mv = viewMatrix*wp;
+  vDist = -mv.z;
+  gl_Position = projectionMatrix*mv;
+}`;
+const CIRRUS_FS = `
+varying vec2 vUv; varying float vDist; varying float vFade;
+uniform sampler2D map; uniform vec3 uTint; uniform float uOpacity;
+uniform vec3 uFogColor; uniform float uFogDensity;
+void main(){
+  float a = texture2D(map, vUv).a*uOpacity*vFade; if(a<0.004) discard;
+  float fogFactor = 1.0 - exp(-uFogDensity*uFogDensity*vDist*vDist);
+  vec3 col = mix(uTint, uFogColor, fogFactor*0.6);
+  gl_FragColor = vec4(col, a);
+}`;
+
+const cloudMat = new THREE.ShaderMaterial({
+  transparent:true, depthWrite:false, fog:false, side:THREE.DoubleSide,
+  uniforms:{ sunDir:{value:sunDir.clone()}, map:{value:cloudTex}, uOpacity:{value:1.0},
+    uLitColor:{value:new THREE.Color(0xffffff)}, uShadeColor:{value:new THREE.Color(0x9fb2c8)}, uSunColor:{value:new THREE.Color(0xfff2d8)},
+    uFogColor:{value:new THREE.Color(0xa8c8e8)}, uFogDensity:{value:0.000085},
+    uCenter:{value:new THREE.Vector2()}, uHalf:{value:CLOUD_SPAN/2} },
+  vertexShader:CLOUD_VS, fragmentShader:CLOUD_FS
+});
+const cirrusMat = new THREE.ShaderMaterial({
+  transparent:true, depthWrite:false, fog:false, side:THREE.DoubleSide,
+  uniforms:{ map:{value:cirrusTex}, uOpacity:{value:0.30}, uTint:{value:new THREE.Color(0xffffff)},
+    uFogColor:{value:new THREE.Color(0xa8c8e8)}, uFogDensity:{value:0.000085},
+    uCenter:{value:new THREE.Vector2()}, uHalf:{value:CLOUD_SPAN/2} },
+  vertexShader:CIRRUS_VS, fragmentShader:CIRRUS_FS
+});
+const cloudMesh=new THREE.InstancedMesh(new THREE.PlaneGeometry(1,1), cloudMat, CLOUD_MAX);
+cloudMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+cloudMesh.frustumCulled=false; cloudMesh.renderOrder=-10; cloudMesh.count=0; scene.add(cloudMesh);
+const cirrusMesh=new THREE.InstancedMesh(new THREE.PlaneGeometry(1,1), cirrusMat, CIRRUS_MAX);
+cirrusMesh.frustumCulled=false; cirrusMesh.renderOrder=-11; cirrusMesh.count=0; scene.add(cirrusMesh);
+
+// Clusters keep {x,y,z} = centre (4b's in-cloud whiteout reads these). Only the first
+// cloudActiveN / cirrusActiveN clusters are live at the current GFX level.
+const cloudClusters=[];   // {x,y,z,drift,d2,offs:[{ox,oy,oz,sx,sy,seed,belly}]}
+const cirrusClusters=[];  // {x,y,z,drift,offs:[{ox,oz,sx,sz,yaw}]}
+const _cloudSorted=[];
+let cloudActiveN=0, cirrusActiveN=0;
+function seedClouds(cx,cz){
+  cloudClusters.length=0; cirrusClusters.length=0;
+  let tot=0;
+  for(let i=0;i<CLOUD_CLUSTERS;i++){
+    const big=Math.random()<0.22, n=big?(9+((Math.random()*4)|0)):(5+((Math.random()*3)|0));
+    const R=big?430:280, H=big?360:190;
+    const c={ x:cx+(Math.random()-0.5)*CLOUD_SPAN, y:700+Math.random()*1500, z:cz+(Math.random()-0.5)*CLOUD_SPAN,
+      drift:(Math.random()-0.5)*6, d2:0, r:big?380:260, offs:[] };
+    for(let k=0;k<n && tot<CLOUD_MAX;k++,tot++){
+      const t=n>1?k/(n-1):0.5;                                   // 0 = base puff, 1 = top puff
+      const spread=R*(1-t*0.55), ang=Math.random()*6.2832, rr=Math.sqrt(Math.random())*spread;
+      const w=(big?560:420)*(1-t*0.35)*(0.8+Math.random()*0.45);
+      c.offs.push({ ox:Math.cos(ang)*rr, oy:-H*0.5+t*H+(Math.random()-0.5)*40, oz:Math.sin(ang)*rr,
+        sx:w, sy:w*(0.62+Math.random()*0.12), seed:Math.random()*0.999, belly:THREE.MathUtils.clamp(t*0.9+Math.random()*0.15,0,1) });
+    }
+    cloudClusters.push(c);
+  }
+  tot=0;
+  for(let i=0;i<CIRRUS_CLUSTERS;i++){
+    const n=2+((Math.random()*2)|0);
+    const c={ x:cx+(Math.random()-0.5)*CLOUD_SPAN, y:2700+Math.random()*900, z:cz+(Math.random()-0.5)*CLOUD_SPAN, drift:(Math.random()-0.5)*3, offs:[] };
+    const yaw=Math.random()*3.1416;
+    for(let k=0;k<n && tot<CIRRUS_MAX;k++,tot++){
+      const s=1100+Math.random()*1300;
+      c.offs.push({ ox:(Math.random()-0.5)*1500, oz:(Math.random()-0.5)*1500, sx:s, sz:s*(0.30+Math.random()*0.2), yaw:yaw+(Math.random()-0.5)*0.4 });
+    }
+    cirrusClusters.push(c);
+  }
+  applyCloudLevel(GFX.level());
+  writeCirrusMatrices();
+}
+function writeCloudMatrices(){
+  // back-to-front by cluster: transparent puffs blend correctly against each other
+  const cp=camera.position;
+  _cloudSorted.length=0;
+  for(let i=0;i<cloudActiveN;i++){ const c=cloudClusters[i]; const dx=c.x-cp.x, dy=c.y-cp.y, dz=c.z-cp.z; c.d2=dx*dx+dy*dy+dz*dz; _cloudSorted.push(c); }
+  _cloudSorted.sort(_cloudFar);
+  const a=cloudMesh.instanceMatrix.array; let b=0, n=0;
+  for(const c of _cloudSorted){ for(const o of c.offs){
+    a[b]=o.sx; a[b+1]=0; a[b+2]=0; a[b+3]=0;  a[b+4]=0; a[b+5]=o.sy; a[b+6]=0; a[b+7]=0;
+    a[b+8]=o.seed; a[b+9]=0; a[b+10]=o.belly; a[b+11]=0;  a[b+12]=c.x+o.ox; a[b+13]=c.y+o.oy; a[b+14]=c.z+o.oz; a[b+15]=1;
+    b+=16; n++;
+  }}
+  cloudMesh.count=n; cloudMesh.instanceMatrix.needsUpdate=true;
+}
+function _cloudFar(p,q){ return q.d2-p.d2; }
+const _cldPos=new THREE.Vector3(), _cldScl=new THREE.Vector3(), _cldQ=new THREE.Quaternion(), _cldM4=new THREE.Matrix4(), _cldUp=new THREE.Vector3(0,1,0);
+function writeCirrusMatrices(){
+  let n=0;
+  for(let i=0;i<cirrusActiveN;i++){ const c=cirrusClusters[i]; for(const o of c.offs){
+    _cldPos.set(c.x+o.ox, c.y, c.z+o.oz); _cldScl.set(o.sx,1,o.sz); _cldQ.setFromAxisAngle(_cldUp,o.yaw);
+    _cldM4.compose(_cldPos,_cldQ,_cldScl); cirrusMesh.setMatrixAt(n++,_cldM4);
+  }}
+  cirrusMesh.count=n; cirrusMesh.instanceMatrix.needsUpdate=true;
+}
+function applyCloudLevel(level){
+  cloudActiveN=Math.min(cloudClusters.length, CLOUD_LEVEL[level]!==undefined?CLOUD_LEVEL[level]:CLOUD_CLUSTERS);
+  cirrusActiveN=Math.min(cirrusClusters.length, CIRRUS_LEVEL[level]!==undefined?CIRRUS_LEVEL[level]:CIRRUS_CLUSTERS);
+  writeCloudMatrices(); writeCirrusMatrices();
+}
+GFX.onChange(applyCloudLevel);
+function wrapCluster(c,px,pz,half){
+  if(c.x-px>half) c.x-=CLOUD_SPAN; else if(c.x-px<-half) c.x+=CLOUD_SPAN;
+  if(c.z-pz>half) c.z-=CLOUD_SPAN; else if(c.z-pz<-half) c.z+=CLOUD_SPAN;
 }
 function updateClouds(px,pz,dt){
   const half=CLOUD_SPAN/2;
-  for(const g of clouds){
-    g.position.x += g.userData.drift*dt;
-    let dx=g.position.x-px, dz=g.position.z-pz;
-    if(dx> half) g.position.x-=CLOUD_SPAN; else if(dx<-half) g.position.x+=CLOUD_SPAN;
-    if(dz> half) g.position.z-=CLOUD_SPAN; else if(dz<-half) g.position.z+=CLOUD_SPAN;
-  }
+  for(const c of cloudClusters){ c.x+=c.drift*dt; wrapCluster(c,px,pz,half); }
+  for(const c of cirrusClusters){ c.x+=c.drift*dt; wrapCluster(c,px,pz,half); }
+  writeCirrusMatrices();
 }
+// Every frame in every state (menu orbit, cutscenes, playing): re-sort + fade centre.
+HOOKS.always.push(()=>{
+  writeCloudMatrices();
+  const p=player.obj ? player.obj.position : camera.position;
+  cloudMat.uniforms.uCenter.value.set(p.x,p.z); cirrusMat.uniforms.uCenter.value.set(p.x,p.z);
+});
 
 /* ---------------------------------------------------------------------------
    7. PARTICLE SYSTEM (pooled Points, two blend modes)
@@ -2053,8 +2516,13 @@ function updateBlobs(dt){
   if(state!=='playing'){ for(const b of blobs) b.visible=false; return; }
   const lightF=THREE.MathUtils.clamp(hemi.intensity/0.75,0.12,1);     // night: shadows nearly vanish
   const p=player.obj.position, gy=Math.max(terrainHeight(p.x,p.z),CFG.waterLevel), alt=p.y-gy;
-  const b0=blobs[0]; b0.visible=true; b0.position.set(p.x,gy+1.6,p.z); b0.scale.set(13,1,13);
-  b0.material.opacity=THREE.MathUtils.clamp(0.55*(1-alt/420),0,0.55)*lightF;
+  // With real sun shadows (4b) the blob shrinks to a soft contact/AO cue under the gear and
+  // enemy blobs are dropped: two shadows per aircraft read as a bug.
+  const realSh=renderer.shadowMap.enabled && sun.castShadow;
+  const b0=blobs[0]; b0.visible=true; b0.position.set(p.x,gy+1.6,p.z);
+  if(realSh){ b0.scale.set(8,1,8); b0.material.opacity=THREE.MathUtils.clamp(0.32*(1-alt/45),0,0.32)*lightF; }
+  else { b0.scale.set(13,1,13); b0.material.opacity=THREE.MathUtils.clamp(0.55*(1-alt/420),0,0.55)*lightF; }
+  if(realSh){ for(let i=1;i<BLOB_N;i++) blobs[i].visible=false; return; }
   blobCd-=dt; if(blobCd>0) return; blobCd=0.15;
   const list=enemies.map(e=>({e,d:e.obj.position.distanceTo(p)})).filter(o=>o.d<1100).sort((a,b)=>a.d-b.d).slice(0,BLOB_N-1);
   for(let i=1;i<BLOB_N;i++){ const b=blobs[i], o=list[i-1];
@@ -3666,9 +4134,12 @@ document.getElementById('pause-menubtn').onclick=()=>{ pauseScreen.classList.add
    15b. TIME OF DAY — sky/light tint per mission (eyecandy + mood)
    --------------------------------------------------------------------------- */
 const TOD={
-  day:  { top:0x1f57bd, bot:0xc3e2ff, fog:0xa8c8e8, sun:1.70, sunColor:0xfff4e0, amb:0x88aacc, hemi:0.50, sunDir:[0.5,0.55,0.4], sunTint:0xfff2d8, stars:0.0, cloud:0xffffff, water:0x2f6fb0, ground:0xffffff, hemiSky:0xafd4ff },
-  dusk: { top:0x121f52, bot:0xff8f4a, fog:0xb07a52, sun:1.35, sunColor:0xffb488, amb:0x5a4a6a, hemi:0.38, sunDir:[0.86,0.16,0.35], sunTint:0xff9a55, stars:0.10, cloud:0xffb27a, water:0x3c4f74, ground:0xb98f74, hemiSky:0xff9e6a },
-  night:{ top:0x03050b, bot:0x141c33, fog:0x080e1a, sun:0.45, sunColor:0x7a92d0, amb:0x1e2740, hemi:0.26, sunDir:[0.42,0.32,-0.6], sunTint:0xa8c4ff, stars:1.0, cloud:0x2a3550, water:0x16324e, ground:0x3d4a68, hemiSky:0x2a3a60 },
+  day:  { top:0x1f57bd, bot:0xc3e2ff, fog:0xb2cfec, fogDensity:0.000200, cloudBank:0.32, sun:1.70, sunColor:0xfff4e0, amb:0x88aacc, hemi:0.50, sunDir:[0.5,0.55,0.4], sunTint:0xfff2d8, stars:0.0, cloud:0xffffff, cloudShade:0x9fb2c8, cirrusTint:0xffffff, cirrusOp:0.30, water:0x2f6fb0, ground:0xffffff, hemiSky:0xafd4ff,
+          haze:0.72, mie:0.55, scat:0.26, moon:0, spriteOp:1.0, glare:0.55, grade:{ sat:1.08, vig:0.14, exp:1.02, lift:0x0b1220, warm:0x231708 } },
+  dusk: { top:0x121f52, bot:0xff8f4a, fog:0xb07a52, fogDensity:0.000240, cloudBank:0.48, sun:1.35, sunColor:0xffb488, amb:0x5a4a6a, hemi:0.38, sunDir:[0.86,0.16,0.35], sunTint:0xff9a55, stars:0.10, cloud:0xffb27a, cloudShade:0x6a4f66, cirrusTint:0xffc79a, cirrusOp:0.26, water:0x3c4f74, ground:0xb98f74, hemiSky:0xff9e6a,
+          haze:0.85, mie:1.0, scat:0.50, moon:0, spriteOp:1.0, glare:0.90, grade:{ sat:1.12, vig:0.22, exp:1.00, lift:0x1c1030, warm:0x3a1a06 } },
+  night:{ top:0x03050b, bot:0x141c33, fog:0x0e1628, fogDensity:0.000210, cloudBank:0.16, sun:0.45, sunColor:0x7a92d0, amb:0x1e2740, hemi:0.26, sunDir:[0.42,0.32,-0.6], sunTint:0xa8c4ff, stars:1.0, cloud:0x3d4a6c, cloudShade:0x0d1220, cirrusTint:0x2a3550, cirrusOp:0.14, water:0x16324e, ground:0x3d4a68, hemiSky:0x2a3a60,
+          haze:0.60, mie:0.25, scat:0.12, moon:1, spriteOp:0.30, glare:0.22, grade:{ sat:0.92, vig:0.28, exp:1.08, lift:0x0a1638, warm:0x0e1626 } },
 };
 function applyTimeOfDay(tod){
   const c=TOD[tod]||TOD.day;
@@ -3676,19 +4147,33 @@ function applyTimeOfDay(tod){
   skyMat.uniforms.bot.value.setHex(c.bot);
   skyMat.uniforms.sunTint.value.setHex(c.sunTint);
   skyMat.uniforms.stars.value=c.stars;
-  scene.fog.color.setHex(c.fog);
+  skyMat.uniforms.cloudBank.value=c.cloudBank;
+  skyMat.uniforms.uHaze.value=c.haze; skyMat.uniforms.uMie.value=c.mie; skyMat.uniforms.uMoon.value=c.moon;
+  skyMat.uniforms.fogCol.value.setHex(c.fog); skyMat.uniforms.uWhite.value=0;
+  skyMat.uniforms.bankLit.value.setHex(c.cloud); skyMat.uniforms.bankShade.value.setHex(c.cloudShade);
+  fogScatterColor.setHex(c.sunTint); fogScatter=c.scat;
+  sunSpriteOp=c.spriteOp; glareStrength=c.glare; sunSprite.material.opacity=c.spriteOp;
+  if(gradePass) gradePass.uniforms.uGlareCol.value.setHex(c.sunTint);
+  if(gradePass){ const u=gradePass.uniforms, g=c.grade;       // per-TOD film grade
+    u.uSat.value=g.sat; u.uVig.value=g.vig; u.uExp.value=g.exp; u.uLift.value.setHex(g.lift); u.uWarm.value.setHex(g.warm); }
+  fogColorBase.setHex(c.fog); curFogBase=c.fogDensity;   // 4b/applyAtmosphere owns the actual per-frame scene.fog write
+  scene.fog.color.setHex(c.fog); scene.fog.density=c.fogDensity;   // seed immediately so it's right before the next tick
   sun.intensity=c.sun; sun.color.setHex(c.sunColor);
   ambient.color.setHex(c.amb); hemi.intensity=c.hemi;
      // sun/moon rides the TOD: dusk sits low on the horizon, night is a cold blue moon
   sunDir.set(c.sunDir[0],c.sunDir[1],c.sunDir[2]).normalize();
   sun.position.copy(sunDir).multiplyScalar(1000);
   skyMat.uniforms.sun.value.copy(sunDir);
+  cloudMat.uniforms.sunDir.value.copy(sunDir);
   sunSprite.material.color.setHex(c.sunTint);
   waterMat.color.setHex(c.water);
   terrainMat.color.setHex(c.ground);      // Lambert multiplies the vertex colours: dusk warms, night cools the whole landscape
   hemi.color.setHex(c.hemiSky);
-  const cloudCol=new THREE.Color(c.cloud);
-  for(const g of clouds) for(const s of g.children) s.material.color.copy(cloudCol);
+  cloudMat.uniforms.uLitColor.value.setHex(c.cloud);
+  cloudMat.uniforms.uShadeColor.value.setHex(c.cloudShade);
+  cloudMat.uniforms.uSunColor.value.setHex(c.sunTint);
+  cirrusMat.uniforms.uTint.value.setHex(c.cirrusTint);
+  cirrusMat.uniforms.uOpacity.value=c.cirrusOp;
   // particle fog uniforms follow
   for(const m of particleMaterials){ if(m.uniforms.fogColor) m.uniforms.fogColor.value.copy(scene.fog.color); }
   // the surf tint is added after lighting, so it needs the light level explicitly
