@@ -7832,8 +7832,14 @@ function findMid(on, pred){
 // sequentially by real clip duration instead of cutting each other off. They are flagged mid:true so a
 // win can drop the ones still waiting in favour of win[].
 let _midFreeAt=0;                                 // legacy slot clock (reset per mission; pacing is Voice's job now)
+// Pure boss countdown lines ("Noch zwei", "Letzter Turm!") go stale: a newer one replaces a queued older one
+// (tag) and bossExposed/bossKilled drop the rest. Story lines on bossPart rows are left alone.
+const BOSS_COUNT_RE=/\b(noch (einer|zwei|drei)|einer noch|drei no|letzter turm|(turm|pylon) weniger|mast fällt)\b/i;
+const isBossCount=q=>q.tag==='bossCount';
 function sayMid(line, o){
-  for(const l of [].concat(line)) radio(l, Object.assign({prio:'crit', mid:true}, o));
+  for(const l of [].concat(line)){ const x=Object.assign({prio:'crit', mid:true}, o);
+    if(x.bossPart){ delete x.bossPart; if(BOSS_COUNT_RE.test(l)) x.tag='bossCount'; }
+    radio(l, x); }
 }
 function fireMid(m, o){
   mission._midFired.add(m);
@@ -7922,12 +7928,12 @@ EV.on('allyHit', d=>{
 // bossSpawn is emitted inside setupMission, before the intro is queued and before the missionStart hook
 // resets _midFired: defer one tick, then queue it as normal so it lands behind the briefing.
 EV.on('bossSpawn',  ()=>{ const def=mission.def; setTimeout(()=>{ if(mission.def===def) dispatch('bossSpawn', null, {prio:'normal', ttl:40}); }, 0); });
-EV.on('bossPart',   d=>dispatch('bossPart', m=>m.left===d.left));
-EV.on('bossExposed',d=>{ if(d && d.open) dispatch('bossExposed'); });           // fires once: first open only
+EV.on('bossPart',   d=>dispatch('bossPart', m=>m.left===d.left, {bossPart:true}));
+EV.on('bossExposed',d=>{ if(d && d.open){ Voice.drop(isBossCount); dispatch('bossExposed'); } });   // fires once: first open only
 EV.on('bossPhase',  d=>dispatch('bossPhase', m=>m.phase===d.phase));
 EV.on('bossHp',     d=>{ const f=(d && d.frac!=null) ? d.frac : (d && d.ratio);  // frac is exactly 0.75/0.5/0.25
   if(f!=null) dispatch('bossHp', m=>Math.abs(m.lt-f)<1e-6); });
-EV.on('bossKilled', ()=>dispatch('bossKilled'));
+EV.on('bossKilled', ()=>{ Voice.drop(isBossCount); dispatch('bossKilled'); });
 // polled per frame: mission clock ('time', from takeoff on runway starts), objective progress and
 // completion of objectives that do not emit 'done' themselves (destroyAir, escort, patrol, ...)
 const isMidLine=q=>q.mid;
