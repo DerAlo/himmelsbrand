@@ -21,16 +21,16 @@ Projekt. Parallel entwickelt sich eine Slow-Burn-Romanze Geier↔Lärche (`bond1
 
 Am Kern von PROMETHEUS (Mission `m12`, `choicePoint:true`) stellt sich die titelgebende Wahl:
 
-- **`trust`** — HELIOS die Schlüssel zurückgeben, die KI stoppt den Kamikaze-Schwarm selbst.
+- **`trust`** — HELIOS die Schlüssel zurückgeben, die KI legt den Schwarm selbst still (in m13 kann sie dem Spieler nur noch „ihre Augen leihen“ — kein Drohnen-Geleit, ihre Drohnen liegen am Boden; nur 2 handgeflogene Keller-Jäger).
 - **`human`** — den Schwarm eigenhändig, Maschine für Maschine, vom Himmel holen.
 
 Die Wahl (`storyChoice`, persistiert in `SAVE.storyChoice`) färbt die `ending`-Cutscene, m13
-(„Feuerträger", Kellers letzte Festung — komplett per `introVariants`/`winVariants`/`midVariants`/
+(„Feuerträger“, Kellers letzte Festung — komplett per `introVariants`/`winVariants`/`midVariants`/
 `spawnsVariants` umgeschrieben statt eine zweite Mission zu duplizieren), den Kampagnen-Debrief-Text
 und den `epilog`.
 
 Parallel dazu läuft **Das B-Team** (`B-TEAM.md`), eine eigenständige Komödien-Kampagne mit Sepp und
-Wiggerl, thematisch verzahnt („kein Rechenkern sieht so viel Blödsinn kommen"), aber ohne
+Wiggerl, thematisch verzahnt („kein Rechenkern sieht so viel Blödsinn kommen“), aber ohne
 Abhängigkeit von der Haupthandlung.
 
 **Quelle der Texte:** Cutscenes, Missionstexte (`story`, `intro`, `mid`, `win` samt Varianten) und
@@ -110,6 +110,12 @@ den Bark-Abstand nach hinten.
 - `groundKill` nach Tag (radar/truck/sam/hangar/bunker/depot; Wagner- bzw. Lärche-Variante, B-Team eigene),
   p 0,5, cd 8 s; der Abschuss, der ein Ziel vollendet, gehört `done`.
 - `hpLow` (< 35 %) und `allyHp` (< 50 % / < 25 %) je einmal pro Mission, nur ohne eigene mid-Zeile.
+  Die Lärche-Varianten (`H2`-hpLow, `L`-groundKill) nur, wenn `ally` wirklich existiert — sonst Wagner
+  (m8: Lärche ist dort noch die unbekannte Stimme „?“).
+- `bossSpawn` wird per `setTimeout(0)` dispatcht: `setupMission` spawnt den Boss vor dem
+  `missionStart`-Hook, der `_midFired` neu anlegt (sonst fehlte die Boss-Ansage beim ersten Start).
+- `allyTakeoff:true` (m_nachtwache, m_versprechen): Pistenstart-Missionen mit Lärche als Wache — sie
+  wird beim `takeoff` 320 m hinter dem Spieler gespawnt (3-fache HP, kein protect-Ziel).
 
 **Kontext (`barkCtx()`):** `BT` (B-Team), `EN` (Endlos), `H2` (HELIOS Akt II), `H1` (Akt I).
 
