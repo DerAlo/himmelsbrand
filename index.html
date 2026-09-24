@@ -341,7 +341,7 @@
       <div class="row"><span class="k">Strg</span><span class="d">Drosseln / Bremsen am Boden</span></div>
     </div>
     <div class="tag" style="margin-top:24px; opacity:.7; max-width:700px; line-height:1.6; letter-spacing:.3px">
-      🎯 Halte den roten <b style="color:var(--gold)">Zielpunkt</b> aufs Ziel — „FEUER · GUNS" heißt Treffer sicher. ·
+      🎯 Halte den roten <b style="color:var(--gold)">Zielpunkt</b> aufs Ziel — „FEUER FREI" heißt Treffer sicher. ·
       🚀 Raketen suchen <b style="color:var(--gold)">nur bei rotem LOCK</b>; ohne Lock fliegen sie gerade. ·
       💣 Bomben: tief & flach, den <b style="color:var(--gold)">CCIP-Kreis</b> aufs Ziel, dann <b style="color:var(--gold)">G</b>. ·
       ◈ LB-Raketen: Nase aufs Bodenziel bis <b style="color:var(--gold)">grüner LB-LOCK</b>, dann <b style="color:var(--gold)">H</b> — trifft aus Distanz. ·
@@ -396,7 +396,7 @@
       <div class="row"><span class="k">Strg</span><span class="d">Drosseln</span></div>
     </div>
     <div class="tag" style="margin-top:24px; opacity:.7; max-width:660px; line-height:1.6; letter-spacing:.3px">
-      🎯 Roten <b style="color:var(--gold)">Zielpunkt</b> aufs Ziel halten — „FEUER · GUNS" = sicherer Treffer ·
+      🎯 Roten <b style="color:var(--gold)">Zielpunkt</b> aufs Ziel halten — „FEUER FREI" = sicherer Treffer ·
       🚀 Raketen lenken <b style="color:var(--gold)">nur bei LOCK</b> ·
       👑 Boss: erst Türme/Pylonen, dann den <b style="color:var(--gold)">Kern</b> ·
       <b style="color:var(--gold)">Strg</b> = enger kurven
@@ -5802,6 +5802,7 @@ function drawHUD(){
 
   // target boxes for each enemy: corner brackets (full box only when locked), range in m / km
   const proj=_hudP;
+  let lockX=-1e4, lockTop=0, lockBot=0;   // locked box extent (label/diamond incl.) for the gun cue
   for(const e of enemies){
     proj.copy(e.obj.position).project(camera);
     const onScreen = proj.z<1 && proj.x>=-1 && proj.x<=1 && proj.y>=-1 && proj.y<=1;
@@ -5829,6 +5830,7 @@ function drawHUD(){
         hctx.font=HF12; hudText('◆ LOCK', sx, sy+s2+15, HUD_RED);
         // outer lock diamond, slowly rotating
         const b=size*0.62+10, ra=menuTime*1.6;
+        lockX=sx; lockTop=sy-Math.max(s2+18,b); lockBot=sy+Math.max(s2+22,b);
         hctx.save(); hctx.translate(sx,sy); hctx.rotate(ra); hctx.strokeStyle=HUD_RED; hctx.lineWidth=1.6;
         hctx.beginPath(); hctx.moveTo(0,-b); hctx.lineTo(b,0); hctx.lineTo(0,b); hctx.lineTo(-b,0); hctx.closePath(); hctx.stroke();
         hctx.restore();
@@ -5872,11 +5874,13 @@ function drawHUD(){
       const clo=Math.max(-2000,Math.min(2000,Math.round(gunSolution.closure*3.6)));   // closure km/h, clamped
       hctx.fillStyle='rgba(200,220,240,0.75)';
       hctx.fillText((clo>=0?'▲':'▼')+Math.abs(clo)+' km/h', px+22, py+9);
-      // big status cue under the center reticle
+      // big status cue above the center reticle, clear of the lock box/diamond of a centred target
+      let cueY=cy-100;
+      if(Math.abs(lockX-cx)<200 && cueY>lockTop-14 && cueY<lockBot+14) cueY = lockTop-14>70 ? lockTop-14 : Math.max(cy+70, lockBot+18);
       hctx.textAlign='center'; hctx.font=HF16B;
-      if(onTgt){ hctx.fillStyle='rgba(120,255,120,0.98)'; hctx.fillText('◄ FEUER · GUNS ►', cx, cy-44); }
-      else if(near){ hctx.font=HF13B; hudText('IN REICHWEITE — auf Zielpunkt halten', cx, cy-44, 'rgba(255,120,120,0.95)'); }
-      else { hctx.font=HF12; hudText('außer Reichweite ('+Math.round(gunSolution.dist)+' m)', cx, cy-44, 'rgba(255,210,110,0.9)'); }
+      if(onTgt){ hudText('◄ FEUER FREI ►', cx, cueY, 'rgba(120,255,120,0.98)'); }
+      else if(near){ hctx.font=HF13B; hudText('IN REICHWEITE — auf Zielpunkt halten', cx, cueY, 'rgba(255,120,120,0.95)'); }
+      else { hctx.font=HF12; hudText('außer Reichweite ('+Math.round(gunSolution.dist)+' m)', cx, cueY, 'rgba(255,210,110,0.9)'); }
       hctx.textAlign='left';
     }
   }
@@ -5969,9 +5973,8 @@ function drawHUD(){
   }
   // SAM launch warning
   if(samWarnActive && state==='playing'){
-    hctx.fillStyle='rgba(255,60,60,'+(0.55+0.35*Math.sin(menuTime*12))+')';
     hctx.font=HF22B; hctx.textAlign='center';
-    hctx.fillText('⚠ SAM — RAKETENWARNUNG', cx, h-150); hctx.textAlign='left';
+    hudText('⚠ SAM — RAKETENWARNUNG', cx, h-150, 'rgba(255,60,60,'+(0.75+0.25*Math.sin(menuTime*12))+')'); hctx.textAlign='left';
   }
 
   // ---- B-Team pilot mechanic HUD ----
