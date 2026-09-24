@@ -1284,7 +1284,9 @@ function terrainHeightRaw(x, z){
   const continent = Noise.noise2(x*0.00018, z*0.00018);       // large regions
   const mountainMask = Math.max(0, Noise.noise2(x*0.00035+100, z*0.00035-50)); // where mountains rise
   let mtn = Noise.noise2(x*0.0009, z*0.0009);
-  mtn = 1 - Math.abs(mtn);                                     // ridged
+  // ridged, with a soft abs: the hard |n| crease was thinner than one 20.8 m terrain vertex,
+  // so every crest rendered as an evenly spaced comb of spikes. Rounds the top ~45 m wide.
+  mtn = 1 - Math.sqrt(mtn*mtn + 0.008);
   mtn = mtn*mtn;
   const hills = Noise.noise2(x*0.0022, z*0.0022);
   const detail = Noise.noise2(x*0.008, z*0.008);
