@@ -1519,6 +1519,7 @@ const Voice = (function(){
     const out=c.createGain(); out.gain.value=0; out.connect(G.bus);       // line envelope
     const gl=c.createGain(); gl.gain.value=1; gl.connect(out);           // glitch/dropout stage
     const inp=c.createGain(); inp.gain.value=hm.gain;                    // chain input (sources connect here)
+    const D=[out, inp];   // outputs severed after the tail: frees shared-bus edges + breaks the HELIOS comb feedback cycle
     let lead=0, extra=0, glitchy=/[̀-ͯ]/.test(it.text);
     const dur=buf.duration;
     // ---- sources (HELIOS may stutter: the clip is spliced so a 55 ms grain repeats twice) ----
@@ -1564,7 +1565,7 @@ const Voice = (function(){
       const comp=c.createDynamicsCompressor(); comp.threshold.value=-16; comp.knee.value=6; comp.ratio.value=4; comp.attack.value=0.002; comp.release.value=0.12;
       const shelf=biq('highshelf',5200,null,2.0);
       chainN(hp, comp, shelf, gl);
-      const rs=gainN(0.05); shelf.connect(rs); rs.connect(G.room);   // just a hint of room, never radio grime
+      const rs=gainN(0.05); shelf.connect(rs); rs.connect(G.room); D.push(rs);   // just a hint of room, never radio grime
     } else if(p.fx==='machine'){
       // cold synthetic AI: comb resonance + ring-mod + bright top, digital chirps instead of squelch
       lead=0.1;
@@ -1575,10 +1576,10 @@ const Voice = (function(){
       const rm=c.createGain(); rm.gain.value=0; const ro=c.createOscillator(); ro.frequency.value=p.deep?38:(glitchy?95:72); ro.connect(rm.gain);
       ro.start(now); ro.stop(end+0.4); L.push(ro); const rw=gainN(glitchy?0.55:0.36); hp.connect(rm); rm.connect(rw); rw.connect(sum);
       const dl=c.createDelay(0.05); dl.delayTime.value=p.deep?0.0081:0.0057; const fb=gainN(0.52); const cw=gainN(0.34);
-      hp.connect(dl); dl.connect(fb); fb.connect(dl); dl.connect(cw); cw.connect(sum);
+      hp.connect(dl); dl.connect(fb); fb.connect(dl); D.push(fb); dl.connect(cw); cw.connect(sum);
       const w=c.createWaveShaper(); w.curve=curve(1.4);
-      chainN(sum, biq('highshelf',3600,null,4.5), biq('peaking',850,1.1,-3.5), biq('lowpass',9000,0.7), w, gl);
-      const rs=gainN(0.16); w.connect(rs); rs.connect(G.room);
+      chainN(sum, biq('highshelf',3600,null,4.5), biq('peaking',850,1.1,-3.5), biq('lowpass',9000,0.7), w, gainN(1.35), gl);   // +2.6 dB makeup: the mid cut + comb otherwise sink HELIOS under the engine
+      const rs=gainN(0.16); w.connect(rs); rs.connect(G.room); D.push(rs);
       if(glitchy) dropouts(gl, t, dur+extra, 3, 0.05); else if(Math.random()<0.5) dropouts(gl, t, dur+extra, 1, 0.15);
       tone(now, 2200, 3600, 0.045, 0.045, G.bus, L); tone(now+0.05, 3600, 1800, 0.035, 0.04, G.bus, L);
       tone(end+0.02, 2600, 700, 0.09, 0.04, G.bus, L); tone(end+0.12, 1400, 1400, 0.03, 0.03, G.bus, L, 'square');
@@ -1587,7 +1588,7 @@ const Voice = (function(){
       lead=0.38;
       const t=now+lead; extra=planSources(t); const end=t+dur+extra;
       const dark=chainN(inp, biq('lowpass',2300,0.6), biq('lowshelf',220,null,5)); const dry=gainN(0.8); dark.connect(dry); dry.connect(gl);
-      const hs=gainN(0.6); dark.connect(hs); hs.connect(G.hall);
+      const hs=gainN(0.6); dark.connect(hs); hs.connect(G.hall); D.push(hs);
       const air=biq('highpass',2900,0.7); inp.connect(air);
       for(const [d,pan,v] of [[0.019,-0.55,0.30],[0.034,0.55,0.24]]){ const dl=c.createDelay(0.1); dl.delayTime.value=d; const g=gainN(v);
         air.connect(dl); dl.connect(g); if(c.createStereoPanner){ const pn=c.createStereoPanner(); pn.pan.value=pan; g.connect(pn); pn.connect(gl); } else g.connect(gl); }
@@ -1598,12 +1599,13 @@ const Voice = (function(){
       // NARRATOR / in-person: clean, a little room
       lead=0.0; const t=now; extra=planSources(t);
       const hp=biq('highpass',75,0.7); inp.connect(hp); hp.connect(gl);
-      const rs=gainN(p.room||0.12); hp.connect(rs); rs.connect(G.room);
+      const rs=gainN(p.room||0.12); hp.connect(rs); rs.connect(G.room); D.push(rs);
     }
     for(const x of srcs){ if(x.len!=null) x.s.start(x.at, x.off, x.len); else x.s.start(x.at, x.off); }
     const tEnd=now+lead+dur+extra;
     out.gain.setValueAtTime(0,now); out.gain.linearRampToValueAtTime(1,now+0.012);
     out.gain.setValueAtTime(1,tEnd); out.gain.linearRampToValueAtTime(0,tEnd+0.06);
+    setTimeout(()=>{ for(const x of D){ try{ x.disconnect(); }catch(e){} } }, (tEnd-c.currentTime+4)*1000);
     return { lead:lead+0.02, dur:dur+extra, out, L, tEnd };
   }
   function killWA(h, fade){   // fade out + stop a playing line (interrupt / pause / stop)
@@ -1679,7 +1681,7 @@ const Voice = (function(){
   }
   function audible(){ return on && vol>0.001; }
   function start(it){
-    cur=it; it.startAt=vnow; it.phase='play'; it.h=null;
+    cur=it; it.startAt=vnow; it.phase='play'; it.h=null; it.subDone=false;
     let lead=0, dur=null, clip=false;
     const c=Audio.ctx(); const uri=VOICE_CLIPS[it.key];
     if(audible() && uri){
@@ -1701,7 +1703,7 @@ const Voice = (function(){
     if(dur==null) dur=est(it.text);
     it.lead=lead; it.clip=clip; setEnd(it, dur);
     recent[it.key]=vnow;
-    if(it.sub) showSub(it);
+    if(it.sub && inFlight()){ it.subDone=true; showSub(it); }
     if(clip && !ducked){ ducked=true; try{ Audio.voiceDuck(true); }catch(e){} }
     T('start', it, {dur:+dur.toFixed(3), clip, lead:+lead.toFixed(3)});
     try{ EV.emit('voiceLine', {spk:it.spk, text:it.text, kind:it.kind, prio:it.prio, key:it.key, dur, clip}); }catch(e){}
@@ -1714,8 +1716,10 @@ const Voice = (function(){
     try{ EV.emit('voiceEnd', {spk:it.spk, text:it.text, kind:it.kind, key:it.key}); }catch(e){}
   }
   function interrupt(why){ if(!cur) return; const it=cur; if(it.h) killWA(it.h, 0.06); finish(it, why); lastEnd=vnow-0.2; }
+  // radio subtitles only in flight: over the result/menu overlays they would just duplicate text (the audio still plays)
+  function inFlight(){ try{ return state==='playing'; }catch(e){ return true; } }
   function showSub(it){
-    if(!subsOn()) return;
+    if(!subsOn() || !inFlight()) return;
     try{ const el=dom.radio; el.querySelector('.rspk').textContent = it.spk?('» '+it.spk+':'):''; el.querySelector('.rtext').textContent=it.text;
       el.dataset.spk=it.spk; el.dataset.prio=it.prio; el.classList.add('show'); subShown=true; }catch(e){}
   }
@@ -1725,11 +1729,12 @@ const Voice = (function(){
     vnow+=d;
     // age + expire queued lines
     if(queue.length){
-      for(const q of queue) if(busyWithOther(q)) q.wait+=d;
-      queue=queue.filter(q=>{
-        if(q.prio==='bark' && vnow-q.t0>BARK_MAXAGE){ T('drop', q, {why:'stale'}); return false; }
-        if(q.prio==='normal' && q.wait>(q.ttl!=null?q.ttl:NORMAL_MAXWAIT)){ T('drop', q, {why:'expired'}); return false; }
-        return true; });
+      let w=0;   // in-place filter: no per-frame array allocation
+      for(let i=0;i<queue.length;i++){ const q=queue[i]; if(busyWithOther(q)) q.wait+=d;
+        if(q.prio==='bark' && vnow-q.t0>BARK_MAXAGE){ T('drop', q, {why:'stale'}); continue; }
+        if(q.prio==='normal' && q.wait>(q.ttl!=null?q.ttl:NORMAL_MAXWAIT)){ T('drop', q, {why:'expired'}); continue; }
+        queue[w++]=q; }
+      queue.length=w;
     }
     if(cur && vnow>=cur.endAt) finish(cur);
     let guard=4;
@@ -1745,6 +1750,8 @@ const Voice = (function(){
       // prefetch the next two queued lines
       for(let i=0;i<Math.min(2,queue.length);i++) prefetch(queue[i].key);
     }
+    if(subShown && !inFlight()) hideSub();
+    else if(cur && cur.sub && !cur.subDone && !subShown && inFlight()){ cur.subDone=true; showSub(cur); }   // line began before the flight screen was up (mission intro)
     if(subShown && subHideAt && vnow>=subHideAt && !(cur && cur.sub)) hideSub();
     if(ducked && !cur && vnow>lastEnd+0.45){ ducked=false; try{ Audio.voiceDuck(false); }catch(e){} }
   }
@@ -1760,7 +1767,7 @@ const Voice = (function(){
     const g=++grp; let first=true;
     if(o.now){ queue=queue.filter(q=>{ if(q.prio!=='crit'){ T('drop', q, {why:'preempted'}); return false; } return true; }); if(cur && cur.prio==='bark') interrupt('now'); }
     for(const x of list){ const isObj=x&&typeof x==='object'; const l=isObj?(x.line||''):x;
-      const it=mk(l, Object.assign({}, o, isObj?x:{}, {group:g, delay:first?(o.delay||0):0, pause:first?0:(o.pause||0)}));
+      const it=mk(l, Object.assign({}, o, isObj?x:{}, {group:g, delay:first?(o.delay||0):0, pause:first?0:(o.pause!=null?o.pause:(o.gap||0))}));
       first=false; enqueue(it); }
     tick(0);
   }
@@ -4180,7 +4187,7 @@ function queueRadio(lines, gap){
   // becomes the extra pause on top of that — converted from the old absolute value so
   // existing call sites (~3.2-3.6s, tuned for a ~2s line) still feel about right.
   if(!lines || !lines.length) return;
-  const extra = gap!=null ? Math.max(0, gap-2.0) : undefined;
+  const extra = gap!=null ? Math.max(0, Math.min(1.2, gap-3.0)) : 0;   // 3.4 -> +0.4 s, 3.6 -> +0.6 s on top of the natural 0.26-0.68 s
   Voice.lines(lines, {gap:extra});
 }
 function updateRadio(dt){
