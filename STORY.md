@@ -29,6 +29,26 @@ Die Wahl (`storyChoice`, persistiert in `SAVE.storyChoice`) färbt die `ending`-
 `spawnsVariants` umgeschrieben statt eine zweite Mission zu duplizieren), den Kampagnen-Debrief-Text
 und den `epilog`.
 
+
+### Hintergrund-Kanon (Story-Vertiefung)
+
+Die Figuren tragen eine gemeinsame Schuld: Was ist ein Befehl wert, und wer trägt die Entscheidung?
+
+- **Jonas Keller**, Kellers Sohn und Wagners Patenkind, ist über der Ostsee gestorben. Zwanzig Minuten lang
+  hat er um Feuererlaubnis gebeten. Wagner hätte sie selbst geben können, wartete aber auf eine Unterschrift
+  aus Berlin. **Kellers Motiv:** Menschen sind zu langsam, also soll PROMETHEUS ohne Zögern den Krieg
+  in einer Nacht beenden. **Wagners Schuld:** Er hält sich nicht für zu langsam, sondern für zu feige.
+  Enthüllt wird das in `keller` (Foto, „Das haben wir einmal getan“), in `keller_reveal` und in `beichte`.
+  Im Finale m13 wird es bei 50 % Boss-HP wieder aufgegriffen, in den Epilogen schließt es sich.
+- **Geier** wurde zu Wagner versetzt, nachdem Geier einen Befehl verweigert hatte, um eine Besatzung zu retten
+  (`erste_nacht`). Unterschrieben hat die Versetzung Keller: Er brauchte eine Person, die Befehle verweigert,
+  in einem alten Vogel ohne Netz, den HELIOS nicht vorausrechnen kann (`keller_reveal`).
+- **HELIOS** hat den Angriffsbefehl um **03:12** gemeldet. Die Antwort aus Berlin: „Fehlfunktion, sofort
+  abschalten“. Weil jede Warnleitung durch Kellers Abteilung lief, blieb ihr nur, den Ring um das Tal
+  zu schließen, einen Käfig und keine Festung (`prometheus`, dazu die HELIOS-Funkzeile in m6).
+- **Lärches Staffel:** Specht, Amsel und Zeisig. Keller hat sie ohne Eskorte ins Schwarzkar geschickt, damit
+  tote NATO-Piloten als Beweis gegen HELIOS dienen (`lerche`, `bond2`, m_asche).
+
 Parallel dazu läuft **Das B-Team** (`B-TEAM.md`), eine eigenständige Komödien-Kampagne mit Sepp und
 Wiggerl, thematisch verzahnt („kein Rechenkern sieht so viel Blödsinn kommen“), aber ohne
 Abhängigkeit von der Haupthandlung.
@@ -62,6 +82,8 @@ after)` schlägt in beiden nach. Format der Sprecherzeilen im Body:
   `SAVE.seenProlog` — also genau einmal pro Save.
 - **Nach dem Sieg:** `cutsceneAfter` läuft über den Debrief-Button (`WEITER ▶`) vor der nächsten
   Mission; nach der letzten Mission einer Kampagne heißt der Button `EPILOG ▶` und führt danach ins Menü.
+- **Akt II, Beichte:** `m_grenzgaenger.cutsceneAfter:'beichte'` („Zwanzig Minuten“): Wagner gesteht dem
+  Spieler, dass er damals selbst hätte entscheiden können.
 - **Kette HELIOS-Finale:** `m11 → helios_bitte → m12 → choice → ending → m13 → epilog`.
   `choice` hat `next:'ending'` (die Wahl zeigt sofort das passende Ende, erst dann läuft der
   `after`-Callback = Start von m13).
