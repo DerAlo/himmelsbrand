@@ -1438,7 +1438,7 @@ const Audio = (function(){
     warnGain = ctx.createGain(); warnGain.gain.value=0; warnOsc.connect(warnGain); warnGain.connect(master); warnOsc.start();
 
     // ---- Adaptive music bus + layers (all under SFX) ----
-    musicBus=ctx.createGain(); musicBus.gain.value=0.62; musicBus.connect(master);
+    musicBus=ctx.createGain(); musicBus.gain.value=hardDuck?0:musicLevel; musicBus.connect(master);
     padGain  =ctx.createGain(); padGain.gain.value=0.0;   padGain.connect(musicBus);
     bassGain =ctx.createGain(); bassGain.gain.value=0.0;  bassGain.connect(musicBus);
     arpGain  =ctx.createGain(); arpGain.gain.value=0.0;   arpGain.connect(musicBus);
@@ -1631,9 +1631,13 @@ const Audio = (function(){
   // setEngine leaves non-zero floors, so we need this when leaving gameplay/pausing.
   function silenceFlight(){ if(!enabled) return; const t=ctx.currentTime;
     for(const g of [subGain,whineGain,roarGain,airGain,warnGain]) if(g) g.gain.setTargetAtTime(0, t, 0.08); }
-  function duckMusic(on){ if(!enabled||!musicBus) return; musicBus.gain.setTargetAtTime(on?0.0:0.62, ctx.currentTime, 0.12); }
+  // Music level = 0.62 * user music volume (settings). Hard duck (pause) wins over the voice duck.
+  let musicLevel=0.62, hardDuck=false, vDuck=false;
+  const musicTarget=()=> hardDuck?0:(vDuck?musicLevel*0.35:musicLevel);
+  function setMusicLevel(v){ musicLevel=0.62*Math.max(0,Math.min(1,+v||0)); if(enabled&&musicBus) musicBus.gain.setTargetAtTime(musicTarget(), ctx.currentTime, 0.12); }
+  function duckMusic(on){ hardDuck=!!on; if(!enabled||!musicBus) return; musicBus.gain.setTargetAtTime(musicTarget(), ctx.currentTime, 0.12); }
   // Softer duck for speech (VOICE): ~35% instead of silent, so a line reads clearly without killing the score.
-  function voiceDuck(on){ if(!enabled||!musicBus) return; musicBus.gain.setTargetAtTime(on?0.62*0.35:0.62, ctx.currentTime, on?0.15:0.4); }
+  function voiceDuck(on){ vDuck=!!on; if(!enabled||!musicBus||hardDuck) return; musicBus.gain.setTargetAtTime(musicTarget(), ctx.currentTime, on?0.15:0.4); }
   function reload(){ blip(500,0.08,'sine',0.2,800); setTimeout(()=>blip(700,0.1,'sine',0.2,1000),90); }
   function bombDrop(){ noiseBurst(0.25,0.35,900); blip(300,0.2,'sine',0.18,90); }
   function samLaunch(pan){ const d=panNode(pan); noiseBurst(0.6,0.4,1200,'lowpass',d); blip(500,0.6,'sawtooth',0.2,140,d); }
@@ -1699,7 +1703,7 @@ const Audio = (function(){
     bogey:bogeyGain?bogeyGain.gain.value:0, missileVoices:missileVoiceCount }; }
 
   return { init, resume, setEngine, gun, missileLaunch, explosion, hit, hitTaken, lockTone, reload, bombDrop, samLaunch, warnBeep,
-    updateMusic, updateBogey, setStyle, silenceFlight, duckMusic, voiceDuck, startMissileSound, updateMissileSound, stopMissileSound, _debug,
+    updateMusic, updateBogey, setStyle, silenceFlight, duckMusic, voiceDuck, setMusicLevel, startMissileSound, updateMissileSound, stopMissileSound, _debug,
     // Extension points for sound code living in OTHER sections (landing, bosses, voice radio FX, ...):
     // build nodes on ctx() and connect them to out() (SFX master) or musicBus(). ctx() is null until init().
     ctx:()=> (enabled?ctx:null), out:()=>master, musicBus:()=>musicBus };
@@ -6390,18 +6394,8 @@ function gfxLabel(l){ return l==='high'?'HOCH': l==='medium'?'MITTEL': l==='low'
 function subsOn(){ try{ return localStorage.getItem(SUBS_KEY)!=='0'; }catch(e){ return true; } }
 function setSubsOn(on){ try{ localStorage.setItem(SUBS_KEY, on?'1':'0'); }catch(e){} }
 function musicVol(){ try{ const v=localStorage.getItem(MUSICVOL_KEY); return v===null?1:Math.max(0,Math.min(1,parseFloat(v))); }catch(e){ return 1; } }
-// Music volume scales the music bus' un-ducked level (0.62). Audio.duckMusic(false) resets the
-// bus to 0.62 on every menu/mission/resume, so wrap the public duckMusic to re-apply the scale.
-let musicDucked=false;
-function applyMusicGain(){
-  const c=Audio.ctx&&Audio.ctx(), mb=Audio.musicBus&&Audio.musicBus();
-  if(!c||!mb||!mb.gain||musicDucked) return;
-  mb.gain.cancelScheduledValues(c.currentTime); mb.gain.setTargetAtTime(0.62*musicVol(), c.currentTime, 0.12);
-}
-if(typeof Audio.duckMusic==='function'){
-  const _duck=Audio.duckMusic;
-  Audio.duckMusic=function(on){ musicDucked=!!on; const r=_duck.apply(this, arguments); if(!on) applyMusicGain(); return r; };
-}
+// Music volume scales the music bus level inside Audio (duckMusic/voiceDuck both honour it).
+function applyMusicGain(){ if(Audio.setMusicLevel) Audio.setMusicLevel(musicVol()); }
 function setMusicVol(v){
   v=Math.max(0,Math.min(1,v));
   try{ localStorage.setItem(MUSICVOL_KEY, String(v)); }catch(e){}
