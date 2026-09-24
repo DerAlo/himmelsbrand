@@ -2491,7 +2491,7 @@ if (typeof THREE.EffectComposer==='function' && typeof THREE.RenderPass==='funct
       // stencilBuffer:true makes r128 allocate DEPTH24_STENCIL8 instead of a 16-bit depth
       // buffer. Without it the runway decals z-fought away entirely under post-FX.
       { minFilter:THREE.LinearFilter, magFilter:THREE.LinearFilter, format:THREE.RGBAFormat, stencilBuffer:true,
-        type: _hdr ? THREE.HalfFloatType : THREE.UnsignedByteType });
+        type: (_hdr && GFX.level()!=='low') ? THREE.HalfFloatType : THREE.UnsignedByteType });   // low keeps 8 bit: half the bandwidth, the shoulder still rolls off below 1.0
     const _gl2=renderer.getContext();
     let _maxS=_gl2.getParameter(_gl2.MAX_SAMPLES)||4;
     if(_hdr){ try{ const s=_gl2.getInternalformatParameter(_gl2.RENDERBUFFER, _gl2.RGBA16F, _gl2.SAMPLES); if(s && s.length) _maxS=Math.min(_maxS, s[0]); }catch(e){} }
@@ -2500,7 +2500,10 @@ if (typeof THREE.EffectComposer==='function' && typeof THREE.RenderPass==='funct
     _ct.samples=Math.min(MSAA_SAMPLES[GFX.level()]||8, _maxS);
     // the composer renders into its clone of _ct (renderTarget2 = readBuffer); dispose makes r128 re-allocate on next bind
     GFX.onChange(function(level){ const s=Math.min(MSAA_SAMPLES[level]||8, _maxS);
-      for(const rt of [composer.renderTarget1, composer.renderTarget2]) if(rt.samples!==s){ rt.samples=s; rt.dispose(); } });
+      for(const rt of [composer.renderTarget1, composer.renderTarget2]) if(rt.samples!==s){ rt.samples=s; rt.dispose(); }
+      const T=(_hdr && level!=='low') ? THREE.HalfFloatType : THREE.UnsignedByteType;
+      for(const rt of [composer.renderTarget1, composer.renderTarget2, bloomPass.renderTargetBright, ...bloomPass.renderTargetsHorizontal, ...bloomPass.renderTargetsVertical])
+        if(rt && rt.texture.type!==T){ rt.texture.type=T; rt.dispose(); } });
   }
   composer = _ct ? new THREE.EffectComposer(renderer, _ct) : new THREE.EffectComposer(renderer);
   composer.addPass(new THREE.RenderPass(scene,camera));
