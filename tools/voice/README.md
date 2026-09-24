@@ -43,10 +43,12 @@ Pfade).
    Archetypen für Sprecher, die noch nicht namentlich erfasst sind.
 3. **`bake.py`** generiert pro Zeile bis zu 3 Kandidaten (Chatterbox) bzw. 1 (Piper, deterministisch),
    lässt jeden durch `qa.py` laufen (WER/CER, MOS, Sprecherähnlichkeit, F0, Lautstärke/Clipping/
-   Stille-Sanity) und nimmt den besten. Danach: Mono-Downmix, optionaler Pitch-Shift/Zeit-Stretch,
-   Stille am Anfang/Ende auf ~80 ms getrimmt, Loudness-Normalisierung auf -18 LUFS / Peak -1 dBTP,
-   MP3-Encode (mono, ~48 kbps via ffmpeg). Cache-Key: `{key}_{engine}_{casting-hash}` unter
-   `D:/tts-bake/cache/clips/` — ein Re-Bake generiert nur, was sich wirklich geändert hat.
+   Stille-Sanity) und nimmt den besten. Danach: Mono-Downmix (**kein** Pitch-Shift/Zeit-Stretch mehr —
+   ruiniert die MOS massiv, siehe `report/bakeoff.md` "Bekannte Grenzen"; Stimmdifferenzierung läuft
+   nur noch über Referenzwahl + `exaggeration`/`cfg_weight`/`temperature`), Stille am Anfang/Ende auf
+   ~80 ms getrimmt, Loudness-Normalisierung auf -18 LUFS / Peak -1 dBTP, MP3-Encode (mono, ~48 kbps via
+   ffmpeg). Cache-Key: `{key}_{engine}_{casting-hash}` unter `D:/tts-bake/cache/clips/` — ein Re-Bake
+   generiert nur, was sich wirklich geändert hat.
 4. **`voice_clips.js`** wird mit exakt erhaltenen `/*CLIPS*/…/*/CLIPS*/`- und
    `/*DUR*/…/*/DUR*/`-Markern geschrieben (regex-basiertes Merge), damit `--only-missing` bestehende
    Einträge nicht anfasst.
@@ -81,7 +83,8 @@ Beide Quellen sind damit für ein potenziell kommerzielles Spiel unbedenklich.
 ## Casting (`casting.json`)
 
 Pro Sprecher: `engine`, Referenz/Stimme, Basisparameter (`exaggeration`, `cfg_weight`,
-`temperature`, `speed`, optional `pitch_semitones`, `polish`, `lax`). `moods` sind Deltas,
+`temperature`, `polish`, `lax`; `speed`/`pitch_semitones` sind reine Doku-Reste ohne Wirkung mehr,
+siehe `_comment2` in `casting.json`). `moods` sind Deltas,
 die anhand des Sprechhinweis-Textes (z. B. "(wütend)") automatisch angewendet werden — siehe
 `resolve_params()` in `bake.py`. `archetypes` sind Fallback-Presets (officer_f/m, boss_ai,
 boss_pilot_m, old_bavarian_m, young_m/f, narrator) für Sprecher, die noch keinen eigenen Eintrag
