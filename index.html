@@ -444,7 +444,8 @@
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/BufferGeometryUtils.js"></script>
-<script src="voice_clips.js"></script>
+<!-- voice_clips.js (4-5 MB of pre-rendered speech) is inserted asynchronously by VoiceLoader in 2b VOICE,
+     once the page is idle, so it never blocks startup. -->
 <script>
 "use strict";
 /* ============================================================================
@@ -1631,6 +1632,8 @@ const Audio = (function(){
   function silenceFlight(){ if(!enabled) return; const t=ctx.currentTime;
     for(const g of [subGain,whineGain,roarGain,airGain,warnGain]) if(g) g.gain.setTargetAtTime(0, t, 0.08); }
   function duckMusic(on){ if(!enabled||!musicBus) return; musicBus.gain.setTargetAtTime(on?0.0:0.62, ctx.currentTime, 0.12); }
+  // Softer duck for speech (VOICE): ~35% instead of silent, so a line reads clearly without killing the score.
+  function voiceDuck(on){ if(!enabled||!musicBus) return; musicBus.gain.setTargetAtTime(on?0.62*0.35:0.62, ctx.currentTime, on?0.15:0.4); }
   function reload(){ blip(500,0.08,'sine',0.2,800); setTimeout(()=>blip(700,0.1,'sine',0.2,1000),90); }
   function bombDrop(){ noiseBurst(0.25,0.35,900); blip(300,0.2,'sine',0.18,90); }
   function samLaunch(pan){ const d=panNode(pan); noiseBurst(0.6,0.4,1200,'lowpass',d); blip(500,0.6,'sawtooth',0.2,140,d); }
@@ -1696,95 +1699,564 @@ const Audio = (function(){
     bogey:bogeyGain?bogeyGain.gain.value:0, missileVoices:missileVoiceCount }; }
 
   return { init, resume, setEngine, gun, missileLaunch, explosion, hit, hitTaken, lockTone, reload, bombDrop, samLaunch, warnBeep,
-    updateMusic, updateBogey, setStyle, silenceFlight, duckMusic, startMissileSound, updateMissileSound, stopMissileSound, _debug,
+    updateMusic, updateBogey, setStyle, silenceFlight, duckMusic, voiceDuck, startMissileSound, updateMissileSound, stopMissileSound, _debug,
     // Extension points for sound code living in OTHER sections (landing, bosses, voice radio FX, ...):
     // build nodes on ctx() and connect them to out() (SFX master) or musicBus(). ctx() is null until init().
     ctx:()=> (enabled?ctx:null), out:()=>master, musicBus:()=>musicBus };
 })();
 
 /* ---------------------------------------------------------------------------
-   2b. VOICE — spoken radio lines via the Web Speech API (offline, no assets).
-   There is no Bavarian TTS voice, but a German voice reading our dialect-spelled
-   lines + per-character pitch/rate lands as a fun pseudo-Bairisch for the B-Team.
-   Toggle with V. Degrades silently where speechSynthesis is unavailable.
+   2b. VOICE — every spoken line (radio + cutscene VO) goes through ONE sequential
+   scheduler: subtitle and clip start together, the subtitle stays as long as the
+   clip (+tail) or a reading-time estimate, and the next line follows after a
+   short natural gap. Pre-rendered clips (voice_clips.js, loaded async once the
+   page is idle) play through Web Audio with a per-speaker FX chain (radio
+   band-pass + squelch, a cold synthetic chirp for HELIOS, an eerie reverb for
+   STIMME, a clean room tone for NARRATOR, a broken 'intercept' for '?') and duck
+   the music while speech runs. Priorities: 'crit' (never dropped, may interrupt
+   a bark) / 'normal' (default, expires if stale) / 'bark' (only into silence,
+   per-speaker cooldown). Toggle with V. Never throws: every failure degrades to
+   a silent, correctly-timed subtitle.
    --------------------------------------------------------------------------- */
-// Pre-rendered radio voice clips (XTTS-v2, embedded as data: MP3). Key = fnv-1a(speaker+'|'+text).
-const VOICE_CLIPS = window.VOICE_CLIPS || {};   // loaded from voice_clips.js (generated asset, kept out of this file)
+// Pre-rendered voice clips: key = voiceKey(speaker+'|'+text) -> data:audio URI (any MIME: mp3/m4a/ogg).
+// Both objects keep their identity; voice_clips.js (written by the TTS bake) is merged into them when it arrives.
+const VOICE_CLIPS = {};
+const VOICE_DUR = {};     // optional key -> seconds (window.VOICE_DUR from voice_clips.js), refines the estimate
 function voiceKey(s){ let h=0x811c9dc5>>>0; const b=new TextEncoder().encode(s); for(let i=0;i<b.length;i++){ h^=b[i]; h=Math.imul(h,0x01000193)>>>0; } return (h>>>0).toString(16).padStart(8,'0'); }
-// Cutscene voice-over: cutsceneId -> ordered [[clipKey, speaker], ...] (narration = NARRATOR).
-const CUTSCENE_VO = /*CVO*/{"act2intro":[["8b5716f4","NARRATOR"],["b79fce9f","WAGNER"],["4a077885","NARRATOR"]],"lerche":[["7b556e87","LÄRCHE"],["c6bf0cf8","NARRATOR"]],"prometheus":[["42f054db","NARRATOR"],["4d074ff3","LÄRCHE"],["8e186896","NARRATOR"]],"bond1":[["afb4f4d2","NARRATOR"],["29053309","LÄRCHE"],["e319c5b7","NARRATOR"],["f715a0b2","LÄRCHE"],["608746e0","NARRATOR"]],"bond2":[["2f16f7d7","NARRATOR"],["22a74e9c","LÄRCHE"],["929295ff","NARRATOR"],["f20f8327","LÄRCHE"],["16bfbab1","NARRATOR"]],"bond3":[["4d58eacc","NARRATOR"],["d9acfc4c","LÄRCHE"],["ecea6abe","NARRATOR"],["b3d3d34c","LÄRCHE"],["4d9c5a66","NARRATOR"]],"confession":[["6fb7cf34","NARRATOR"],["23278cdc","LÄRCHE"],["ad765ea2","NARRATOR"],["0362f9e8","LÄRCHE"],["02c58322","NARRATOR"],["c4324dcd","WAGNER"]],"choice":[["a54055f4","NARRATOR"]],"bt_draft":[["1501cc9f","NARRATOR"],["12843adc","NARRATOR"],["34c185ff","NARRATOR"],["19f349ce","WAGNER"],["83c4ffc4","SEPP"],["7040fc3a","NARRATOR"]],"bt_groove":[["929798ff","NARRATOR"],["e21c2025","WIGGERL"],["f730edec","SEPP"],["24e4dedf","NARRATOR"]],"bt_final":[["652df068","NARRATOR"],["1de03a81","NARRATOR"],["58e05aae","NARRATOR"],["6559cfb8","SEPP"],["be9fb5c5","WIGGERL"],["adfd2a80","SEPP"]],"ending_trust":[["3ec9ff13","NARRATOR"],["cf3c8882","HELIOS"],["584deef1","NARRATOR"],["ffe46158","LÄRCHE"]],"ending_human":[["3fe79628","NARRATOR"],["10d55b2d","LÄRCHE"],["2d29a730","NARRATOR"]]}/*/CVO*/;
-const Voice = (function(){
-  const synth = ('speechSynthesis' in window) ? window.speechSynthesis : null;
-  let ok = !!synth, on = true;   // default ON — lines are pre-rendered real voices now (toggle with V)
-  const FEMALE=/anna|petra|helena|katja|hedda|marlene|amelie|klara|steffi|female|weiblich/i;
-  const MALE  =/markus|viktor|yannick|hans|conrad|stefan|klaus|ralf|reed|boris|male|männlich/i;
-  // per-speaker character: pitch/rate + preferred gender pool + a distinctness slot
-  const CH = {
-    SEPP:    {pitch:0.55,rate:0.95, pref:'m', slot:0},
-    WAGNER:  {pitch:0.85,rate:1.00, pref:'m', slot:2},
-    WIGGERL: {pitch:1.40,rate:1.08, pref:'m', slot:1},
-    'LÄRCHE':{pitch:1.12,rate:1.00, pref:'f', slot:0},
-    HELIOS:  {pitch:0.40,rate:0.78, pref:'m', slot:0},
-    STIMME:  {pitch:0.35,rate:0.75, pref:'m', slot:0},
-    '?':     {pitch:1.05,rate:1.00, pref:'f', slot:0},
-    KELLER:  {pitch:0.92,rate:1.00, pref:'m', slot:3},
-    KIEBITZ: {pitch:1.08,rate:1.05, pref:'f', slot:1},
-  };
-  let assigned={};   // speaker -> a concrete SpeechSynthesisVoice (distinct where possible)
-  function pickVoices(){
-    if(!ok) return;
-    const vs = synth.getVoices()||[];
-    const de = vs.filter(v=>/^de/i.test(v.lang));
-    const pool = de.length?de:vs;
-    assigned={}; if(!pool.length) return;
-    const males   = pool.filter(v=>MALE.test(v.name));
-    const females = pool.filter(v=>FEMALE.test(v.name));
-    const others  = pool.filter(v=>!MALE.test(v.name)&&!FEMALE.test(v.name));
-    const malePool   = males.length?males:(others.length?others:pool);
-    const femalePool = females.length?females:(others.length?others:pool);
-    const nth=(list,i)=>list[i%list.length];
-    for(const spk in CH){ const c=CH[spk];
-      assigned[spk] = nth(c.pref==='f'?femalePool:malePool, c.slot) || pool[0];
-    }
+// Async loader: the multi-MB clip file must never block startup -> inserted once the page is idle.
+const VoiceLoader = (function(){
+  let state0='idle', resolveReady=null; const ready=new Promise(r=>{ resolveReady=r; });
+  function ingest(){
+    try{
+      const c=window.VOICE_CLIPS, d=window.VOICE_DUR;
+      if(c && c!==VOICE_CLIPS) Object.assign(VOICE_CLIPS, c);
+      if(d && d!==VOICE_DUR) Object.assign(VOICE_DUR, d);
+      window.VOICE_CLIPS=VOICE_CLIPS; window.VOICE_DUR=VOICE_DUR;
+    }catch(e){}
   }
-  if(ok){ pickVoices(); try{ synth.addEventListener('voiceschanged', pickVoices); }catch(e){} }
-  // Playback QUEUE: each line finishes before the next starts. We prefer a pre-rendered XTTS clip
-  // for this (speaker,text); if there's no clip (dynamic/templated lines) we stay SILENT rather than
-  // fall back to the old robotic speechSynthesis voice.
-  const CLIP_RATE = { HELIOS:0.82, STIMME:0.82 };   // deeper + slower = the verfremdet machine voice
-  let queue=[], speaking=false, curClip=null;
-  function pump(){
-    if(!on || speaking || !queue.length) return;
-    const it=queue.shift();
-    const dat = VOICE_CLIPS[it.key];
-    if(dat){
-      try{
-        const a=new window.Audio(dat); a.volume=0.95; a.playbackRate=CLIP_RATE[it.speaker]||1.0;   // window.Audio! the game's `const Audio` sound engine shadows the DOM constructor
-        curClip=a;
-        const nextUp=()=>{ if(curClip===a) curClip=null; speaking=false; pump(); };
-        a.onended=nextUp; a.onerror=nextUp;
-        speaking=true;
-        const pr=a.play(); if(pr&&pr.catch) pr.catch(nextUp);
-      }catch(e){ speaking=false; }
+  function done(ok){ ingest(); state0=ok?'loaded':'failed'; resolveReady(Object.keys(VOICE_CLIPS).length);
+    try{ EV.emit('voiceClips', {ok, n:Object.keys(VOICE_CLIPS).length}); }catch(e){} }
+  function load(){
+    if(state0!=='idle') return; state0='loading'; ingest();
+    try{
+      const s=document.createElement('script'); s.src='voice_clips.js'; s.async=true;
+      s.onload=()=>done(true); s.onerror=()=>{ console.warn('voice_clips.js not loaded — voice runs as silent subtitles'); done(false); };
+      document.head.appendChild(s);
+    }catch(e){ done(false); }
+  }
+  function schedule(){ const go=()=>setTimeout(load, 250);
+    if(document.readyState==='complete') go(); else window.addEventListener('load', go, {once:true}); }
+  ingest(); schedule();
+  return { ready, state:()=>state0, load };
+})();
+
+// Cutscene body HTML -> ordered spoken segments [{speaker, text, hint}]. Speech is
+// <span class="who">NAME:</span> „text" (a later bare „…" belongs to the last named speaker);
+// everything else is NARRATOR. Normalisation matches the retired precomputed clip generator
+// exactly (tags stripped, <br> = space, whitespace collapsed) so existing clip keys still hit.
+function cutsceneSegments(bodyHTML){
+  const out=[]; if(!bodyHTML) return out;
+  let s=String(bodyHTML)
+    .replace(/<span class="who">([\s\S]*?)<\/span>/g, (m,n)=>{ const t=n.replace(/<[^>]*>/g,'').trim(); return /:\s*$/.test(t) ? '\u0001'+t.replace(/:\s*$/,'')+'\u0002' : t; })
+    .replace(/<br\s*\/?>/gi,' ').replace(/<[^>]*>/g,'')
+    .replace(/&nbsp;/g,' ').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&');
+  const norm=t=>t.replace(/\s+/g,' ').trim();
+  let spk=null, hint='', narr='';
+  const flush=()=>{ const t=norm(narr); if(t) out.push({speaker:'NARRATOR', text:t, hint:''}); narr=''; };
+  const re=/\u0001([^\u0002]*)\u0002|„([^"“]*)["“]/g; let m, last=0;
+  while((m=re.exec(s))){
+    narr+=s.slice(last, m.index); last=re.lastIndex;
+    if(m[1]!==undefined){   // speaker tag: 'HAUPTMANN LÄRCHE' -> LÄRCHE, 'WAGNER (leise, über Funk)' -> WAGNER + hint
+      flush(); const par=/\(([^)]*)\)/.exec(m[1]); hint=par?par[1].trim():'';
+      const words=m[1].replace(/\([^)]*\)/g,'').trim().split(/\s+/); spk=words[words.length-1]||null;
+    } else { flush(); const t=norm(m[2]); if(t) out.push({speaker:spk||'NARRATOR', text:t, hint:spk?hint:''}); }
+  }
+  narr+=s.slice(last); flush();
+  return out;
+}
+// Every cutscene id -> its body (dynamic endings expand to 'ending_<variant>').
+function allCutsceneBodies(){
+  const res=[];
+  for(const src of [CUTSCENES, BTEAM_CUTSCENES]) for(const id in src){ const cs=src[id];
+    if(cs.dynamic && cs.variants){ for(const v in cs.variants) res.push({id:id+'_'+v, body:cs.variants[v].body}); }
+    else res.push({id, body:cs.body}); }
+  return res;
+}
+
+const Voice = (function(){
+  const LS_ON='himmelsbrand_voice', LS_VOL='himmelsbrand_voice_vol', LS_SUBS='himmelsbrand_subs';
+  const lsGet=k=>{ try{ return localStorage.getItem(k); }catch(e){ return null; } };
+  const lsSet=(k,v)=>{ try{ localStorage.setItem(k, String(v)); }catch(e){} };
+  const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+  let on = lsGet(LS_ON)!=='0';     // default ON
+  let vol = (()=>{ const v=parseFloat(lsGet(LS_VOL)); return isFinite(v)?clamp(v,0,1):0.9; })();
+  const subsOn=()=>lsGet(LS_SUBS)!=='0';
+
+  // ---- speaker characters (FX chains) ----
+  // radio: hp/lp = band edges, pk/pg = presence peak, drive = saturation, nz = noise bed, sq = squelch rate
+  const PROF = {
+    WAGNER:   {fx:'radio', hp:360, lp:3150, pk:1500, pg:4.5, drive:2.8, nz:0.016, sq:0.92, tower:true},   // ground station: boxy, a touch of roger-beep
+    'LÄRCHE': {fx:'radio', hp:310, lp:3500, pk:2300, pg:3.0, drive:1.6, nz:0.010, sq:1.05},              // cleanest cockpit set
+    SEPP:     {fx:'radio', hp:290, lp:3000, pk:1150, pg:5.5, drive:3.6, nz:0.017, sq:0.85},              // gruff, pushed hard
+    WIGGERL:  {fx:'radio', hp:470, lp:3700, pk:2700, pg:5.0, drive:2.1, nz:0.012, sq:1.15},              // tinny, bright
+    KIEBITZ:  {fx:'radio', hp:340, lp:3600, pk:2500, pg:3.2, drive:1.3, nz:0.008, sq:1.35, narrow:true}, // tower/approach: crisp, a bit narrower, light AM hiss
+    KELLER:   {fx:'studio'},         // human antagonist: conspicuously clean "good studio" sound
+    HELIOS:   {fx:'machine'},
+    PROMETHEUS:{fx:'machine', deep:true},
+    STIMME:   {fx:'eerie'},
+    NARRATOR: {fx:'clean', room:0.12},
+    '?':      {fx:'intercept'},
+  };
+  const RADIO_DEFAULT = {fx:'radio', hp:340, lp:3300, pk:1900, pg:4.0, drive:2.3, nz:0.013, sq:1.0};
+  function profileFor(it){
+    const p=PROF[it.spk] || (/^HELIOS/.test(it.spk)?PROF.HELIOS:RADIO_DEFAULT);
+    if(it.kind!=='cutscene' || p.fx==='machine' || p.fx==='eerie' || p.fx==='clean' || p.fx==='intercept' || p.fx==='studio') return p;
+    // in a cutscene people talk in person (room) unless the tag says it comes over the radio
+    return /funk/i.test(it.hint) ? p : {fx:'clean', room:0.20};
+  }
+  function hintMod(h){ h=(h||'').toLowerCase();
+    return { gain: /fl(ü|ue)ster|leise/.test(h)?0.78:(/schrei|brüll|wuet|wüt/.test(h)?1.08:1),
+             drive: /dringend|schrei|brüll|wuet|wüt|panik/.test(h)?1.35:1 }; }
+
+  // ---- Web Audio graph (lazy, rebuilt if the AudioContext changes) ----
+  let G=null;   // {c, bus, comp, room, hall, noise, sqOpen, sqClose, curves}
+  function noiseBuf(c, sec, shape){ const n=Math.max(1,(c.sampleRate*sec)|0), b=c.createBuffer(1,n,c.sampleRate), d=b.getChannelData(0);
+    for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*(shape?shape(i/n):1); return b; }
+  function irBuf(c, sec, decay, bright){ const n=(c.sampleRate*sec)|0, b=c.createBuffer(2,n,c.sampleRate);
+    for(let ch=0;ch<2;ch++){ const d=b.getChannelData(ch); let lp=0;
+      for(let i=0;i<n;i++){ const x=Math.random()*2-1; lp+= (x-lp)*bright; d[i]=lp*Math.pow(1-i/n, decay); } }
+    return b; }
+  function satCurve(k){ const n=1024, a=new Float32Array(n), nk=Math.tanh(k);
+    for(let i=0;i<n;i++){ const x=i/(n-1)*2-1; a[i]=Math.tanh(k*x)/nk; } return a; }
+  function graph(){
+    const c=Audio.ctx(); if(!c) return null;
+    if(G && G.c===c) return G;
+    try{
+      const bus=c.createGain(); bus.gain.value=vol*1.5;
+      const comp=c.createDynamicsCompressor(); comp.threshold.value=-20; comp.knee.value=10; comp.ratio.value=3.5; comp.attack.value=0.004; comp.release.value=0.22;
+      bus.connect(comp); comp.connect(Audio.out());
+      const room=c.createConvolver(); room.buffer=irBuf(c,0.55,3.2,0.35); const roomW=c.createGain(); roomW.gain.value=0.9; room.connect(roomW); roomW.connect(bus);
+      const hall=c.createConvolver(); hall.buffer=irBuf(c,3.2,2.2,0.18); const hallW=c.createGain(); hallW.gain.value=0.8; hall.connect(hallW); hallW.connect(bus);
+      G={ c, bus, comp, room, hall, noise:noiseBuf(c,2.0),
+          sqOpen:noiseBuf(c,0.05,x=>x<0.08?1:Math.pow(1-x,1.5)*0.7),
+          sqClose:noiseBuf(c,0.19,x=>(x<0.04?0.5:1)*Math.pow(1-x,2.2)),
+          curves:{} };
+      return G;
+    }catch(e){ console.warn('voice graph failed', e); G=null; return null; }
+  }
+  function curve(k){ const key=Math.round(k*10); return G.curves[key]||(G.curves[key]=satCurve(key/10)); }
+  // small node helpers (all per-line, garbage-collected after their sources stop)
+  function biq(type,f,q,gain){ const b=G.c.createBiquadFilter(); b.type=type; b.frequency.value=f; if(q!=null) b.Q.value=q; if(gain!=null) b.gain.value=gain; return b; }
+  function gainN(v){ const g=G.c.createGain(); g.gain.value=v; return g; }
+  function chainN(...n){ for(let i=0;i<n.length-1;i++) n[i].connect(n[i+1]); return n[n.length-1]; }
+  function burst(buf, t, vol, rate, filt, dest, L){   // one-shot buffer (squelch/noise)
+    const s=G.c.createBufferSource(); s.buffer=buf; s.playbackRate.value=rate||1; const g=gainN(vol);
+    if(filt){ s.connect(filt); filt.connect(g); } else s.connect(g); g.connect(dest); s.start(t); L.push(s); }
+  function tone(t, f0, f1, dur, vol, dest, L, type){   // chirp / beep
+    const o=G.c.createOscillator(); o.type=type||'sine'; o.frequency.setValueAtTime(f0,t); if(f1&&f1!==f0) o.frequency.exponentialRampToValueAtTime(f1,t+dur);
+    const g=G.c.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(vol,t+0.004); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(g); g.connect(dest); o.start(t); o.stop(t+dur+0.02); L.push(o); }
+  function noiseBed(t0, t1, level, filt, dest, L){
+    const s=G.c.createBufferSource(); s.buffer=G.noise; s.loop=true; const g=G.c.createGain();
+    g.gain.setValueAtTime(0,t0); g.gain.linearRampToValueAtTime(level,t0+0.03); g.gain.setValueAtTime(level,Math.max(t0+0.03,t1-0.04)); g.gain.linearRampToValueAtTime(0,t1);
+    s.connect(filt); filt.connect(g); g.connect(dest); s.start(t0, Math.random()*1.5); s.stop(t1+0.05); L.push(s); return g; }
+  function dropouts(g, t0, dur, n, depth){   // brief signal losses (glitch / weak link) on gain node g
+    for(let i=0;i<n;i++){ const td=t0+0.25+Math.random()*Math.max(0.1,dur-0.5), len=0.04+Math.random()*0.09;
+      g.gain.setValueAtTime(1,td); g.gain.linearRampToValueAtTime(depth,td+0.006); g.gain.setValueAtTime(depth,td+len); g.gain.linearRampToValueAtTime(1,td+len+0.008); } }
+
+  // Build + start the playback of one line. Returns {lead, dur, nodes} (timings in seconds from now).
+  function playWA(it, buf){
+    const c=G.c, L=[], p=profileFor(it), hm=hintMod(it.hint);
+    const now=c.currentTime+0.02;
+    const out=c.createGain(); out.gain.value=0; out.connect(G.bus);       // line envelope
+    const gl=c.createGain(); gl.gain.value=1; gl.connect(out);           // glitch/dropout stage
+    const inp=c.createGain(); inp.gain.value=hm.gain;                    // chain input (sources connect here)
+    const D=[out, inp];   // outputs severed after the tail: frees shared-bus edges + breaks the HELIOS comb feedback cycle
+    let lead=0, extra=0, glitchy=/[̀-ͯ]/.test(it.text);
+    const dur=buf.duration;
+    // ---- sources (HELIOS may stutter: the clip is spliced so a 55 ms grain repeats twice) ----
+    const srcs=[];
+    function src(at, off, len){ const s=c.createBufferSource(); s.buffer=buf; const e=c.createGain();
+      e.gain.setValueAtTime(0,at); e.gain.linearRampToValueAtTime(1,at+0.004);
+      if(len!=null){ e.gain.setValueAtTime(1,at+len-0.004); e.gain.linearRampToValueAtTime(0,at+len); }
+      s.connect(e); e.connect(inp); srcs.push({s,at,off,len}); L.push(s); }
+    const planSources=(t)=>{
+      const stutters = (p.fx==='machine' && dur>1.3) ? (glitchy?2:(Math.random()<0.6?1:0)) : 0;
+      if(!stutters){ src(t,0,null); return 0; }
+      const cuts=[]; for(let i=0;i<stutters;i++) cuts.push(0.35+Math.random()*(dur-0.8)); cuts.sort((a,b)=>a-b);
+      let pos=0, at=t; const g=0.055;
+      for(const cut of cuts){ if(cut<=pos+0.1) continue;
+        src(at,pos,cut-pos); at+=cut-pos; src(at,cut,g); at+=g; src(at,cut,g); at+=g; pos=cut; }
+      src(at,pos,null); return at-t-pos;   // added length
+    };
+    if(p.fx==='radio' || p.fx==='intercept'){
+      const ic=p.fx==='intercept';
+      const P= ic ? {hp:560, lp:2500, pk:1400, pg:6, drive:6.5, nz:0.05, sq:0.72} : p;
+      lead=0.075;
+      const t=now+lead; extra=planSources(t);
+      const end=t+dur+extra;
+      const post=gainN(0.9);
+      chainN(inp, biq('highpass',P.hp,0.7), biq('highpass',P.hp*1.08,0.9), biq('lowpass',P.lp,0.7), biq('lowpass',P.lp*0.94,0.9),
+             biq('peaking',P.pk,1.0,P.pg), gainN(1.0), (()=>{ const w=c.createWaveShaper(); w.curve=curve(P.drive*hm.drive); w.oversample='2x'; return w; })(), post);
+      if(ic){ // weak intercepted link: tremolo flutter + dropouts
+        const trem=c.createGain(); trem.gain.value=0.72; const lfo=c.createOscillator(); lfo.frequency.value=6.3+Math.random()*2; const lg=gainN(0.28);
+        lfo.connect(lg); lg.connect(trem.gain); lfo.start(now); lfo.stop(end+0.3); L.push(lfo); post.connect(trem); trem.connect(gl);
+        dropouts(gl, t, dur, 3+((Math.random()*3)|0), 0.06);
+      } else post.connect(gl);
+      noiseBed(now, end+0.02, P.narrow?P.nz*0.6:P.nz, biq('bandpass',P.narrow?3000:2400,0.45), out, L);
+      // key-up: short noise click; key-down: squelch tail (+ tower roger beep)
+      burst(G.sqOpen, now, ic?0.28:0.16, P.sq, biq('highpass',1400,0.7), G.bus, L);
+      burst(G.sqClose, end+0.01, ic?0.30:0.2, P.sq, biq('bandpass',3000,0.6), G.bus, L);
+      if(P.tower) tone(end+0.05, 1750, 1750, 0.06, 0.035, G.bus, L, 'sine');
+      if(ic) burst(G.sqClose, now+0.01, 0.12, 0.6, biq('bandpass',1200,0.8), G.bus, L);
+    } else if(p.fx==='studio'){
+      // KELLER: conspicuously clean "good studio" sound — compression, almost full band.
+      // His cleanliness IS the creepy point: he sounds like nobody else on the radio.
+      lead=0.02; const t=now+lead; extra=planSources(t);
+      const hp=biq('highpass',55,0.7); inp.connect(hp);
+      const comp=c.createDynamicsCompressor(); comp.threshold.value=-16; comp.knee.value=6; comp.ratio.value=4; comp.attack.value=0.002; comp.release.value=0.12;
+      const shelf=biq('highshelf',5200,null,2.0);
+      chainN(hp, comp, shelf, gl);
+      const rs=gainN(0.05); shelf.connect(rs); rs.connect(G.room); D.push(rs);   // just a hint of room, never radio grime
+    } else if(p.fx==='machine'){
+      // cold synthetic AI: comb resonance + ring-mod + bright top, digital chirps instead of squelch
+      lead=0.1;
+      const t=now+lead; extra=planSources(t); const end=t+dur+extra;
+      const hp=biq('highpass', p.deep?90:140, 0.7); inp.connect(hp);
+      const sum=gainN(1);
+      const dry=gainN(0.64); hp.connect(dry); dry.connect(sum);
+      const rm=c.createGain(); rm.gain.value=0; const ro=c.createOscillator(); ro.frequency.value=p.deep?38:(glitchy?95:72); ro.connect(rm.gain);
+      ro.start(now); ro.stop(end+0.4); L.push(ro); const rw=gainN(glitchy?0.55:0.36); hp.connect(rm); rm.connect(rw); rw.connect(sum);
+      const dl=c.createDelay(0.05); dl.delayTime.value=p.deep?0.0081:0.0057; const fb=gainN(0.52); const cw=gainN(0.34);
+      hp.connect(dl); dl.connect(fb); fb.connect(dl); D.push(fb); dl.connect(cw); cw.connect(sum);
+      const w=c.createWaveShaper(); w.curve=curve(1.4);
+      chainN(sum, biq('highshelf',3600,null,4.5), biq('peaking',850,1.1,-3.5), biq('lowpass',9000,0.7), w, gainN(1.35), gl);   // +2.6 dB makeup: the mid cut + comb otherwise sink HELIOS under the engine
+      const rs=gainN(0.16); w.connect(rs); rs.connect(G.room); D.push(rs);
+      if(glitchy) dropouts(gl, t, dur+extra, 3, 0.05); else if(Math.random()<0.5) dropouts(gl, t, dur+extra, 1, 0.15);
+      tone(now, 2200, 3600, 0.045, 0.045, G.bus, L); tone(now+0.05, 3600, 1800, 0.035, 0.04, G.bus, L);
+      tone(end+0.02, 2600, 700, 0.09, 0.04, G.bus, L); tone(end+0.12, 1400, 1400, 0.03, 0.03, G.bus, L, 'square');
+    } else if(p.fx==='eerie'){
+      // STIMME: dark, close, airy whisper doubles left/right, long hall; a low swell announces it
+      lead=0.38;
+      const t=now+lead; extra=planSources(t); const end=t+dur+extra;
+      const dark=chainN(inp, biq('lowpass',2300,0.6), biq('lowshelf',220,null,5)); const dry=gainN(0.8); dark.connect(dry); dry.connect(gl);
+      const hs=gainN(0.6); dark.connect(hs); hs.connect(G.hall); D.push(hs);
+      const air=biq('highpass',2900,0.7); inp.connect(air);
+      for(const [d,pan,v] of [[0.019,-0.55,0.30],[0.034,0.55,0.24]]){ const dl=c.createDelay(0.1); dl.delayTime.value=d; const g=gainN(v);
+        air.connect(dl); dl.connect(g); if(c.createStereoPanner){ const pn=c.createStereoPanner(); pn.pan.value=pan; g.connect(pn); pn.connect(gl); } else g.connect(gl); }
+      const sw=noiseBed(now, end+0.6, 0.05, biq('lowpass',420,0.8), G.bus, L); sw.gain.cancelScheduledValues(now);
+      sw.gain.setValueAtTime(0,now); sw.gain.linearRampToValueAtTime(0.05,now+lead); sw.gain.linearRampToValueAtTime(0.012,t+0.6); sw.gain.linearRampToValueAtTime(0,end+0.6);
+      tone(now, 55, 46, lead+0.9, 0.06, G.bus, L);
+    } else {
+      // NARRATOR / in-person: clean, a little room
+      lead=0.0; const t=now; extra=planSources(t);
+      const hp=biq('highpass',75,0.7); inp.connect(hp); hp.connect(gl);
+      const rs=gainN(p.room||0.12); hp.connect(rs); rs.connect(G.room); D.push(rs);
+    }
+    for(const x of srcs){ if(x.len!=null) x.s.start(x.at, x.off, x.len); else x.s.start(x.at, x.off); }
+    const tEnd=now+lead+dur+extra;
+    out.gain.setValueAtTime(0,now); out.gain.linearRampToValueAtTime(1,now+0.012);
+    out.gain.setValueAtTime(1,tEnd); out.gain.linearRampToValueAtTime(0,tEnd+0.06);
+    setTimeout(()=>{ for(const x of D){ try{ x.disconnect(); }catch(e){} } }, (tEnd-c.currentTime+4)*1000);
+    return { lead:lead+0.02, dur:dur+extra, out, L, tEnd };
+  }
+  function killWA(h, fade){   // fade out + stop a playing line (interrupt / pause / stop)
+    if(!h||!h.out||!G) return; const t=G.c.currentTime;
+    try{ h.out.gain.cancelScheduledValues(t); h.out.gain.setValueAtTime(h.out.gain.value,t); h.out.gain.linearRampToValueAtTime(0,t+(fade||0.05)); }catch(e){}
+    for(const s of h.L){ try{ s.stop(t+(fade||0.05)+0.02); }catch(e){} }
+    if(h.tEnd>t+0.1) squelchNow(h.spk);
+  }
+  function squelchNow(spk){ if(!G) return; const p=PROF[spk]||RADIO_DEFAULT; if(p.fx!=='radio') return; const L=[];
+    try{ burst(G.sqClose, G.c.currentTime+0.02, 0.18, p.sq||1, biq('bandpass',3000,0.6), G.bus, L); }catch(e){} }
+
+  // ---- clip decoding: lazy, cached (LRU), prefetched for queued lines ----
+  const bufCache=new Map(), pending=new Map(), badKeys=new Set();
+  function dataToAB(uri){ const i=uri.indexOf(','); const meta=uri.slice(0,i), data=uri.slice(i+1);
+    if(/;base64/i.test(meta)){ const bin=atob(data), u=new Uint8Array(bin.length); for(let k=0;k<bin.length;k++) u[k]=bin.charCodeAt(k); return u.buffer; }
+    return new TextEncoder().encode(decodeURIComponent(data)).buffer; }
+  function getBuf(key){ const b=bufCache.get(key); if(b){ bufCache.delete(key); bufCache.set(key,b); } return b||null; }
+  function prefetch(key){
+    const c=Audio.ctx(); if(!c || !key || bufCache.has(key) || pending.has(key) || badKeys.has(key)) return;
+    const uri=VOICE_CLIPS[key]; if(!uri) return;
+    const p=new Promise((res,rej)=>{ let ab; try{ ab=dataToAB(uri); }catch(e){ rej(e); return; }
+      const r=c.decodeAudioData(ab, res, rej); if(r && r.catch) r.catch(()=>{}); })
+      .then(b=>{ bufCache.set(key,b); while(bufCache.size>64) bufCache.delete(bufCache.keys().next().value); })
+      .catch(e=>{ badKeys.add(key); console.warn('voice clip decode failed', key); })
+      .then(()=>pending.delete(key));
+    pending.set(key,p);
+  }
+
+  // ---- the scheduler ----
+  const GAP_MIN=0.26, GAP_RAND=0.2, GAP_SPK=0.22, TAIL=0.5, BARK_MAXAGE=3, NORMAL_MAXWAIT=12, LOAD_WAIT=1.2;
+  let queue=[], cur=null, vnow=0, lastEnd=-99, lastSpk='', seq=0, grp=0;
+  let subHideAt=0, subShown=false, ducked=false, htmlA=null;
+  const barkNext={}, recent={}; const trace=[]; const heard=new Map();
+  function est(text){ return clamp(0.9+0.065*String(text).length, 1.8, 7); }
+  function T(ev, it, extra){ const r=Object.assign({ev, t:+vnow.toFixed(3), spk:it.spk, text:it.text.slice(0,48), kind:it.kind, prio:it.prio}, extra||{});
+    trace.push(r); if(trace.length>300) trace.shift(); }
+  function isPaused(){ try{ return state==='paused'; }catch(e){ return false; } }
+  function mk(line, o, kind){
+    const pl=parseLine(line); const spk=String(pl.spk||''), text=String(pl.text||'');
+    const it={ spk, text, hint:String(pl.hint||o.hint||''), key:o.key||voiceKey(spk+'|'+text), kind:kind||o.kind||'radio',
+      prio:o.prio||'normal', tag:o.tag||null, ttl:o.ttl, t0:vnow, wait:0, notBefore:vnow+(o.delay||0), pause:o.pause||0,
+      gapR:Math.random(), group:o.group!=null?o.group:(++grp), seq:++seq, sub:o.sub!==false && (kind||o.kind||'radio')!=='cutscene',
+      cooldown:o.cooldown, mid:!!o.mid };
+    return it;
+  }
+  function busyWithOther(it){ return !!cur && cur.group!==it.group; }
+  function enqueue(it){
+    if(!it.text.trim()) return false;
+    if(!heard.has(it.key)) heard.set(it.key, {speaker:it.spk, text:it.text, hint:it.hint, kind:it.kind});
+    if(it.prio==='bark'){
+      if(cur || queue.length){ T('drop', it, {why:'busy'}); return false; }
+      if((barkNext[it.spk]||0) > vnow){ T('drop', it, {why:'cooldown'}); return false; }
+      barkNext[it.spk]=vnow+(it.cooldown!=null?it.cooldown:7);
+    }
+    if(it.prio!=='crit'){
+      if(recent[it.key]!=null && vnow-recent[it.key]<3.5){ T('drop', it, {why:'repeat'}); return false; }
+      if((cur && cur.key===it.key) || queue.some(q=>q.key===it.key)){ T('drop', it, {why:'dup'}); return false; }
+    }
+    if(it.tag) queue=queue.filter(q=>{ if(q.tag===it.tag){ T('drop', q, {why:'replaced'}); return false; } return true; });
+    if(it.prio==='crit' && cur && cur.prio==='bark') interrupt('crit');
+    queue.push(it); prefetch(it.key); T('queue', it);
+    return true;
+  }
+  function pick(){
+    let best=-1, rank=9;
+    for(let i=0;i<queue.length;i++){ const q=queue[i]; const r=q.prio==='crit'?0:(q.prio==='normal'?1:2); if(r<rank){ rank=r; best=i; } }
+    if(best<0) return null;
+    const q=queue[best];
+    if(vnow < q.notBefore) return null;
+    const gap = lastEnd<-50 ? 0 : (GAP_MIN + q.gapR*GAP_RAND + (q.spk!==lastSpk?GAP_SPK:0) + q.pause);
+    if(vnow < lastEnd+gap) return null;
+    queue.splice(best,1); return q;
+  }
+  function audible(){ return on && vol>0.001; }
+  function start(it){
+    cur=it; it.startAt=vnow; it.phase='play'; it.h=null; it.subDone=false;
+    let lead=0, dur=null, clip=false;
+    const c=Audio.ctx(); const uri=VOICE_CLIPS[it.key];
+    if(audible() && uri){
+      const buf=getBuf(it.key);
+      if(c && buf && c.state==='running' && graph()){
+        try{ const h=playWA(it, buf); h.spk=it.spk; it.h=h; lead=h.lead; dur=h.dur; clip=true; }catch(e){ console.warn('voice play failed', e); it.h=null; }
+      } else if(!c){
+        // no Web Audio (sound off / unsupported): plain HTMLAudio, no FX
+        try{ const a=new window.Audio(uri); a.volume=clamp(vol,0,1); htmlA=a; it.html=a;   // window.Audio! `const Audio` is the game's sound engine
+          dur=VOICE_DUR[it.key]||null; clip=true;
+          a.onloadedmetadata=()=>{ if(cur===it && isFinite(a.duration)) setEnd(it, a.duration); };
+          a.onended=()=>{ if(cur===it) setEnd(it, Math.max(0, vnow-it.startAt-lead)); };
+          a.onerror=()=>{ if(cur===it) it.html=null; };
+          const pr=a.play(); if(pr&&pr.catch) pr.catch(()=>{ if(cur===it){ it.html=null; setEnd(it, est(it.text)); } });
+          if(dur==null) dur=est(it.text)+2;   // refined by loadedmetadata
+        }catch(e){ it.html=null; }
+      }
+    }
+    if(dur==null) dur=est(it.text);
+    it.lead=lead; it.clip=clip; setEnd(it, dur);
+    recent[it.key]=vnow;
+    if(it.sub && inFlight()){ it.subDone=true; showSub(it); }
+    if(clip && !ducked){ ducked=true; try{ Audio.voiceDuck(true); }catch(e){} }
+    T('start', it, {dur:+dur.toFixed(3), clip, lead:+lead.toFixed(3)});
+    try{ EV.emit('voiceLine', {spk:it.spk, text:it.text, kind:it.kind, prio:it.prio, key:it.key, dur, clip}); }catch(e){}
+  }
+  function setEnd(it, dur){ it.dur=dur; it.endAt=it.startAt+it.lead+dur; if(it.sub && subsOn()) subHideAt=it.endAt+TAIL; }
+  function finish(it, why){
+    if(cur!==it) return; cur=null; lastEnd=vnow; lastSpk=it.spk;
+    if(it.html){ try{ it.html.pause(); }catch(e){} it.html=null; }
+    T('end', it, {why:why||'done', played:+(vnow-it.startAt).toFixed(3)});
+    try{ EV.emit('voiceEnd', {spk:it.spk, text:it.text, kind:it.kind, key:it.key}); }catch(e){}
+  }
+  function interrupt(why){ if(!cur) return; const it=cur; if(it.h) killWA(it.h, 0.06); finish(it, why); lastEnd=vnow-0.2; }
+  // radio subtitles only in flight: over the result/menu overlays they would just duplicate text (the audio still plays)
+  function inFlight(){ try{ return state==='playing'; }catch(e){ return true; } }
+  function showSub(it){
+    if(!subsOn() || !inFlight()) return;
+    try{ const el=dom.radio; el.querySelector('.rspk').textContent = it.spk?('» '+it.spk+':'):''; el.querySelector('.rtext').textContent=it.text;
+      el.dataset.spk=it.spk; el.dataset.prio=it.prio; el.classList.add('show'); subShown=true; }catch(e){}
+  }
+  function hideSub(){ subShown=false; subHideAt=0; try{ dom.radio.classList.remove('show'); }catch(e){} }
+  function tick(d){
+    if(isPaused()) return;
+    vnow+=d;
+    // age + expire queued lines
+    if(queue.length){
+      let w=0;   // in-place filter: no per-frame array allocation
+      for(let i=0;i<queue.length;i++){ const q=queue[i]; if(busyWithOther(q)) q.wait+=d;
+        if(q.prio==='bark' && vnow-q.t0>BARK_MAXAGE){ T('drop', q, {why:'stale'}); continue; }
+        if(q.prio==='normal' && q.wait>(q.ttl!=null?q.ttl:NORMAL_MAXWAIT)){ T('drop', q, {why:'expired'}); continue; }
+        queue[w++]=q; }
+      queue.length=w;
+    }
+    if(cur && vnow>=cur.endAt) finish(cur);
+    let guard=4;
+    while(!cur && queue.length && guard--){
+      const q=pick(); if(!q) break;
+      const c=Audio.ctx();
+      if(audible() && VOICE_CLIPS[q.key] && c && !bufCache.has(q.key) && !badKeys.has(q.key)){
+        // clip not decoded yet: hold this line briefly (decode is usually < 50 ms)
+        prefetch(q.key); q.waitLoad=(q.waitLoad||0)+d;
+        if(q.waitLoad<LOAD_WAIT && pending.has(q.key)){ queue.unshift(q); break; }
+      }
+      start(q);
+      // prefetch the next two queued lines
+      for(let i=0;i<Math.min(2,queue.length);i++) prefetch(queue[i].key);
+    }
+    if(subShown && !inFlight()) hideSub();
+    else if(cur && cur.sub && !cur.subDone && !subShown && inFlight()){ cur.subDone=true; showSub(cur); }   // line began before the flight screen was up (mission intro)
+    if(subShown && subHideAt && vnow>=subHideAt && !(cur && cur.sub)) hideSub();
+    if(ducked && !cur && vnow>lastEnd+0.45){ ducked=false; try{ Audio.voiceDuck(false); }catch(e){} }
+  }
+  // clock: real time (rawDt from the main loop — not slow-mo), keeps ticking in menu/pause/cutscene.
+  HOOKS.always.push((dt,rawDt)=>tick(rawDt));
+  HOOKS.reset.push(()=>stop());
+  EV.on('missionEnd', d=>{ if(!d.victory){ queue=queue.filter(q=>q.prio==='crit'); if(cur && cur.prio==='bark') interrupt('defeat'); } });
+  HOOKS.missionStart.push(def=>{ if(def && def.win) for(const l of def.win) prefetch(voiceKey((parseLine(l).spk||'')+'|'+parseLine(l).text)); });
+
+  // ---- public API ----
+  function line(l, o){ o=o||{}; const it=mk(l, o); if(enqueue(it)) tick(0); return it; }
+  function lines(list, o){ o=o||{}; if(!list||!list.length) return;
+    const g=++grp; let first=true;
+    if(o.now){ queue=queue.filter(q=>{ if(q.prio!=='crit'){ T('drop', q, {why:'preempted'}); return false; } return true; }); if(cur && cur.prio==='bark') interrupt('now'); }
+    for(const x of list){ const isObj=x&&typeof x==='object'; const l=isObj?(x.line||''):x;
+      const it=mk(l, Object.assign({}, o, isObj?x:{}, {group:g, delay:first?(o.delay||0):0, pause:first?0:(o.pause!=null?o.pause:(o.gap||0))}));
+      first=false; enqueue(it); }
+    tick(0);
+  }
+  function speak(speaker, text, o){ return line(String(speaker)+'|'+String(text), o); }
+  function playCutscene(body){
+    stop();
+    const segs=cutsceneSegments(body); const g=++grp; let first=true;
+    for(const s of segs){ const it=mk(s.speaker+'|'+s.text, {kind:'cutscene', prio:'crit', group:g, delay:first?0.55:0, pause:0.12, hint:s.hint});
+      it.hint=s.hint; first=false; enqueue(it); }
+    tick(0);
+    return segs;
+  }
+  // legacy: explicit [[clipKey, speaker], ...] sequence (no text -> timing from the clip)
+  function playKeys(list){ if(!Array.isArray(list)) return; const g=++grp;
+    for(const x of list){ const it=mk((x[1]||'NARRATOR')+'|…', {kind:'cutscene', prio:'crit', group:g, key:x[0]}); enqueue(it); } tick(0); }
+  // drop queued (not yet playing) lines matching pred — e.g. story mid lines once the mission is won
+  function drop(pred){ if(queue.some(pred)) queue=queue.filter(q=>{ if(pred(q)){ T('drop', q, {why:'drop'}); return false; } return true; }); }
+  function stop(){
+    if(isPaused()){   // pause: park the current line (restarts on resume), keep the queue
+      if(cur){ const it=cur; if(it.h) killWA(it.h, 0.04); if(it.html){ try{ it.html.pause(); }catch(e){} it.html=null; }
+        cur=null; if(it.prio!=='bark'){ it.phase=null; it.h=null; it.waitLoad=0; it.notBefore=0; queue.unshift(it); } T('park', it); }
+      hideSub(); if(ducked){ ducked=false; try{ Audio.voiceDuck(false); }catch(e){} }
       return;
     }
-    speaking=false; pump();   // no clip for this line -> skip, keep the queue moving
+    for(const q of queue) T('drop', q, {why:'stop'});
+    queue=[]; if(cur) interrupt('stop'); lastEnd=-99; hideSub();
+    if(htmlA){ try{ htmlA.pause(); }catch(e){} htmlA=null; }
+    if(ducked){ ducked=false; try{ Audio.voiceDuck(false); }catch(e){} }
   }
-  function speak(speaker, text){
-    if(!on || !text) return;
-    queue.push({ key:voiceKey(String(speaker)+'|'+String(text)), speaker:String(speaker) });
-    if(queue.length>6) queue.splice(0, queue.length-6);   // drop oldest so voice never lags absurdly
-    pump();
-  }
-  // Play an explicit pre-computed sequence of clips (used for cutscene voice-over). No backlog cap.
-  function playKeys(list){ if(!on || !Array.isArray(list)) return; for(const it of list){ const key=it[0], speaker=it[1]||'NARRATOR'; if(VOICE_CLIPS[key]) queue.push({key, speaker}); } pump(); }
-  function stop(){ queue.length=0; speaking=false; if(curClip){ try{curClip.pause();}catch(e){} curClip=null; } if(ok){ try{ synth.cancel(); }catch(e){} } }
-  function toggle(){ on=!on; if(!on) stop(); return on; }
-  function isOn(){ return on; }
-  function available(){ return Object.keys(VOICE_CLIPS).length>0 || ok; }
-  function _voices(){ const o={}; for(const k in assigned) o[k]=assigned[k]?assigned[k].name:null; return o; }
-  return { speak, playKeys, stop, toggle, isOn, available, _voices, _pending:()=>queue.length, _speaking:()=>speaking };
+  function setEnabled(b){ on=!!b; lsSet(LS_ON, on?'1':'0');
+    if(!on && cur){ if(cur.h){ killWA(cur.h, 0.08); cur.h=null; } if(cur.html){ try{ cur.html.pause(); }catch(e){} cur.html=null; } }
+    return on; }
+  function toggle(){ return setEnabled(!on); }
+  function setVolume(v){ vol=clamp(+v||0,0,1); lsSet(LS_VOL, vol.toFixed(2)); if(G) G.bus.gain.setTargetAtTime(vol*1.5, G.c.currentTime, 0.05); if(htmlA) htmlA.volume=vol; return vol; }
+  function available(){ return Object.keys(VOICE_CLIPS).length>0 || VoiceLoader.state()==='loading' || VoiceLoader.state()==='idle'; }
+  const PROVIDERS=[];
+  function lineProvider(fn){ if(typeof fn==='function') PROVIDERS.push(fn); }
+  return { line, lines, speak, playCutscene, playKeys, stop, drop, busy:()=>!!cur||queue.length>0, toggle, setEnabled, setVolume, available, prefetch, lineProvider,
+    get enabled(){ return on; }, getVolume:()=>vol, isOn:()=>on, subtitles:subsOn, ready:VoiceLoader.ready,
+    _providers:PROVIDERS, _heard:()=>[...heard.values()], _trace:()=>trace.slice(), _pending:()=>queue.length, _speaking:()=>!!cur,
+    _debug:()=>({ vnow:+vnow.toFixed(3), cur:cur?{spk:cur.spk,text:cur.text,prio:cur.prio,endAt:cur.endAt,clip:cur.clip}:null,
+      queue:queue.map(q=>({spk:q.spk,text:q.text.slice(0,40),prio:q.prio,wait:+q.wait.toFixed(2)})), ducked, subShown, cached:bufCache.size, pending:pending.size,
+      clips:Object.keys(VOICE_CLIPS).length, loader:VoiceLoader.state(), on, vol, graph:!!G }),
+    _voices:()=>({}) };
 })();
+// Auto-classification for existing call sites that pass no opts (flavour barks / replaceable status lines).
+const VOICE_AUTO = [
+  [/^WIGGERL\|Ha! Danebn!/, {prio:'bark'}],
+  [/^SEPP\|…so\. A Ruah/, {prio:'bark'}],
+  [/^SEPP\|JETZ REICHT/, {ttl:2.5}],
+  [/^WAGNER\|Fahrwerk (aus|ein)gefahren\.$/, {tag:'gear', ttl:4}],
+  [/^WAGNER\|(Pylon|Turm) zerstört — \d+ übrig\.$/, {tag:'bossparts', ttl:6}],
+];
+function voiceAutoOpts(line, o){ if(o && (o.prio||o.tag)) return o; const s=String(line);
+  for(const [re,d] of VOICE_AUTO) if(re.test(s)) return Object.assign({}, d, o||{}); return o||{}; }
+
+// ---- line collection for the offline voice bake ----
+// collectVoiceLines() -> [{speaker, text, say, hint, kind:'radio'|'cutscene'|'dynamic', ctx, key}]
+// = every line the game can speak (source literals + cutscenes + enumerated dynamic lines), deduped by key.
+// say = text for the TTS engine (glitch combining marks U+0300-036F stripped; key stays on the runtime text).
+const VOICE_SPK_RE = /^([A-ZÄÖÜ?][A-ZÄÖÜ0-9 ?.-]{0,15})\|([\s\S]+)$/;
+function voiceSay(t){ return String(t).normalize('NFC').replace(/[̀-ͯ]/g,'').replace(/\s+/g,' ').trim(); }
+// Minimal JS tokenizer: yields string literals (quote, value, start, end, interpolated) skipping comments + regexes.
+function voiceScanLiterals(src){
+  const res=[]; let i=0; const n=src.length; let prevSig='';   // last significant char (regex-vs-division heuristic)
+  const unesc=(s)=>s.replace(/\\(u\{([0-9a-fA-F]+)\}|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|\r?\n|[\s\S])/g,(m,a,u1,u2,x)=>{
+    if(u1) return String.fromCodePoint(parseInt(u1,16)); if(u2) return String.fromCharCode(parseInt(u2,16)); if(x) return String.fromCharCode(parseInt(x,16));
+    if(a==='\n'||a==='\r\n') return ''; return ({n:'\n',t:'\t',r:'\r',b:'\b',f:'\f',v:'\v','0':'\0'})[a]||a; });
+  const stack=[];   // template nesting: brace depth per open ${
+  let depth=0;
+  function readTemplate(){   // i at char after `
+    let s='', start=i-1, interp=false;
+    while(i<n){ const ch=src[i];
+      if(ch==='\\'){ s+=src.substr(i,2); i+=2; continue; }
+      if(ch==='`'){ i++; res.push({q:'`', v:interp?null:unesc(s), start, end:i, interp}); return true; }
+      if(ch==='$' && src[i+1]==='{'){ interp=true; i+=2; stack.push({depth, start}); depth=0; return false; }
+      s+=ch; i++; }
+    return true; }
+  while(i<n){
+    const ch=src[i];
+    if(ch==='/' && src[i+1]==='/'){ const e=src.indexOf('\n',i); i=e<0?n:e; continue; }
+    if(ch==='/' && src[i+1]==='*'){ const e=src.indexOf('*/',i+2); i=e<0?n:e+2; continue; }
+    if(ch==='"'||ch==="'"){ const start=i; i++; let s='';
+      while(i<n && src[i]!==ch && src[i]!=='\n'){ if(src[i]==='\\'){ s+=src.substr(i,2); i+=2; } else { s+=src[i]; i++; } }
+      i++; res.push({q:ch, v:unesc(s), start, end:i, interp:false}); prevSig='a'; continue; }
+    if(ch==='`'){ i++; readTemplate(); prevSig='a'; continue; }
+    if(ch==='/'){
+      if(!prevSig || /[(,=:[!&|?{};+\-*%<>~^]/.test(prevSig) || /\b(return|typeof|case|in|of|delete|void|throw|new)$/.test(src.slice(Math.max(0,i-8),i).trimEnd())){
+        i++; let inCls=false; while(i<n){ const c2=src[i]; if(c2==='\\'){ i+=2; continue; } if(c2==='\n') break; if(inCls){ if(c2===']') inCls=false; } else if(c2==='[') inCls=true; else if(c2==='/'){ i++; break; } i++; }
+        while(i<n && /[a-z]/i.test(src[i])) i++; prevSig='a'; continue; }
+    }
+    if(stack.length){ if(ch==='{') depth++; else if(ch==='}'){ if(depth===0){ stack.pop(); i++; readTemplate(); prevSig='a'; continue; } depth--; } }
+    if(!/\s/.test(ch)) prevSig=ch;
+    i++;
+  }
+  return res;
+}
+// Dynamic (runtime-built) radio lines, enumerated to their finite variants. Keep in sync with the call sites.
+function voiceDynamicLines(){
+  const L=[];
+  const add=(line,ctx)=>L.push({line,ctx});
+  add('WAGNER|Fahrwerk ausgefahren.','gear'); add('WAGNER|Fahrwerk eingefahren.','gear');
+  try{ for(const a of ACE_NAMES) add('HELIOS|'+a+' übernimmt.','ace'); }catch(e){}
+  for(const part of ['Pylon','Turm']) for(let k=1;k<=8;k++) add('WAGNER|'+part+' zerstört — '+k+' übrig.','bossParts');
+  for(const [cid,camp] of [['helios',CAMPAIGN],['bteam',BTEAM_CAMPAIGN]]) for(const def of camp) for(const o of (def.objectives||[]))
+    if(o.kind==='destroyGround' && o.label) add('WAGNER|'+o.label+' — erledigt.', cid+':'+def.id+':objective');
+  for(const fn of Voice._providers){ try{ for(const x of (fn()||[])) add(typeof x==='string'?x:x.line, (x&&x.ctx)||'provider'); }catch(e){ console.warn('voice provider failed', e); } }
+  return L;
+}
+function collectVoiceLines(){
+  const out=[], seen=new Set();
+  const push=(speaker,text,hint,kind,ctx)=>{ if(!speaker||!text||!String(text).trim()) return; const key=voiceKey(speaker+'|'+text); if(seen.has(key)) return; seen.add(key);
+    out.push({speaker, text, say:voiceSay(text), hint:hint||'', kind, ctx:ctx||'', key}); };
+  // mission context for literals (intro/win/... arrays of the campaign defs)
+  const ctxOf={};
+  for(const [cid,camp] of [['helios',CAMPAIGN],['bteam',BTEAM_CAMPAIGN]]) for(const def of camp) for(const f in def){ const v=def[f];
+    if(Array.isArray(v)) for(const l of v) if(typeof l==='string' && l.indexOf('|')>0) ctxOf[l]=cid+':'+def.id+':'+f; }
+  // (a) spoken string literals in the game's own inline script(s)
+  const scripts=[...document.querySelectorAll('script:not([src])')];
+  for(const sc of scripts){ const src=sc.textContent||''; if(src.length<2000) continue;
+    const lits=voiceScanLiterals(src);
+    for(const t of lits){ if(t.interp || t.v==null) continue;
+      if(!VOICE_SPK_RE.test(t.v)) continue;
+      let a=t.start-1; while(a>=0 && /\s/.test(src[a])) a--; let b=t.end; while(b<src.length && /\s/.test(src[b])) b++;
+      if(src[a]==='+' || src[b]==='+') continue;          // concatenated -> dynamic (enumerated below)
+      const pl=parseLine(t.v); if(pl.spk==='SPEAKER' || pl.spk==='SPK') continue;   // doc examples
+      const lineNo=src.slice(0,t.start).split('\n').length;
+      push(pl.spk, pl.text, pl.hint, 'radio', ctxOf[t.v]||('src:'+lineNo)); }
+  }
+  // (b) cutscene voice-over (incl. dynamic ending variants)
+  for(const cb of allCutsceneBodies()) cutsceneSegments(cb.body).forEach((s,i)=>push(s.speaker, s.text, s.hint, 'cutscene', 'cutscene:'+cb.id+':'+i));
+  // (c) runtime-built lines
+  for(const d of voiceDynamicLines()){ const pl=parseLine(d.line); push(pl.spk, pl.text, pl.hint, 'dynamic', d.ctx); }
+  return out;
+}
+function missingVoiceLines(){ return collectVoiceLines().filter(l=>!VOICE_CLIPS[l.key]); }
+window.collectVoiceLines=collectVoiceLines; window.missingVoiceLines=missingVoiceLines; window.cutsceneSegments=cutsceneSegments;
 
 /* ---------------------------------------------------------------------------
    3. RENDERER / SCENE / CAMERA
@@ -5771,7 +6243,7 @@ function showCutscene(key, after){
   if(cs && cs.route){ key=cs.route[storyChoice]||cs.route.human; cs=CUTSCENES[key]||BTEAM_CUTSCENES[key]; }   // epilog -> epilog_trust/_human (own VO ids)
   if(!cs){ after&&after(); return; }
   state='cutscene';
-  if(mission.radioQueue) mission.radioQueue.length=0; radioHideT=0; dom.radio.classList.remove('show');   // no leftover radio line over the cutscene VO
+  Voice.stop();   // no leftover radio line over the cutscene VO
   document.getElementById('gameover').classList.add('hidden');
   document.getElementById('cut-chapter').textContent=cs.chapter||'';
   const choicesEl=document.getElementById('cut-choices'); choicesEl.innerHTML='';
@@ -5799,8 +6271,9 @@ function showCutscene(key, after){
     contBtn.onclick=()=>{ Voice.stop(); advance&&advance(); };
   }
   // Spoken voice-over for this cutscene (narrator + character voices), in reading order.
-  const voId = cs.dynamic ? ('ending_'+(storyChoice||'')) : key;
-  Voice.stop(); if(CUTSCENE_VO[voId]) Voice.playKeys(CUTSCENE_VO[voId]);
+  // Derived live from the shown body (cutsceneSegments), so dynamic ending variants speak
+  // correctly with no precomputed clip-key table to keep in sync.
+  Voice.playCutscene(body);
   showScreen('cutscene');
 }
 
@@ -6045,27 +6518,29 @@ function applyTimeOfDay(tod){
 /* ---------------------------------------------------------------------------
    15c. RADIO (comms subtitles) + OBJECTIVE HUD
    --------------------------------------------------------------------------- */
-let radioHideT=0;
-let lastRadioT=-99;   // BOSSES: last time ANY radio line fired (menuTime clock) — used to silence boss callouts near other lines
-function radio(line){
+let lastRadioT=-99;   // BOSSES: last time ANY radio line was requested (menuTime clock)
+// radio()/queueRadio() just feed the Voice scheduler (2b): it owns subtitle display,
+// clip timing and pacing now, so a line shows for exactly as long as it needs to.
+// opts: {prio:'crit'|'normal'|'bark', tag, ttl, cooldown} — VOICE_AUTO fills in sensible
+// defaults for known repeated lines (barks, gear, boss-part call-outs) even when a call
+// site (owned by another track) passes none.
+function radio(line, opts){
   // line: "SPEAKER|text" or "SPEAKER|text|hint" (see parseLine)
-  const pl=parseLine(line); const spk=pl.spk, txt=pl.text;
-  dom.radio.dataset.spk = spk || '';   // UI: drives #radio[data-spk] per-speaker styling
-  dom.radio.querySelector('.rspk').textContent = spk?('» '+spk+':'):'';
-  dom.radio.querySelector('.rtext').textContent = txt;
-  dom.radio.classList.add('show'); radioHideT=4.2;
-  lastRadioT=menuTime;   // BOSSES: callout dedup reads this to silence itself near other radio lines
-  if(spk==='HELIOS') Audio.warnBeep(); else Audio.reload();
-  Voice.speak(spk, txt);   // spoken radio line (toggle with V)
+  lastRadioT=menuTime;   // BOSSES: callout dedup reads this to stay quiet near other radio lines
+  return Voice.line(line, voiceAutoOpts(line, opts));
 }
 function queueRadio(lines, gap){
-  if(!lines) return;
-  let t=0.3;
-  for(const l of lines){ mission.radioQueue.push({t, line:l}); t+=(gap||3.4); }
+  // gap used to be the fixed interval between line STARTS (so long lines got cut, short
+  // ones left dead air); now the scheduler paces by actual clip/estimate duration, and gap
+  // becomes the extra pause on top of that — converted from the old absolute value so
+  // existing call sites (~3.2-3.6s, tuned for a ~2s line) still feel about right.
+  if(!lines || !lines.length) return;
+  const extra = gap!=null ? Math.max(0, Math.min(1.2, gap-3.0)) : 0;   // 3.4 -> +0.4 s, 3.6 -> +0.6 s on top of the natural 0.26-0.68 s
+  Voice.lines(lines, {gap:extra});
 }
 function updateRadio(dt){
-  if(radioHideT>0){ radioHideT-=dt; if(radioHideT<=0) dom.radio.classList.remove('show'); }
-  for(let i=mission.radioQueue.length-1;i>=0;i--){ const q=mission.radioQueue[i]; q.t-=dt; if(q.t<=0){ radio(q.line); mission.radioQueue.splice(i,1); } }
+  // legacy no-op: Voice paces + shows/hides subtitles itself via HOOKS.always (real time,
+  // works in menu/pause/cutscene too). Kept so the call site in 15d needs no foreign edit.
 }
 function renderObjectives(){
   if(!mission.active){ dom.objectives.innerHTML=''; return; }
@@ -6235,7 +6710,7 @@ function checkMissionComplete(){
     }, 2600);
   }
 }
-function queueRadioNow(lines){ if(!lines) return; let t=0.2; for(const l of lines){ mission.radioQueue.push({t, line:l}); t+=3.2; } }
+function queueRadioNow(lines){ if(!lines) return; Voice.lines(lines, {prio:'crit', gap:0.4}); }   // mission-critical (win lines): never dropped
 // A failed PRIMARY objective (e.g. the escort dies) fails the whole mission.
 function checkMissionFailed(){
   if(!mission.active || mission.done) return;
@@ -7270,7 +7745,6 @@ const BARK_GLOBAL_CD=7;        // s (ND: >= 6 s)
 const _barkEvT={};             // per-event cooldown clocks
 const _barkLast={};            // per-event last line (no immediate repeat)
 function barkCtx(){ return campaignId==='bteam' ? 'BT' : (gameMode!=='campaign' ? 'EN' : ((mission.def&&mission.def.act===2)?'H2':'H1')); }
-function radioBusy(){ return radioHideT>0 || (mission.radioQueue&&mission.radioQueue.length>0); }
 function pickBark(ev, list){
   if(!list || !list.length) return null;
   let i=(Math.random()*list.length)|0;
@@ -7334,23 +7808,13 @@ function findMid(on, pred){
   for(const m of mid){ if(m.on===on && (!pred||pred(m)) && !mission._midFired.has(m)) return m; }
   return null;
 }
-// radio() replaces the current line at once, so story lines that trigger close together (several mid[]
-// rows on one event, bossPart+bossPhase+bossExposed in one frame, a mid right behind the intro) would cut
-// each other off. sayMid keeps a slot clock: a line speaks now if the channel is free, otherwise it is
-// queued 3.4 s after the previous story line / the last queued intro line. Queued rows carry mid:true so
-// a win can drop them in favour of win[].
-const MID_GAP=3.4;
-let _midFreeAt=0;                                 // nowS() from which the next story line may speak
+// Story lines that trigger close together (several mid[] rows on one event, bossPart+bossPhase+bossExposed
+// in one frame, a mid right behind the intro) go through the Voice scheduler (2b), which queues them
+// sequentially by real clip duration instead of cutting each other off. They are flagged mid:true so a
+// win can drop the ones still waiting in favour of win[].
+let _midFreeAt=0;                                 // legacy slot clock (reset per mission; pacing is Voice's job now)
 function sayMid(line){
-  const t=nowS(), lines=[].concat(line);
-  let at=Math.max(t, _midFreeAt);
-  for(const q of mission.radioQueue) if(!q.mid) at=Math.max(at, t+q.t+MID_GAP);   // wait behind intro lines
-  for(const l of lines){
-    const d=at-t;
-    if(d<0.05) radio(l, {prio:'crit'}); else mission.radioQueue.push({t:d, line:l, mid:true});
-    at+=MID_GAP;
-  }
-  _midFreeAt=at;
+  for(const l of [].concat(line)) radio(l, {prio:'crit', mid:true});
 }
 function fireMid(m){
   mission._midFired.add(m);
@@ -7436,8 +7900,9 @@ EV.on('bossHp',     d=>{ const f=(d && d.frac!=null) ? d.frac : (d && d.ratio); 
 EV.on('bossKilled', ()=>dispatch('bossKilled'));
 // polled per frame: mission clock ('time', from takeoff on runway starts), objective progress and
 // completion of objectives that do not emit 'done' themselves (destroyAir, escort, patrol, ...)
+const isMidLine=q=>q.mid;
 HOOKS.update.push(()=>{
-  if(mission.done && mission.radioQueue && mission.radioQueue.some(q=>q.mid)) mission.radioQueue=mission.radioQueue.filter(q=>!q.mid);
+  if(mission.done) Voice.drop(isMidLine);        // a won mission drops story lines still waiting in the queue
   if(!storyActive()) return;
   const t=missionClock();
   if(t>=0) dispatch('time', m=>t>=m.t);
@@ -7448,9 +7913,7 @@ HOOKS.update.push(()=>{
 });
 // Story boss names (def.bossName) win over the generic builder name; idempotent, harmless if BOSSES sets it too.
 HOOKS.update.push(()=>{ if(boss && mission.def && mission.def.bossName && boss.name!==mission.def.bossName){ boss.name=mission.def.bossName; updateBossBar(); } });
-// The win dialogue is 2-3 lines spaced 3.2 s, but gameOver(true) flips state at 2.6 s and updateMission stops:
-// keep draining the queued win lines over the debrief so the second/third line is actually heard.
-HOOKS.always.push((dt, rawDt)=>{ if(state==='gameover' && winLocked && mission.radioQueue && (mission.radioQueue.length || radioHideT>0)) updateRadio(rawDt||dt); });
+// (Win lines keep playing over the debrief on their own: the Voice scheduler runs on real time in every state.)
 
 /* ---------------------------------------------------------------------------
    16. UPDATE — physics, AI, weapons
@@ -7907,7 +8370,7 @@ function gearRestAtt(){
 }
 // is a radio line on screen or queued? (non-critical barks stay quiet then)
 function radioBusy(){
-  return radioHideT>0.8 || (mission.radioQueue && mission.radioQueue.length>0);
+  return Voice.busy();
 }
 
 // Wheels reached the pad: grade the REAL sink rate (flare included), then hand over to the
