@@ -2103,7 +2103,7 @@ const SCN = {
   cell: 92,                 // candidate grid spacing, metres (measured: keeps a full 49-chunk ring at ~60% of the +500k triangle budget)
   clearAirfield: 140,       // clearance from the runway plateau
   clearTarget: 60,          // clearance from ground targets
-  villageChance: 0.014,     // per-chunk roll for a small village cluster
+  villageChance: 0.42,      // per-chunk roll for a village (needs a flat, open lowland spot; about half find one)
 };
 function scnDensity(){                          // extra per-candidate thinning, on top of the family odds below
   const L = GFX.level();
@@ -2145,7 +2145,21 @@ function _fanCone(r,h,seg,y0){
 function _mkConeGeo(r,h,seg){ return _fanCone(r,h,seg,0); }
 function _mkBallGeo(r){ return new THREE.IcosahedronGeometry(r,0); }
 function _mkHayGeo(r,len,seg){ const g=new THREE.CylinderGeometry(r,r,len,seg,1,false); g.rotateZ(Math.PI/2); g.translate(0,r,0); return g; }
-function _mkWallGeo(w,h,d){ const g=new THREE.BoxGeometry(w,h,d); g.translate(0,h/2,0); return g; }
+// Unit house body: 1x1x1 above ground plus 0.35 buried, so a house on a gentle slope never floats.
+function _mkWallGeo(){ const g=new THREE.BoxGeometry(1,1.35,1); g.translate(0,1.35/2-0.35,0); return g; }
+// Unit gable roof (ridge along z, eaves at y=0, ridge at y=1): 2 slopes + 2 gable ends = 6 triangles.
+function _mkGableGeo(){
+  const A=[-0.5,0,-0.5], B=[0.5,0,-0.5], C=[0.5,0,0.5], D=[-0.5,0,0.5], E=[0,1,-0.5], F=[0,1,0.5];
+  const tri=[A,D,F, A,F,E, B,E,F, B,F,C, A,E,B, D,C,F];
+  const pos=new Float32Array(tri.length*3); tri.forEach((v,i)=>pos.set(v,i*3));
+  const g=new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos,3)); g.computeVertexNormals();
+  return g;
+}
+// Bavarian onion dome with a short spike, base radius 1, height ~3.7 (8 segments).
+function _mkOnionGeo(){
+  const P=[[0.001,0],[1.0,0],[1.32,0.7],[1.22,1.45],[0.72,2.1],[0.22,2.55],[0.14,3.0],[0.05,3.7]].map(q=>new THREE.Vector2(q[0],q[1]));
+  return new THREE.LatheGeometry(P, 8);
+}
 
 let _windMats = [];
 // Shared instancing material factory: adds a per-instance tint (instTint, so pools are not
@@ -2180,12 +2194,13 @@ const MAT_TRUNK_DECID = makeInstancedMat(0x6b5a3c, false);
 const MAT_DECID_CANOPY = makeInstancedMat(0x3a6226, true);
 const MAT_ROCK = makeInstancedMat(0x6e6c64, false);
 const MAT_HAY = makeInstancedMat(0xc9a23c, false);
-const MAT_WALL = makeInstancedMat(0xd6cab0, false);
-const MAT_ROOF = makeInstancedMat(0x7a3a2c, false);
+const MAT_WALL = makeInstancedMat(0xeee6d6, false);
+const MAT_ROOF = makeInstancedMat(0x8e4030, false);
+const MAT_DOME = makeInstancedMat(0x5a8a6c, false);
 
 const GEO_CONIFER_TRUNK_H=7.2, GEO_CONIFER_CANOPY_H=9.5, GEO_CONIFER_CANOPY_R=3.0;
 const GEO_DECID_TRUNK_H=5.6, GEO_DECID_CANOPY_R=3.6;
-const GEO_ROCK_R=2.0, GEO_HAY_R=1.5, GEO_HOUSE_WALL_H=6.4;
+const GEO_ROCK_R=2.0, GEO_HAY_R=1.5;
 
 // A pool is one InstancedMesh with a fixed capacity: 8 pools total = 8 extra draw calls,
 // regardless of how many trees/rocks/houses are ever placed (well inside the +60 draw call
@@ -2208,10 +2223,11 @@ function makePool(geo, mat, cap){
   scene.add(im);
   return { im, free, cap, hi:0 };
 }
-function placeInPool(pool, x, y, z, ry, scale, tr, tg, tb){
+function placeInPool(pool, x, y, z, ry, scale, tr, tg, tb){ return placeInPoolS(pool, x, y, z, ry, scale, scale, scale, tr, tg, tb); }
+function placeInPoolS(pool, x, y, z, ry, sx, sy, sz, tr, tg, tb){
   if(pool.free.length===0) return -1;              // pool exhausted: skip silently, no crash, no allocation
   const slot = pool.free.pop();
-  _pPos.set(x,y,z); _pEul.set(0,ry,0); _pQuat.setFromEuler(_pEul); _pScale.set(scale,scale,scale);
+  _pPos.set(x,y,z); _pEul.set(0,ry,0); _pQuat.setFromEuler(_pEul); _pScale.set(sx,sy,sz);
   _pMat.compose(_pPos,_pQuat,_pScale);
   pool.im.setMatrixAt(slot, _pMat);
   pool.im.geometry.attributes.instTint.setXYZ(slot, tr,tg,tb);
@@ -2249,8 +2265,9 @@ const SPOOL = {
   decidCanopy: makePool(_mkBallGeo(GEO_DECID_CANOPY_R), MAT_DECID_CANOPY, 1800),
   rock: makePool(_mkBallGeo(GEO_ROCK_R), MAT_ROCK, 1400),
   haybale: makePool(_mkHayGeo(GEO_HAY_R,3.4,7), MAT_HAY, 350),
-  houseWall: makePool(_mkWallGeo(7,GEO_HOUSE_WALL_H,8), MAT_WALL, 250),
-  houseRoof: makePool(_mkConeGeo(6.2,4.6,4), MAT_ROOF, 250),
+  houseWall: makePool(_mkWallGeo(), MAT_WALL, 1100),
+  houseRoof: makePool(_mkGableGeo(), MAT_ROOF, 1100),
+  dome: makePool(_mkOnionGeo(), MAT_DOME, 80),
 };
 
 // --- scattering --------------------------------------------------------------
@@ -2268,53 +2285,89 @@ function placeDecid(wx,h,wz,ry,tintJ,rec){
   const s2 = placeInPool(SPOOL.decidCanopy, wx, h+GEO_DECID_TRUNK_H*scl*0.92, wz, ry, scl, tintJ,tintJ,tintJ);
   if(s2>=0) rec.slots.push({pool:SPOOL.decidCanopy, slot:s2});
 }
-function buildChurch(x,y,z,ry){
-  const g = new THREE.Group();
-  const towerH=14, towerR=3.2;
-  const tower = new THREE.Mesh(new THREE.CylinderGeometry(towerR,towerR*1.05,towerH,8,1,true), MAT_WALL);
-  tower.position.y = towerH/2; tower.receiveShadow=true;
-  const spireH=8;
-  const spire = new THREE.Mesh(new THREE.ConeGeometry(towerR*1.05,spireH,6), MAT_ROOF);
-  spire.position.y = towerH+spireH/2; spire.receiveShadow=true;
-  const nave = new THREE.Mesh(new THREE.BoxGeometry(9,7,16), MAT_WALL);
-  nave.position.set(0,3.5,-11); nave.receiveShadow=true;
-  const naveRoof = new THREE.Mesh(new THREE.ConeGeometry(7.4,4.2,4), MAT_ROOF);
-  naveRoof.position.set(0,7+2.1,-11); naveRoof.rotation.y=Math.PI/4; naveRoof.receiveShadow=true;
-  g.add(tower,spire,nave,naveRoof);
-  g.position.set(x,y,z); g.rotation.y=ry;
-  scene.add(g);
-  return g;
+// --- villages: all-instanced (house bodies, gable roofs, church tower + onion dome) -----------
+const _WALL_TINT=[[1,1,1],[1,0.96,0.86],[1,0.93,0.78],[0.97,0.95,0.92],[1,0.9,0.84]];
+const _ROOF_TINT=[[1,1,1],[0.86,0.8,0.78],[0.62,0.64,0.7],[1.08,0.9,0.8]];
+function _vPut(rec, pool, ax, az, ry, lx, lz, y, lry, sx, sy, sz, t){   // local (street) frame -> world
+  const c=Math.cos(ry), sn=Math.sin(ry);
+  const k=placeInPoolS(pool, ax+lx*c+lz*sn, y, az-lx*sn+lz*c, ry+lry, sx, sy, sz, t[0], t[1], t[2]);
+  if(k>=0) rec.slots.push({pool, slot:k});
+}
+function _vHouse(rec, ax, az, ry, lx, lz, lry, w, d, hWall, hRoof, seed, hut){
+  const c=Math.cos(ry), sn=Math.sin(ry), wx=ax+lx*c+lz*sn, wz=az-lx*sn+lz*c;
+  const s=surfaceAt(wx,wz); let y=s.h;
+  if(y < CFG.waterLevel+4 || s.ny < 0.84) return false;
+  const e=Math.max(w,d)*0.5;                                  // stand on the lowest footprint corner: never floats
+  y=Math.min(y, surfaceAt(wx+e,wz+e).h, surfaceAt(wx-e,wz+e).h, surfaceAt(wx+e,wz-e).h, surfaceAt(wx-e,wz-e).h);
+  if(y < CFG.waterLevel+2) return false;
+  if(nearAirfield(wx,wz,SCN.clearAirfield) || nearGroundTarget(wx,wz,SCN.clearTarget)) return false;
+  const wt = hut ? [0.52,0.4,0.3] : _WALL_TINT[Math.floor(seed*_WALL_TINT.length*0.999)];
+  const rt = hut ? [0.6,0.62,0.68] : _ROOF_TINT[Math.floor(hash2(seed*91.3,7.1)*_ROOF_TINT.length*0.999)];
+  _vPut(rec, SPOOL.houseWall, ax, az, ry, lx, lz, y-0.2, lry, w, hWall, d, wt);
+  _vPut(rec, SPOOL.houseRoof, ax, az, ry, lx, lz, y-0.2+hWall, lry, w+1.6, hRoof, d+1.4, rt);   // eaves overhang
+  return true;
+}
+// Village sites are a pure function of the chunk (cached), so trees in ANY chunk can keep clear
+// of a village whose own chunk has not been streamed yet.
+const _vSites = new Map();
+function villageSite(cx,cz){
+  const key=(cx+32768)*65536+(cz+32768);
+  let v=_vSites.get(key);
+  if(v!==undefined) return v;
+  v=null;
+  if(_vSites.size>4000) _vSites.clear();
+  const size=CFG.chunkSize, ox=cx*size, oz=cz*size;
+  if(hash2(cx*17.3+41.1, cz*17.3+59.7) < SCN.villageChance){
+    for(let tries=0; tries<8 && !v; tries++){               // look for a flat, open lowland spot
+      const ax = ox + (hash2(cx*3.3+tries*7.7, cz*7.1+tries*1.3)-0.5)*size*0.7;
+      const az = oz + (hash2(cx*7.1+tries*2.9, cz*3.3+tries*5.1)-0.5)*size*0.7;
+      const s = surfaceAt(ax,az), ah=s.h;
+      if(ah < CFG.waterLevel+8 || ah > 380 || s.ny < 0.93) continue;
+      if(landForest(ax,az,ah,s.ny) > 0.15) continue;
+      v={ x:ax, z:az, h:ah };
+    }
+  }
+  _vSites.set(key, v);
+  return v;
+}
+function nearVillage(x,z){
+  const size=CFG.chunkSize, cx=Math.round(x/size), cz=Math.round(z/size);
+  for(let dz=-1;dz<=1;dz++) for(let dx=-1;dx<=1;dx++){
+    const v=villageSite(cx+dx,cz+dz);
+    if(v){ const ex=x-v.x, ez=z-v.z; if(ex*ex+ez*ez < 190*190) return true; }
+  }
+  return false;
 }
 function buildVillage(cx,cz,ox,oz,rec){
-  const size=CFG.chunkSize;
-  const ax = ox + (hash2(cx*3.3,cz*7.1)-0.5)*size*0.6;
-  const az = oz + (hash2(cx*7.1,cz*3.3)-0.5)*size*0.6;
-  const ah = terrainHeight(ax,az);
-  if(ah < CFG.waterLevel+8 || ah > 260) return;               // villages sit in the lowlands
-  if(nearAirfield(ax,az,SCN.clearAirfield+200)) return;
-  if(nearGroundTarget(ax,az,SCN.clearTarget+120)) return;
-  const baseRy = hash2(cx*11.1,cz*13.3)*Math.PI*2;
-  const houses = 3+Math.floor(hash2(cx*19.1,cz*23.3)*4);
-  for(let i=0;i<houses;i++){
-    const a = baseRy + i*(Math.PI*2/houses) + (hash2(cx+i*3.1,cz+i*1.7)-0.5)*0.6;
-    const rr = 30+hash2(cx+i*5.3,cz+i*2.9)*45;
-    const hx = ax+Math.cos(a)*rr, hz = az+Math.sin(a)*rr;
-    const hh = terrainHeight(hx,hz);
-    if(hh < CFG.waterLevel+6 || hh>260) continue;
-    const hry = hash2(hx*0.9,hz*0.9)*Math.PI*2;
-    const s1 = placeInPool(SPOOL.houseWall, hx, hh, hz, hry, 1.0, 1,1,1);
-    if(s1>=0) rec.slots.push({pool:SPOOL.houseWall, slot:s1});
-    const s2 = placeInPool(SPOOL.houseRoof, hx, hh+GEO_HOUSE_WALL_H, hz, hry+Math.PI/4, 1.0, 1,1,1);
-    if(s2>=0) rec.slots.push({pool:SPOOL.houseRoof, slot:s2});
+  const v=villageSite(cx,cz); if(!v) return;
+  const ax=v.x, az=v.z;
+  if(nearAirfield(ax,az,SCN.clearAirfield+260) || nearGroundTarget(ax,az,SCN.clearTarget+160)) return;
+  const ry = hash2(cx*11.1,cz*13.3)*Math.PI*2, big = hash2(cx*5.9,cz*8.3);
+  // church base = lowest ground under nave + tower corners (walls reach 35% below base: never floats)
+  const c0=Math.cos(ry), s0=Math.sin(ry); let ah=v.h;
+  for(let i=0;i<6;i++){ const lx=(i&1)?6:-6, lz=i<2?-17:(i<4?0:12); ah=Math.min(ah, surfaceAt(ax+lx*c0+lz*s0, az-lx*s0+lz*c0).h); }
+  // church: white nave + red roof, square tower with a copper onion dome at the west end
+  _vPut(rec, SPOOL.houseWall, ax, az, ry, 0, 0, ah-0.3, 0, 10, 9, 22, [1,1,1]);
+  _vPut(rec, SPOOL.houseRoof, ax, az, ry, 0, 0, ah-0.3+9, 0, 11.4, 5.5, 23, [1,1,1]);
+  _vPut(rec, SPOOL.houseWall, ax, az, ry, 0, -13.5, ah-0.3, 0, 5.4, 24, 5.4, [1,0.98,0.94]);
+  _vPut(rec, SPOOL.dome, ax, az, ry, 0, -13.5, ah-0.3+24, 0, 2.5, 2.3, 2.5, [1,1,1]);
+  // farmhouses along a main street through the church square, a few scattered further out
+  const n = 6 + Math.floor(big*10);
+  for(let i=0, built=0; i<n*2 && built<n; i++){                // slope/water rejects get a second chance
+    const r1=hash2(cx*13.7+i*3.1, cz*9.1+i*1.7), r2=hash2(cx*4.3+i*7.9, cz*17.3+i*2.3), r3=hash2(cx*21.1+i*1.3, cz*2.9+i*4.1);
+    let lx, lz, lry;
+    if(i < n*1.4){ const side = (i&1) ? 1 : -1; lz = (r1-0.5)*170; if(Math.abs(lz) < 22) lz += lz<0 ? -26 : 26; lx = side*(17+r2*9); lry = (r3-0.5)*0.25; }
+    else { const a=r1*6.283, rr=70+r2*80; lx=Math.cos(a)*rr; lz=Math.sin(a)*rr; lry=r3*1.2; }
+    const w=8+r2*4, d=10+r3*5, hw=5+r1*2.2;
+    if(_vHouse(rec, ax, az, ry, lx, lz, lry + ((i%3===2)?Math.PI/2:0), w, d, hw, 3.6+r3*1.4, r1, false)) built++;
   }
-  const ch = terrainHeight(ax,az);
-  if(ch >= CFG.waterLevel+6 && ch<=260) rec.group = buildChurch(ax,ch,az,baseRy);
 }
 const sceneryChunks = new Map();    // key "cx,cz" -> { slots:[{pool,slot}], group:THREE.Group|null }
 function scatterChunkScenery(cx,cz){
   const size=CFG.chunkSize, ox=cx*size, oz=cz*size;
   const rec = { slots:[], group:null };
   const density = scnDensity();
+  buildVillage(cx,cz,ox,oz,rec);                            // villages first: they claim their pool slots before the trees
   if(density>0){
     const cell = SCN.cell, n = Math.floor(size/cell);
     for(let gz=0; gz<n; gz++){
@@ -2323,7 +2376,7 @@ function scatterChunkScenery(cx,cz){
         const wx = ox-size/2+(gx+0.15+jx*0.7)*cell, wz = oz-size/2+(gz+0.15+jz*0.7)*cell;
         const roll = hash2(wx*0.31+11.1, wz*0.31+7.7);
         if(roll > density) continue;
-        if(nearAirfield(wx,wz,SCN.clearAirfield) || nearGroundTarget(wx,wz,SCN.clearTarget)) continue;
+        if(nearAirfield(wx,wz,SCN.clearAirfield) || nearGroundTarget(wx,wz,SCN.clearTarget) || nearVillage(wx,wz)) continue;
         const sf = surfaceAt(wx,wz), h = sf.h;                   // exact rendered ground (no floating on ridges)
         if(h < CFG.waterLevel+2 || h > 540) continue;          // never in water; nothing grows above the snowline
         const woods = landForest(wx,wz,h,sf.ny) > 0.3;          // woods: the near-forest ring plants those trees
@@ -2338,6 +2391,7 @@ function scatterChunkScenery(cx,cz){
           }
         } else if(h > 190){                                     // treeline: sparser conifers + occasional boulder
           if(famRoll < 0.34){ if(!woods) placeConifer(wx,h,wz,ry,tintJ,rec); }
+          else if(famRoll < 0.36 && !woods && h < 420){ _vHouse(rec, wx, wz, ry, 0, 0, 0, 6.5, 8, 3.6, 2.6, famRoll, true); }   // Almhütte
           else if(famRoll < 0.40){
             const scl=0.7+hash2(wx*4.1,wz*4.1)*0.8;
             const s=placeInPool(SPOOL.rock, wx, h+GEO_ROCK_R*0.25, wz, ry, scl, tintJ,tintJ,tintJ);
@@ -2358,8 +2412,6 @@ function scatterChunkScenery(cx,cz){
         // h<=15 (beach/wetland): left clear on purpose
       }
     }
-    const vRoll = hash2(cx*17.3+41.1, cz*17.3+59.7);
-    if(density>0.3 && vRoll < SCN.villageChance) buildVillage(cx,cz,ox,oz,rec);
   }
   sceneryChunks.set(cx+','+cz, rec);
 }
@@ -2445,7 +2497,7 @@ function _nfFill(t, tx, tz, lod){
     if(h < CFG.waterLevel+3 || ny < 0.6) continue;
     const f=landForest(wx,wz,h,ny);
     if(f < 0.25 || hash2(wx*0.73+1.3, wz*0.73+4.1) > f*1.15) continue;   // soft, ragged forest edge
-    if(nearAirfield(wx,wz,SCN.clearAirfield) || nearGroundTarget(wx,wz,SCN.clearTarget)) continue;
+    if(nearAirfield(wx,wz,SCN.clearAirfield) || nearGroundTarget(wx,wz,SCN.clearTarget) || nearVillage(wx,wz)) continue;
     const r=hash2(wx*1.9+7.7, wz*1.9+3.1), ry=r*6.283;
     const pBroad = 0.55 - 0.55*smoothBand(60,240,h);                  // mixed lowland woods, pure spruce higher up
     const scl = 0.9 + hash2(wx*2.7, wz*2.7)*0.6;
