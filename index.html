@@ -494,7 +494,9 @@ const CFG = {
   aimDist: 300,            // aiming point: m past the threshold
   flareHeight: 24,         // wheel height (m) below which the auto-flare may act
   flareSinkMin: 1.8,       // auto-flare sink target at contact (m/s) ...
-  flareTau: 1.0,           // ... plus height/tau: the sink shrinks with the wheel height
+  flareKeep: 0.4,          // ... or this fraction of the sink rate at flare entry, whichever is more:
+                           // the auto-flare softens an approach, the pilot's own pull makes it butter
+  flareTau: 1.6,           // ... plus height/tau: the sink shrinks with the wheel height
   flareRate: 0.09,         // auto-flare max nose-up rate (rad/s): bad approaches stay bad
   aoaApproach: 0.09,       // cosmetic nose-high attitude, slow with gear down (rad)
   aoaFlare: 0.04,          // extra cosmetic attitude in the flare (rad)
@@ -502,7 +504,7 @@ const CFG = {
   gearK: 42, gearC: 5.5,   // strut spring / damper (per unit mass): visible, slightly bouncy
   noseHold: 0.8,           // s the nose is held off after touchdown before derotating
   derotRate: 0.1,          // max nose-lowering rate (rad/s)
-  autobrakeMin: 5, autobrakeMax: 65,   // rollout decel window (m/s^2): stop before the far end
+  autobrakeMin: 5, autobrakeMax: 38,   // rollout decel window (m/s^2): more needed = landed too fast/long
   landDoneSpeed: 90,       // landing objective completes once rolled out below this (m/s) ...
   landDoneT: 4.5,          // ... or this long after touchdown
   liftBlend: 1.4,          // s over which the climb path eases in after liftoff
@@ -7987,7 +7989,8 @@ function updatePlayerGround(dt){
   if(L.autobrake && rw && player.speed>3){
     const dirZ = -Math.cos(player.heading-rw.heading) < 0 ? -1 : 1;   // travel direction along local z
     const remain = Math.max(80, rw.length/2 - _rwL.z*dirZ - 60 - player.speed*0.4);
-    const need = THREE.MathUtils.clamp(player.speed*player.speed/(2*remain), CFG.autobrakeMin, CFG.autobrakeMax);
+    const needRaw = player.speed*player.speed/(2*remain), need = THREE.MathUtils.clamp(needRaw, CFG.autobrakeMin, CFG.autobrakeMax);
+    L.brakeShort = needRaw > CFG.autobrakeMax+1;   // the strip runs out at the autobrake limit: HUD asks for Strg
     if(L.tdT>0.3) L.brakeK=Math.min(1, L.brakeK+dt/0.8);
     a -= Math.max(0, need-CFG.taxiDrag)*L.brakeK;
     if(player.speed<12) L.autobrake=false;     // taxi speed: hand back to the pilot
@@ -8245,14 +8248,16 @@ function updatePlayer(dt){
   let flareOn=false;
   if(player.gearDown && flareZone && wheelClear<CFG.flareHeight && player.vy<0.5 && L.liftT<=0){
     flareOn=true;
-    const want = -(CFG.flareSinkMin + Math.max(0,wheelClear)/CFG.flareTau);
+    if(!L.flareSink) L.flareSink=Math.max(0,-player.vy);   // entry sink: the flare only takes off ~60% of it
+    const want = -(Math.max(CFG.flareSinkMin, CFG.flareKeep*L.flareSink) + Math.max(0,wheelClear)/CFG.flareTau);
     const pWant = Math.asin(THREE.MathUtils.clamp(want/Math.max(60,player.speed),-0.5,0.5));
     const k = Math.min(1, L.flareK*1.5);
     if(player.pitch<pWant) player.pitch += Math.min(pWant-player.pitch, CFG.flareRate*k*dt);
     else if(pitchIn<=0 && wheelClear<10) player.pitch -= Math.min(player.pitch-pWant, 0.03*k*dt);   // floating: settle
   }
   L.flareK += ((flareOn?1:0)-L.flareK)*(1-Math.exp(-4*dt));
-  if(flareOn && L.flareK>0.5 && !L.once.flare && player.vy<-0.5){ L.once.flare=true; kiebitzSay('flare','KIEBITZ|Abfangen … abfangen …|leise'); }
+  if(!flareOn && L.flareK<0.05) L.flareSink=0;
+  if(flareOn && L.flareK>0.5 && !L.once.flare && player.vy<-0.5 && wheelClear>4 && kiebitzSay('flare','KIEBITZ|Abfangen … abfangen …|leise')) L.once.flare=true;   // flag only once it is actually said
 
   if(padOk && wheelClear<=0){
     if(L.liftT>0){ player.obj.position.y -= wheelClear; }        // just lifted off: never scrape back
@@ -8403,18 +8408,26 @@ function landingTouchdown(fwd, wheelClear, onStrip, groundY){
   L.aoa=att; L.aoaV=0; L.flareK=0; L.liftT=0;
   tmpE.set(att, player.heading, player.roll, 'YXZ'); player.obj.quaternion.setFromEuler(tmpE);   // this frame renders the same attitude
   L.comp=Math.max(0,-wheelClear); L.compV=sink;      // strut takes over the sink rate
-  L.tdT=0; L.noseDown = att-rest<0.004; L.autobrake=true; L.brakeK=0; L.gyPrev=null;
-  const hard = sink>CFG.touchGood || align<CFG.touchAlignGood || !onStrip || noseFirst;
-  const soft = !hard && sink < CFG.touchGood*CFG.touchSoftFrac;
+  L.tdT=0; L.noseDown = att-rest<0.004; L.autobrake=true; L.brakeK=0; L.gyPrev=null; L.flareSink=0;
+  const gearT=(player.obj.userData.gear&&player.obj.userData.gear.userData.t!=null)?player.obj.userData.gear.userData.t:1;
+  const unlocked = gearT<0.9;                        // legs still swinging out: not locked
+  // stopping need on the remaining strip (same as the autobrake): more than it can give = too fast/long
+  rwLocal(rw, p.x, p.z, _rwL);
+  const dirZ = -Math.cos(player.heading-rw.heading) < 0 ? -1 : 1;
+  const remain = rw.length/2 - _rwL.z*dirZ - 60 - player.speed*0.4;
+  const long = player.speed*player.speed/(2*Math.max(1,remain)) > CFG.autobrakeMax;
+  const fast = player.speed > CFG.approachSpeedMax;
+  const hard = sink>CFG.touchGood || align<CFG.touchAlignGood || !onStrip || noseFirst || unlocked;
+  const soft = !hard && !fast && !long && sink < CFG.touchGood*CFG.touchSoftFrac;
   const bt = campaignId==='bteam';
-  L.lastRating = hard?'Harte Landung':(soft?'Butterweich!':'Sauber aufgesetzt'); L.lastRatingT=4;
+  L.lastRating = hard?'Harte Landung':(fast?'Zu schnell aufgesetzt':(long?'Zu lang aufgesetzt':(soft?'Butterweich!':'Sauber aufgesetzt'))); L.lastRatingT=4;
   L.lastSink = sink;
-  EV.emit('touchdown',{vs:sink, rating: hard?'hart':(soft?'butterweich':'sauber')});
-  if(hard){ player.hp=Math.max(1,player.hp-18); shake=Math.max(shake,0.8); damageFlash=Math.max(damageFlash,0.6); Audio.hitTaken();
-    banner('HARTE LANDUNG', !onStrip?'Neben der Piste aufgesetzt':(noseFirst?'Bugrad zuerst — Struktur beschädigt':'Struktur beschädigt — aber unten'));
+  EV.emit('touchdown',{vs:sink, rating: hard?'hart':(soft?'butterweich':'sauber'), fast, long});
+  if(hard){ player.hp=Math.max(1,player.hp-(unlocked?30:18)); shake=Math.max(shake,0.8); damageFlash=Math.max(damageFlash,0.6); Audio.hitTaken();
+    banner('HARTE LANDUNG', unlocked?'Fahrwerk nicht verriegelt — Struktur beschädigt':(!onStrip?'Neben der Piste aufgesetzt':(noseFirst?'Bugrad zuerst — Struktur beschädigt':'Struktur beschädigt — aber unten')));
     radio(bt ? ((player.hero==='wiggerl')?'WIGGERL|Tschuldigung, Resi. Des war ned so gmeint.':'SEPP|Des war ned hart. Des war bodenständig.')
              : (Math.random()<0.5?'KIEBITZ|Hart, aber ganz. Die Techniker werden fluchen.':'KIEBITZ|Das hat gerummst. Alles dran?')); }
-  else { shake=Math.max(shake, soft?0.06:0.18); banner('AUFGESETZT', soft?'Butterweich, Geier':'Saubere Landung, Geier');
+  else { shake=Math.max(shake, soft?0.06:0.18); banner('AUFGESETZT', (fast||long)?'Zu schnell / zu lang — Strg = Bremsen':(soft?'Butterweich, Geier':'Saubere Landung, Geier'));
     radio(bt ? 'KIEBITZ|Aufgesetzt. Ich sag\'s ungern: Das war ordentlich.'
              : (soft ? 'KIEBITZ|Butterweich. Das schreib ich mir auf.' : 'KIEBITZ|Aufgesetzt. Willkommen daheim, Geier.|warm')); }
   tyreScreech(THREE.MathUtils.clamp(0.3+sink/CFG.touchHard,0,1));
