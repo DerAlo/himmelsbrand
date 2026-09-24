@@ -7822,27 +7822,27 @@ function findMid(on, pred){
 // sequentially by real clip duration instead of cutting each other off. They are flagged mid:true so a
 // win can drop the ones still waiting in favour of win[].
 let _midFreeAt=0;                                 // legacy slot clock (reset per mission; pacing is Voice's job now)
-function sayMid(line){
-  for(const l of [].concat(line)) radio(l, {prio:'crit', mid:true});
+function sayMid(line, o){
+  for(const l of [].concat(line)) radio(l, Object.assign({prio:'crit', mid:true}, o));
 }
-function fireMid(m){
+function fireMid(m, o){
   mission._midFired.add(m);
   lastBarkT=nowS();                               // scripted lines push the flavor barks back
   if(m.delay){
     const gen=missionGen;
     const h=setTimeout(()=>{ _midTimers=_midTimers.filter(x=>x!==h);
-      if(gen!==missionGen || !mission.active || mission.done || state!=='playing') return; sayMid(m.line); }, m.delay*1000);
+      if(gen!==missionGen || !mission.active || mission.done || state!=='playing') return; sayMid(m.line, o); }, m.delay*1000);
     _midTimers.push(h);
-  } else sayMid(m.line);
+  } else sayMid(m.line, o);
 }
 // All mid[] events need a running, undecided mission. A win sets mission.active=false, so nothing
 // after the win speaks; m13 keeps running after the boss dies because its 'land' is primary.
 function storyActive(){ return gameMode==='campaign' && mission.active && !mission.done && !!mission.def; }
 // fires EVERY unfired row that matches (e.g. a line plus its delay:4 answer on the same event)
-function dispatch(on, pred){
+function dispatch(on, pred, o){
   if(!storyActive()) return false;
   let any=false, m;
-  while((m=findMid(on, pred))){ fireMid(m); any=true; }
+  while((m=findMid(on, pred))){ fireMid(m, o); any=true; }
   return any;
 }
 function hasMid(on, pred){ const mid=mission.def&&mission.def.mid; return !!(mid && mid.some(m=>m.on===on && (!pred||pred(m)))); }
@@ -7900,7 +7900,9 @@ EV.on('allyHit', d=>{
   else if(ratio<0.5 && !_allyBark50){ if(bark('ally50', BARK_ALLY50[k], {cd:1})) _allyBark50=true; }
 });
 // boss events (BOSSES track, bible §4.1): payloads {kind,name} {kind,left} {kind,phase} {kind,open} {kind,frac} {kind}
-EV.on('bossSpawn',  ()=>dispatch('bossSpawn'));
+// bossSpawn is emitted inside setupMission, before the intro is queued and before the missionStart hook
+// resets _midFired: defer one tick, then queue it as normal so it lands behind the briefing.
+EV.on('bossSpawn',  ()=>{ const def=mission.def; setTimeout(()=>{ if(mission.def===def) dispatch('bossSpawn', null, {prio:'normal', ttl:40}); }, 0); });
 EV.on('bossPart',   d=>dispatch('bossPart', m=>m.left===d.left));
 EV.on('bossExposed',d=>{ if(d && d.open) dispatch('bossExposed'); });           // fires once: first open only
 EV.on('bossPhase',  d=>dispatch('bossPhase', m=>m.phase===d.phase));
