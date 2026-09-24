@@ -2322,6 +2322,38 @@ const scene = new THREE.Scene();
 const HORIZON = new THREE.Color(0xbfe0ff);
 scene.fog = new THREE.FogExp2(0xa8c8e8, 0.000085);   // thinner + less chalky: distance reads as depth, not milk
 
+// Aerial perspective for EVERY fogged material. Plain FogExp2 is one colour at one density
+// everywhere; real haze is neither: it glows in the sun's colour when looking toward the sun
+// (forward scatter) and thins with altitude, so valleys below sit in haze while peaks and
+// bandits above stay crisp. Both terms live in three's fog chunk itself, so built-in materials
+// (terrain, water, aircraft, trees, sprites) get them with no per-material code. The values are
+// shared typed arrays: UniformsUtils.clone() copies Vector3s but passes typed arrays by
+// reference, so the one write per frame in 4b/applyAtmosphere reaches every material.
+//   sun = world sun dir, col = in-scatter colour, p = (1/scale height, min mul, max mul, scatter)
+const ATMO = { sun:new Float32Array([0.5,0.55,0.4]), col:new Float32Array([1,0.95,0.85]), p:new Float32Array([1/800, 0.5, 1.8, 0.3]) };
+// density multiplier = mean of exp(-(y-camY)/H) along the view ray (closed form), clamped
+const ATMO_GLSL = `
+uniform vec3 uAtmoSun; uniform vec3 uAtmoCol; uniform vec4 uAtmoP;
+float atmoHeightMul(vec3 ray){ float t=-ray.y*uAtmoP.x; return clamp(abs(t)<1e-3 ? 1.0+0.5*t : (exp(min(t,30.0))-1.0)/t, uAtmoP.y, uAtmoP.z); }
+vec3 atmoFogColor(vec3 base, vec3 ray){ float s=max(dot(normalize(ray),uAtmoSun),0.0); return mix(base, uAtmoCol, (s*s*s*s)*uAtmoP.w); }
+`;
+function atmoUniforms(u){ u.uAtmoSun={value:ATMO.sun}; u.uAtmoCol={value:ATMO.col}; u.uAtmoP={value:ATMO.p}; return u; }
+for(const k in THREE.ShaderLib){ const u=THREE.ShaderLib[k].uniforms; if(u && u.fogColor) atmoUniforms(u); }
+THREE.ShaderChunk.fog_pars_vertex += '\n#ifdef USE_FOG\n varying vec3 vFogRay;\n#endif\n';
+THREE.ShaderChunk.fog_vertex += '\n#ifdef USE_FOG\n vFogRay = (vec4(mvPosition.xyz, 0.0)*viewMatrix).xyz;\n#endif\n';   // view -> world (rotation only): camera-to-vertex ray
+THREE.ShaderChunk.fog_pars_fragment += '\n#ifdef USE_FOG\n varying vec3 vFogRay;\n' + ATMO_GLSL + '#endif\n';
+THREE.ShaderChunk.fog_fragment = `
+#ifdef USE_FOG
+  #ifdef FOG_EXP2
+    float fogD = fogDensity*atmoHeightMul(vFogRay);
+    float fogFactor = 1.0 - exp( - fogD * fogD * fogDepth * fogDepth );
+  #else
+    float fogFactor = smoothstep( fogNear, fogFar, fogDepth );
+  #endif
+  gl_FragColor.rgb = mix( gl_FragColor.rgb, atmoFogColor(fogColor, vFogRay), fogFactor );
+#endif
+`;
+
 const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:'high-performance' });
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -2399,7 +2431,7 @@ HOOKS.always.push((dt,rawDt)=>monitorAutoQuality(rawDt));
 /* ---- Post-FX: bloom + film grade (graceful fallback to plain render if the CDN lib is missing) ---- */
 const GradeShader = {
   uniforms:{ tDiffuse:{value:null}, uTime:{value:0.0}, uSat:{value:1.07}, uVig:{value:0.13},
-    uAber:{value:0.0}, uGrain:{value:0.0}, uExp:{value:1.02}, uKnee:{value:0.86},
+    uAber:{value:0.0}, uGrain:{value:0.0}, uExp:{value:1.02}, uKnee:{value:0.72},
     uLift:{value:new THREE.Color(0x0b1220)}, uWarm:{value:new THREE.Color(0x231708)},
     uGlare:{value:new THREE.Vector3(0.5,0.5,0.0)}, uGlareCol:{value:new THREE.Color(0xfff2d8)}, uAsp:{value:1.78} },
   vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
@@ -2424,12 +2456,17 @@ const GradeShader = {
                 + vec3(0.7,1.0,0.75)*(smoothstep(0.110,0.095,length(g3))-smoothstep(0.095,0.080,length(g3)))*0.05;
         col += (uGlareCol*gl + gh*uGlareCol)*uGlare.z;
       }
-      // Soft shoulder on LUMINANCE only, so highlights roll off without losing chroma.
+      // Filmic shoulder. The composer targets are HDR (half float, see below), so sun disc,
+      // glints, fire and sunlit snow arrive ABOVE 1.0 instead of pre-clipped. Identity below
+      // the knee (mid-tones and night stay exactly as tuned), exponential roll-off to white
+      // above it. Half of it per channel: an over-bright colour bleaches toward white like
+      // film/eyes do (fire cores, the sky next to the sun); the other half on luminance keeps
+      // enough chroma that tracers and warning colours don't wash out.
       float l = dot(col, LUM);
-      if(l > uKnee){
-        float ls = uKnee + (l - uKnee) / (1.0 + (l - uKnee) * 2.2);
-        col *= ls / max(l, 1e-5);
-      }
+      vec3 cx = max(col - uKnee, 0.0); float w = 1.0 - uKnee;
+      vec3 shc = min(col, vec3(uKnee)) + w*(1.0 - exp(-cx/w));
+      float sl = min(l, uKnee) + w*(1.0 - exp(-max(l-uKnee,0.0)/w));
+      col = mix(col*(sl/max(l,1e-5)), shc, 0.5);
       float g = dot(col, LUM);
       col = mix(vec3(g), col, uSat);                                       // punch
       col = clamp(col*col*(3.0-2.0*col)*0.22 + col*0.78, 0.0, 1.0);        // filmic S-curve: deepens shadows
@@ -2446,11 +2483,18 @@ if (typeof THREE.EffectComposer==='function' && typeof THREE.RenderPass==='funct
   let _ct;
   if(renderer.capabilities.isWebGL2){
     const _sz=renderer.getDrawingBufferSize(new THREE.Vector2());
+    // HDR: half-float colour keeps everything above 1.0 (sun, glints, fire, sunlit snow) for
+    // bloom and the grade pass's filmic shoulder; an 8-bit target hard-clipped it to flat white
+    // and banded the dark night gradients. Needs EXT_color_buffer_float (r128 enables it on WebGL2).
+    const _hdr=!!renderer.extensions.get('EXT_color_buffer_float');
     _ct=new THREE.WebGLMultisampleRenderTarget(_sz.x, _sz.y,
       // stencilBuffer:true makes r128 allocate DEPTH24_STENCIL8 instead of a 16-bit depth
       // buffer. Without it the runway decals z-fought away entirely under post-FX.
-      { minFilter:THREE.LinearFilter, magFilter:THREE.LinearFilter, format:THREE.RGBAFormat, stencilBuffer:true });
-    const _maxS=renderer.getContext().getParameter(renderer.getContext().MAX_SAMPLES)||4;
+      { minFilter:THREE.LinearFilter, magFilter:THREE.LinearFilter, format:THREE.RGBAFormat, stencilBuffer:true,
+        type: _hdr ? THREE.HalfFloatType : THREE.UnsignedByteType });
+    const _gl2=renderer.getContext();
+    let _maxS=_gl2.getParameter(_gl2.MAX_SAMPLES)||4;
+    if(_hdr){ try{ const s=_gl2.getInternalformatParameter(_gl2.RENDERBUFFER, _gl2.RGBA16F, _gl2.SAMPLES); if(s && s.length) _maxS=Math.min(_maxS, s[0]); }catch(e){} }
     // the shoreline is a thin high-contrast silhouette: 8 samples measurably calm it; low trades some for bandwidth
     const MSAA_SAMPLES={ high:8, medium:8, low:4 };
     _ct.samples=Math.min(MSAA_SAMPLES[GFX.level()]||8, _maxS);
@@ -2461,6 +2505,9 @@ if (typeof THREE.EffectComposer==='function' && typeof THREE.RenderPass==='funct
   composer = _ct ? new THREE.EffectComposer(renderer, _ct) : new THREE.EffectComposer(renderer);
   composer.addPass(new THREE.RenderPass(scene,camera));
   bloomPass=new THREE.UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 0.30, 0.50, 0.92);   // threshold above sky luminance: only sun/fire/tracers bloom
+  // bloom mips in half float too, so an HDR highlight blooms by its real energy instead of a clipped 1.0
+  if(_ct && _ct.texture.type===THREE.HalfFloatType)
+    for(const rt of [bloomPass.renderTargetBright, ...bloomPass.renderTargetsHorizontal, ...bloomPass.renderTargetsVertical]) if(rt) rt.texture.type=THREE.HalfFloatType;
   composer.addPass(bloomPass);
   gradePass=new THREE.ShaderPass(GradeShader);
   gradePass.renderToScreen=true;
@@ -2712,10 +2759,12 @@ function applyAtmosphere(dt){
   scene.fog.density = curFogBase*heightMul + _cloudFog*0.0021;
   _fogColorTmp.copy(fogColorBase).lerp(WHITEOUT_COLOR, _cloudFog*0.85);
   skyMat.uniforms.fogCol.value.copy(_fogColorTmp); skyMat.uniforms.uWhite.value=_cloudFog*0.8;
-  // sun in-scatter: haze looking into the sun glows in the sun tint (the sky does the same per pixel)
-  camera.getWorldDirection(_camFwd);
-  const sf=Math.pow(Math.max(0,_camFwd.dot(sunDir)),3)*fogScatter*(1-_cloudFog);
-  if(sf>0.001) _fogColorTmp.lerp(fogScatterColor, sf);
+  // sun in-scatter: haze looking into the sun glows in the sun tint. Per PIXEL now (ATMO, the
+  // fog chunk), like the sky does: tinting the whole fog by the camera heading made the entire
+  // landscape change colour as the jet turned.
+  ATMO.sun[0]=sunDir.x; ATMO.sun[1]=sunDir.y; ATMO.sun[2]=sunDir.z;
+  ATMO.col[0]=fogScatterColor.r; ATMO.col[1]=fogScatterColor.g; ATMO.col[2]=fogScatterColor.b;
+  ATMO.p[3]=Math.min(0.9, fogScatter*1.25)*(1-_cloudFog);
   scene.fog.color.copy(_fogColorTmp);
   if(typeof cloudMat!=='undefined'){
     cloudMat.uniforms.uFogColor.value.copy(scene.fog.color); cloudMat.uniforms.uFogDensity.value=scene.fog.density;
@@ -3877,7 +3926,7 @@ const CLOUD_LEVEL  = { high:64, medium:42, low:22 };   // active cumulus cluster
 const CIRRUS_LEVEL = { high:16, medium:10, low:0 };    // active cirrus clusters
 
 const CLOUD_VS = `
-varying vec2 vUv; varying vec2 vR; varying float vH; varying float vDist; varying float vFade; varying float vPhase; varying vec3 vSunL;
+varying vec2 vUv; varying vec2 vR; varying float vH; varying float vDist; varying float vFade; varying float vPhase; varying vec3 vSunL; varying vec3 vRay;
 uniform vec3 sunDir; uniform vec2 uCenter; uniform float uHalf;
 void main(){
   vec3 center = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
@@ -3897,13 +3946,14 @@ void main(){
   float m = max(abs(center.x-uCenter.x), abs(center.z-uCenter.y));
   vFade = 1.0 - smoothstep(uHalf*0.70, uHalf*0.97, m);
   vec4 mv = viewMatrix*vec4(world,1.0);
-  vDist = -mv.z;
+  vDist = -mv.z; vRay = world - cameraPosition;
   gl_Position = projectionMatrix*mv;
 }`;
 const CLOUD_FS = `
-varying vec2 vUv; varying vec2 vR; varying float vH; varying float vDist; varying float vFade; varying float vPhase; varying vec3 vSunL;
+varying vec2 vUv; varying vec2 vR; varying float vH; varying float vDist; varying float vFade; varying float vPhase; varying vec3 vSunL; varying vec3 vRay;
 uniform sampler2D map; uniform vec3 uLitColor; uniform vec3 uShadeColor; uniform vec3 uSunColor; uniform float uOpacity;
 uniform vec3 uFogColor; uniform float uFogDensity;
+${ATMO_GLSL}
 void main(){
   float dens = texture2D(map, vUv).a;
   float nearFade = smoothstep(40.0, 230.0, vDist);                        // soft fade flying through, no hard pop
@@ -3919,12 +3969,13 @@ void main(){
   vec2 sl = vSunL.xy; float rimSun = smoothstep(0.1, 0.8, dot(vR, sl/max(length(sl),1e-3)));
   col += uSunColor*fwd*(1.0-dens)*(1.0-dens)*rimSun*0.36;                    // silver lining: thin edges glow backlit
   col += uSunColor*fwd*0.08;
-  float fogFactor = 1.0 - exp(-uFogDensity*uFogDensity*vDist*vDist);        // matches THREE.FogExp2 falloff
-  col = mix(col, uFogColor, fogFactor*0.92);
+  float fogD = uFogDensity*atmoHeightMul(vRay);                             // same aerial perspective as the fog chunk (ATMO)
+  float fogFactor = 1.0 - exp(-fogD*fogD*vDist*vDist);
+  col = mix(col, atmoFogColor(uFogColor, vRay), fogFactor*0.92);
   gl_FragColor = vec4(col, a);
 }`;
 const CIRRUS_VS = `
-varying vec2 vUv; varying float vDist; varying float vFade;
+varying vec2 vUv; varying float vDist; varying float vFade; varying vec3 vRay;
 uniform vec2 uCenter; uniform float uHalf;
 void main(){
   vUv = uv;
@@ -3934,33 +3985,35 @@ void main(){
   vec3 toC = wp.xyz - cameraPosition;
   vFade *= smoothstep(0.02, 0.22, abs(toC.y)/max(length(toC),1.0));          // fade out edge-on
   vec4 mv = viewMatrix*wp;
-  vDist = -mv.z;
+  vDist = -mv.z; vRay = toC;
   gl_Position = projectionMatrix*mv;
 }`;
 const CIRRUS_FS = `
-varying vec2 vUv; varying float vDist; varying float vFade;
+varying vec2 vUv; varying float vDist; varying float vFade; varying vec3 vRay;
 uniform sampler2D map; uniform vec3 uTint; uniform float uOpacity;
 uniform vec3 uFogColor; uniform float uFogDensity;
+${ATMO_GLSL}
 void main(){
   float a = texture2D(map, vUv).a*uOpacity*vFade; if(a<0.004) discard;
-  float fogFactor = 1.0 - exp(-uFogDensity*uFogDensity*vDist*vDist);
-  vec3 col = mix(uTint, uFogColor, fogFactor*0.6);
+  float fogD = uFogDensity*atmoHeightMul(vRay);
+  float fogFactor = 1.0 - exp(-fogD*fogD*vDist*vDist);
+  vec3 col = mix(uTint, atmoFogColor(uFogColor, vRay), fogFactor*0.6);
   gl_FragColor = vec4(col, a);
 }`;
 
 const cloudMat = new THREE.ShaderMaterial({
   transparent:true, depthWrite:false, fog:false, side:THREE.DoubleSide,
-  uniforms:{ sunDir:{value:sunDir.clone()}, map:{value:cloudTex}, uOpacity:{value:1.0},
+  uniforms:atmoUniforms({ sunDir:{value:sunDir.clone()}, map:{value:cloudTex}, uOpacity:{value:1.0},
     uLitColor:{value:new THREE.Color(0xffffff)}, uShadeColor:{value:new THREE.Color(0x9fb2c8)}, uSunColor:{value:new THREE.Color(0xfff2d8)},
     uFogColor:{value:new THREE.Color(0xa8c8e8)}, uFogDensity:{value:0.000085},
-    uCenter:{value:new THREE.Vector2()}, uHalf:{value:CLOUD_SPAN/2} },
+    uCenter:{value:new THREE.Vector2()}, uHalf:{value:CLOUD_SPAN/2} }),
   vertexShader:CLOUD_VS, fragmentShader:CLOUD_FS
 });
 const cirrusMat = new THREE.ShaderMaterial({
   transparent:true, depthWrite:false, fog:false, side:THREE.DoubleSide,
-  uniforms:{ map:{value:cirrusTex}, uOpacity:{value:0.30}, uTint:{value:new THREE.Color(0xffffff)},
+  uniforms:atmoUniforms({ map:{value:cirrusTex}, uOpacity:{value:0.30}, uTint:{value:new THREE.Color(0xffffff)},
     uFogColor:{value:new THREE.Color(0xa8c8e8)}, uFogDensity:{value:0.000085},
-    uCenter:{value:new THREE.Vector2()}, uHalf:{value:CLOUD_SPAN/2} },
+    uCenter:{value:new THREE.Vector2()}, uHalf:{value:CLOUD_SPAN/2} }),
   vertexShader:CIRRUS_VS, fragmentShader:CIRRUS_FS
 });
 const cloudMesh=new THREE.InstancedMesh(new THREE.PlaneGeometry(1,1), cloudMat, CLOUD_MAX);
@@ -4091,7 +4144,8 @@ function makeParticleSystem(max, additive){
       scale:{ value: innerHeight*0.5 },
       fogColor:{ value: scene.fog.color },
       fogDensity:{ value: scene.fog.density },
-      tint:{ value: new THREE.Color(1,1,1) }   // smoke only: scene light level/colour (day white, dusk warm, night dim blue)
+      tint:{ value: new THREE.Color(1,1,1) },   // smoke only: scene light level/colour (day white, dusk warm, night dim blue)
+      uAtmoSun:{ value: ATMO.sun }, uAtmoCol:{ value: ATMO.col }, uAtmoP:{ value: ATMO.p }
     },
     vertexShader:`
       attribute float psize;
@@ -4103,10 +4157,11 @@ function makeParticleSystem(max, additive){
       varying float vAlpha;
       varying vec2 vRot;
       varying float vNear;
+      varying vec3 vRay;
       void main(){
         vColor=pcolor; vAlpha=pmisc.x; vRot=vec2(cos(pmisc.y),sin(pmisc.y));
         vec4 mv=modelViewMatrix*vec4(position,1.0);
-        vFogDepth=-mv.z;
+        vFogDepth=-mv.z; vRay=(vec4(mv.xyz,0.0)*viewMatrix).xyz;
         float px=psize*(scale/max(0.001,-mv.z));
         // fade near the camera and when one sprite would fill the view (flying into a blast/pall)
         vNear=smoothstep(4.0,35.0,-mv.z)*(1.0-0.7*smoothstep(0.6,2.0,px/(2.0*scale)));
@@ -4123,6 +4178,8 @@ function makeParticleSystem(max, additive){
       varying float vAlpha;
       varying vec2 vRot;
       varying float vNear;
+      varying vec3 vRay;
+      ${ATMO_GLSL}
       void main(){
         vec2 pc=gl_PointCoord-0.5;
         pc=vec2(vRot.x*pc.x-vRot.y*pc.y, vRot.y*pc.x+vRot.x*pc.y)+0.5;
@@ -4130,8 +4187,9 @@ function makeParticleSystem(max, additive){
         float a=tex.a*vAlpha*vNear;
         if(a<0.015) discard;
         gl_FragColor=vec4(vColor*tex.rgb${additive?"":"*tint"}, a);
-        float fogFactor=1.0 - exp(-fogDensity*fogDensity*vFogDepth*vFogDepth);
-        ${additive ? 'gl_FragColor.a *= 1.0-0.85*clamp(fogFactor,0.0,1.0);' : 'gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, clamp(fogFactor,0.0,1.0));'}
+        float fogD=fogDensity*atmoHeightMul(vRay);   // same aerial perspective as the fog chunk (ATMO)
+        float fogFactor=1.0 - exp(-fogD*fogD*vFogDepth*vFogDepth);
+        ${additive ? 'gl_FragColor.a *= 1.0-0.85*clamp(fogFactor,0.0,1.0);' : 'gl_FragColor.rgb = mix(gl_FragColor.rgb, atmoFogColor(fogColor, vRay), clamp(fogFactor,0.0,1.0));'}
       }`,
     transparent:true, depthWrite:false, depthTest:true,
     blending: additive?THREE.AdditiveBlending:THREE.NormalBlending
