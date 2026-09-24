@@ -37,6 +37,8 @@
   /* ---- DOM HUD ---- */
   .hud-el { position:fixed; z-index:6; pointer-events:none; text-shadow:0 0 6px rgba(0,0,0,.9); font-variant-numeric:tabular-nums; font-family:var(--font-display); display:none; }
   body.in-game .hud-el { display:block; }
+  /* pause / debrief overlay: hide the DOM HUD behind the translucent screen (canvas HUD stays, dimmed) */
+  body.overlay .hud-el, body.overlay #bosswrap, body.overlay #radio, body.overlay #killfeed { visibility:hidden; }
   #stat-left  { left:22px; top:20px; font-size:15px; line-height:1.7; padding:12px 18px 12px 16px; clip-path:polygon(0 0,100% 0,100% 100%,10px 100%,0 calc(100% - 10px));
                 background:linear-gradient(to right, rgba(3,10,20,.42), rgba(3,10,20,0) 82%); border-left:2px solid var(--hud-dim); }
   #stat-right { right:22px; top:20px; font-size:15px; text-align:right; line-height:1.7; padding:12px 16px 12px 18px; clip-path:polygon(0 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%);
@@ -6139,6 +6141,7 @@ function showScreen(id){
   document.body.classList.toggle('in-game', id===null);
   // controls hint only on the main menu (STEUERUNG/PAUSE list the controls; in game it covers terrain + radar label)
   const cr=document.getElementById('credit'); if(cr) cr.style.display = id==='menu' ? '' : 'none';
+  document.body.classList.remove('overlay');
 }
 function gotoMenu(){
   state='menu'; gameMode='menu'; mission.active=false;
@@ -6277,7 +6280,8 @@ function gameOver(victory){
     restartBtn.textContent='↻ NOCHMAL'; restartBtn.onclick=()=>startEndless(endlessMod);
   }
   const delay = victory?400:900;
-  setTimeout(()=>document.getElementById('gameover').classList.remove('hidden'), delay);
+  setTimeout(()=>{ if(state!=='gameover') return;   // player already moved on (restart/menu)
+    document.getElementById('gameover').classList.remove('hidden'); document.body.classList.add('overlay'); }, delay);
 }
 
 // Interstitial story screen. `after` is a callback run when the player continues.
@@ -6331,12 +6335,12 @@ function pauseGame(){
   const info = gameMode==='campaign' ? `${mission.def.name.toUpperCase()} · STRUKTUR ${struc}%`
                                      : `WELLE ${wave} · ${score} PUNKTE · STRUKTUR ${struc}%`;
   document.getElementById('pause-stats').textContent = info;
-  pauseScreen.classList.remove('hidden');
+  pauseScreen.classList.remove('hidden'); document.body.classList.add('overlay');
 }
 function resumeGame(){ if(state!=='paused') return;
   if(mission.active && mission.pauseStart){ mission.pausedMs+=performance.now()-mission.pauseStart; mission.pauseStart=0; }
   Audio.duckMusic(false);   // engine/lock re-drive themselves once playing again
-  pauseScreen.classList.add('hidden'); state='playing'; }
+  pauseScreen.classList.add('hidden'); document.body.classList.remove('overlay'); state='playing'; }
 function togglePause(){ if(state==='playing') pauseGame(); else if(state==='paused') resumeGame(); }
 
 /* ===== Menu wiring ===== */
