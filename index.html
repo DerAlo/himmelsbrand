@@ -6978,24 +6978,39 @@ function bossHitPlayer(dmg){
   if(player.hp<=0 && !winLocked){ player.alive=false; gameOver(false); }
 }
 
-// FEUERTRÄGER lock-proxy: lets A2A missiles guide onto the exposed core (bible §3.4).
+// Boss lock-proxy: lets A2A missiles and the gun assist aim at the exposed core (bible §3.4), every kind.
 // Returns the enemy-shaped bossLock (obj.position/vel), never the raw mesh: gunTarget reads .obj.position/.vel.
-function bossLockCandidate(){
-  if(!boss || boss.dead || !boss.lockable || !boss.exposed) return null;
+// dot(nose, dir to core) when the exposed core is within maxDist, else -2 (leaves core pos in _blcWP, nose in _blcFwd)
+function bossCoreDot(maxDist){
+  if(!boss || boss.dead || !boss.exposed || !boss.core) return -2;
   boss.core.getWorldPosition(_blcWP);
-  _blcFwd.set(0,0,-1).applyQuaternion(player.obj.quaternion);
   _blcRel.copy(_blcWP).sub(player.obj.position);
-  const dist=_blcRel.length(); if(dist>3500) return null;
-  _blcRel.normalize();
-  if(_blcFwd.dot(_blcRel)<0.9) return null;
-  bossLock.obj.position.copy(_blcWP); bossLock.live=true;
-  return bossLock;
+  const dist=_blcRel.length(); if(dist>maxDist || dist<1) return -2;
+  _blcFwd.set(0,0,-1).applyQuaternion(player.obj.quaternion);
+  return _blcFwd.dot(_blcRel.multiplyScalar(1/dist));
+}
+function _bossCandDot(c){ _blcRel.copy(c.obj.position).sub(player.obj.position).normalize(); return _blcFwd.dot(_blcRel); }
+function _bossProxy(){ bossLock.obj.position.copy(_blcWP); if(boss.vel) bossLock.vel.copy(boss.vel); else bossLock.vel.set(0,0,0); bossLock.live=true; return bossLock; }
+// missile lock: the core wins over an enemy candidate that sits further off the nose (PROMETHEUS: only while the lamellae are open)
+function bossLockCandidate(cand){
+  cand=cand||null;
+  if(!boss || !boss.lockable || (boss.kind==='prometheus' && !(boss.lamOpen>0.5))) return cand;
+  const d=bossCoreDot(3500); if(d<0.9) return cand;
+  if(cand && cand!==bossLock && _bossCandDot(cand)>=d) return cand;
+  return _bossProxy();
+}
+// gun assist: an escort drifting through the wide gun cone must not steal the pipper from a core right on the nose (~8°)
+function bossGunCandidate(cand){
+  if(cand===bossLock) return cand;
+  const d=bossCoreDot(CFG.gunRange+400); if(d<0.99) return cand;
+  if(cand && _bossCandDot(cand)>=d) return cand;
+  return _bossProxy();
 }
 // keep the proxy on the core every frame while a missile may be chasing it
 function syncBossLock(b){
   if(!b.lockable) return;
   b.core.getWorldPosition(bossLock.obj.position);
-  if(b.vel) bossLock.vel.copy(b.vel);
+  if(b.vel) bossLock.vel.copy(b.vel); else bossLock.vel.set(0,0,0);
   bossLock.live=!b.dead;
 }
 
@@ -7037,7 +7052,7 @@ function spawnBoss(kind, finale){
   // finale/choicePoint multiplier: only the two ORIGINAL kinds get it — new kinds already carry final HP
   if(finale && (boss.kind==='kronos'||boss.kind==='auge')){ boss.hp=Math.round(boss.hp*1.25); boss.maxhp=boss.hp; }
   boss.finale=!!finale;
-  boss.lockable=!!boss.lockable;
+  boss.lockable=true;   // every kind: A2A missiles guide onto the exposed core (bossLockCandidate)
   boss.hpDone={}; boss.callCount={}; boss.callCd={}; boss.quietUntil=0;
   scene.add(boss.obj);
   dom.bosswrap.classList.add('show');
@@ -7249,6 +7264,7 @@ function updateBoss(dt){
   else if(boss.kind==='feuertraeger') updateFeuertraeger(dt);
   else if(boss.kind==='himmelszelt') updateHimmelszelt(dt);
   else updateAuge(dt);
+  if(boss) syncBossLock(boss);   // proxy follows moving cores (KRONOS drift) for missiles already in flight
   updateBossBar();
 }
 
@@ -8329,14 +8345,14 @@ function updatePlayer(dt){
   }
 
   // Missile lock: tight forward cone (used for guided missiles).
-  currentLock = nearestEnemyInFront(0.985, 3500) || nearestEnemyInFront(0.94, 2600) || bossLockCandidate();
+  currentLock = bossLockCandidate(nearestEnemyInFront(0.985, 3500) || nearestEnemyInFront(0.94, 2600));
   if(currentLock && currentLock!==EV._lastLock) EV.emit('lock', {target:currentLock}); EV._lastLock=currentLock;
   Audio.lockTone(currentLock!=null);
   // ground lock for the AGM (forgiving cone; only when ground targets exist)
   groundLock = groundTargets.length ? (nearestGroundInFront(0.9, 4200) || nearestGroundInFront(0.8, 3000)) : null;
   // Gun target: a BROADER cone than the missile lock, so the pipper/aim-assist
   // help you in a turning fight even before you have a hard missile lock.
-  gunTarget = currentLock || nearestEnemyInFront(0.86, CFG.gunRange+400);
+  gunTarget = bossGunCandidate(currentLock || nearestEnemyInFront(0.86, CFG.gunRange+400));
   if(gunTarget){
     const gp=_leadOut2.copy(player.obj.position);
     const pt=computeLeadPoint(gp, null, gunTarget.obj.position, gunTarget.vel, CFG.bulletSpeed, _leadOut);
