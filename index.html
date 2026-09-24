@@ -4353,7 +4353,7 @@ function updateBossBar(){
   if(!boss) return;
   if(!_bbFill){ _bbFill=dom.bosswrap.querySelector('.bossbar>div'); _bbName=dom.bosswrap.querySelector('.bname'); }
   let left=0; for(const p of boss.parts) if(!p.dead) left++;
-  const barW = boss.exposed
+  const barW = boss.dead ? 0 : (boss.exposed || boss.phase>=2)
     ? Math.max(0, boss.hp/boss.maxhp*100)
     : (boss.parts.length ? (1 - left/boss.parts.length)*40 : 0);
   const w=barW.toFixed(1)+'%';
