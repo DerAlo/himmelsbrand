@@ -2834,7 +2834,7 @@ const terrainMat = new THREE.MeshPhongMaterial({ vertexColors:true, specular:0xf
 terrainMat.onBeforeCompile = function(sh){
   sh.uniforms.uTime = { value: 0 };
   sh.uniforms.uCamPos = { value: new THREE.Vector3() };
-  sh.uniforms.uDetail = { value: 1.0 };
+  sh.uniforms.uDetail = { value: ({high:1.0, medium:0.6, low:0.0})[GFX.level()] };   // compiled lazily: seed from the current level, GFX.onChange keeps it live
   sh.uniforms.uFar = { value: camera.far };
   sh.uniforms.uSkyTop = { value: skyMat.uniforms.top.value };      // same Color objects the sky uses: TOD changes follow for free
   sh.uniforms.uSkyBot = { value: skyMat.uniforms.bot.value };
@@ -3295,6 +3295,9 @@ waterMat.onBeforeCompile=function(sh){
   sh.uniforms.uFar={ value: camera.far };
   sh.uniforms.uSkyTop={ value: skyMat.uniforms.top.value };
   sh.uniforms.uSkyBot={ value: skyMat.uniforms.bot.value };
+  sh.uniforms.uWaveN={ value: ({high:8, medium:4, low:0})[GFX.level()] };   // analytic wave trains (flat on low, as before); GFX.onChange keeps it live
+  sh.uniforms.uPixAng={ value: 0.001 };                         // radians per screen pixel, for the per-wave aliasing fade
+  sh.uniforms.uNoise={ value: LAND.tex };
   waterMat.userData.shader = sh;
   sh.vertexShader = sh.vertexShader
     .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;')
@@ -3308,7 +3311,37 @@ waterMat.onBeforeCompile=function(sh){
     .replace('vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + reflectedLight.directSpecular + reflectedLight.indirectSpecular + totalEmissiveRadiance;',
              'vec3 outgoingLight = reflectedLight.directDiffuse*0.30 + reflectedLight.indirectDiffuse*0.16 + reflectedLight.directSpecular + reflectedLight.indirectSpecular + totalEmissiveRadiance;')
     .replace('#include <common>',
-      '#include <common>\nvarying vec3 vWPos;\nuniform sampler2D uDepthTex;\nuniform vec2 uDepthCenter;\nuniform float uDepthSpan;\nuniform vec3 uShallow;\nuniform vec3 uSand;\nuniform float uLightLevel;\nuniform float uTime;\nuniform vec3 uCamPos;\nuniform vec3 uSunDir;\nuniform float uGlint;\nuniform float uFar;\nuniform vec3 uSkyTop;\nuniform vec3 uSkyBot;')
+      '#include <common>\nvarying vec3 vWPos;\nuniform sampler2D uDepthTex;\nuniform vec2 uDepthCenter;\nuniform float uDepthSpan;\nuniform vec3 uShallow;\nuniform vec3 uSand;\nuniform float uLightLevel;\nuniform float uTime;\nuniform vec3 uCamPos;\nuniform vec3 uSunDir;\nuniform float uGlint;\nuniform float uFar;\nuniform vec3 uSkyTop;\nuniform vec3 uSkyBot;\nuniform float uWaveN;\nuniform float uPixAng;\nuniform sampler2D uNoise;')
+    // WAVES without a normal map (see the note below the material: a tiled ripple texture reads
+    // as a grid). A handful of analytic deep-water wave trains with irrational direction spread
+    // and deep-water dispersion (omega = sqrt(g k)) never visibly repeat. Each train fades out
+    // before it would alias (wavelength < ~2 px, stretched at grazing angles), and the slope it
+    // can no longer draw is moved into roughness: the far sea turns into a soft sky sheen, the
+    // near sea breaks the sun and the sky into moving facets. A large low-frequency lookup adds
+    // wind patches (calmer and rougher water), which is what the sea looks like from altitude.
+    .replace('#include <normal_fragment_maps>',
+      '#include <normal_fragment_maps>\n' +
+      '  vec3 wN = vec3(0.0, 1.0, 0.0);\n' +
+      '  if(uWaveN > 0.5){\n' +
+      '    vec3 vd = uCamPos - vWPos; float dist = length(vd);\n' +
+      '    float fp = dist*uPixAng/max(abs(vd.y)/dist, 0.05);\n' +
+      '    float gust = texture2D(uNoise, vWPos.xz/2600.0 + vec2(uTime*0.003, 0.0)).g;\n' +
+      '    float amp = 0.45 + 1.1*gust*gust;\n' +
+      '    vec2 g = vec2(0.0); float lost = 0.0;\n' +
+      '    for(int i = 0; i < 8; i++){\n' +
+      '      float fi = float(i); if(fi >= uWaveN) break;\n' +
+      '      float a = 0.35 + (fract(fi*0.618034) - 0.5)*(1.5 + 0.45*fi);\n' +
+      '      vec2 d = vec2(cos(a), sin(a));\n' +
+      '      float L = 46.0*pow(0.62, fi), k = 6.2832/L;\n' +
+      '      float s = 0.065*pow(0.93, fi)*amp;\n' +
+      '      float vis = 1.0 - smoothstep(0.2*L, 0.55*L, fp);\n' +
+      '      g += d*(s*vis*cos(k*dot(d, vWPos.xz) - sqrt(9.81*k)*uTime + fi*1.7));\n' +
+      '      lost += s*s*(1.0 - vis*vis);\n' +
+      '    }\n' +
+      '    wN = normalize(vec3(-g.x, 1.0, -g.y));\n' +
+      '    normal = normalize((viewMatrix*vec4(wN, 0.0)).xyz);\n' +
+      '    roughnessFactor = clamp(roughnessFactor - 0.15 + sqrt(lost)*1.1, roughnessFactor - 0.15, 0.6);\n' +
+      '  }\n')
     .replace('#include <dithering_fragment>',
       '#include <dithering_fragment>\n' +
       '  vec2 duv = (vWPos.xz - uDepthCenter)/uDepthSpan + 0.5;\n' +
@@ -3342,12 +3375,16 @@ waterMat.onBeforeCompile=function(sh){
       '  // cannot reproduce the bug above; it fades with the same smooth `shore` this water\n' +
       '  // already computes, so it never appears past the shoreline blend either.\n' +
       '  vec3 viewDirW = normalize(uCamPos - vWPos);\n' +
-      '  vec2 gp = vWPos.xz*0.015;\n' +
-      '  float gn1 = sin(gp.x*1.7 + gp.y*1.13 + uTime*0.9);\n' +
-      '  float gn2 = sin(gp.x*-1.31 + gp.y*2.31 + uTime*0.57 + 1.7);\n' +
-      '  vec3 waveN = normalize(vec3(gn1*0.05+gn2*0.035, 1.0, gn2*0.05-gn1*0.03));\n' +
+      '  vec3 waveN = wN;\n' +
+      '  if(uWaveN < 0.5){\n' +
+      '    vec2 gp = vWPos.xz*0.015;\n' +
+      '    float gn1 = sin(gp.x*1.7 + gp.y*1.13 + uTime*0.9);\n' +
+      '    float gn2 = sin(gp.x*-1.31 + gp.y*2.31 + uTime*0.57 + 1.7);\n' +
+      '    waveN = normalize(vec3(gn1*0.05+gn2*0.035, 1.0, gn2*0.05-gn1*0.03));\n' +
+      '  }\n' +
       '  vec3 halfW = normalize(uSunDir + viewDirW);\n' +
-      '  float glintSpec = pow(max(dot(waveN, halfW), 0.0), 60.0);\n' +
+      // with real wave facets the glint can be a tight sun-disc sparkle (HDR: bloom picks it up)
+      '  float glintSpec = uWaveN > 0.5 ? pow(max(dot(waveN, halfW), 0.0), 700.0)*2.2 : pow(max(dot(waveN, halfW), 0.0), 60.0);\n' +
       '  gl_FragColor.rgb += glintSpec*uGlint*shore*uLightLevel*vec3(1.0,0.93,0.80);\n' +
       '  // dissolve into the sky gradient before the far plane cuts the sea off in a hard line\n' +
       '  #ifdef USE_FOG\n' +
@@ -3713,7 +3750,7 @@ GFX.onChange(function(level){
   // field parcels at grazing angles need anisotropic filtering, or they smear into one colour
   const aniso = Math.min(renderer.capabilities.getMaxAnisotropy(), level==='high'?8:(level==='medium'?4:1));
   if(LAND.ftex.anisotropy!==aniso){ LAND.ftex.anisotropy=aniso; LAND.tex.anisotropy=Math.min(aniso,4); LAND.ftex.needsUpdate=true; LAND.tex.needsUpdate=true; }
-  if(waterMat.userData.shader) waterMat.userData.shader.uniforms.uGlint.value = detail;
+  if(waterMat.userData.shader){ waterMat.userData.shader.uniforms.uGlint.value = detail; waterMat.userData.shader.uniforms.uWaveN.value = level==='high'?8:(level==='medium'?4:0); }
   const windAmp = level==='high'?1.0:0.0;
   for(let i=0;i<_windMats.length;i++){ if(_windMats[i].userData.shader) _windMats[i].userData.shader.uniforms.uWindAmp.value = windAmp; }
   // density changed: free every currently-streamed scenery chunk, wipe every pool back to empty
@@ -3919,7 +3956,8 @@ let _scnTime = 0;
 HOOKS.always.push(function(dt){
   _scnTime += (dt||0.016);
   if(terrainMat.userData.shader){ terrainMat.userData.shader.uniforms.uTime.value=_scnTime; terrainMat.userData.shader.uniforms.uCamPos.value.copy(camera.position); }
-  if(waterMat.userData.shader){ waterMat.userData.shader.uniforms.uTime.value=_scnTime; waterMat.userData.shader.uniforms.uCamPos.value.copy(camera.position); waterMat.userData.shader.uniforms.uSunDir.value.copy(sunDir); }
+  if(waterMat.userData.shader){ const u=waterMat.userData.shader.uniforms; u.uTime.value=_scnTime; u.uCamPos.value.copy(camera.position); u.uSunDir.value.copy(sunDir);
+    u.uPixAng.value = 2*Math.tan(camera.fov*Math.PI/360)/Math.max(1, renderer.domElement.height); }
   for(let i=0;i<_windMats.length;i++){ if(_windMats[i].userData.shader) _windMats[i].userData.shader.uniforms.uTime.value=_scnTime; }
   if(terrainMat.userData.shader) terrainMat.userData.shader.uniforms.uFar.value=camera.far;
   if(waterMat.userData.shader) waterMat.userData.shader.uniforms.uFar.value=camera.far;
