@@ -778,7 +778,7 @@ const CAMPAIGN = [
       { id:'patrol', kind:'destroyAir', count:6, primary:true, label:'Den nächtlichen Überfall abwehren' },
       { id:'land', kind:'land', primary:true, label:'Im Dunkeln sicher zurück auf die Basis' },
     ],
-    spawns:{ air:[['f16',3],['f18',2],['f22',1,'sniper']] },
+    spawns:{ air:[['f16',3],['f18',2],['f22',1,'sniper']] }, allyTakeoff:true,
     intro:['KIEBITZ|Geier, Lärche: Kiebitz. Nachtstart frei. Positionslichter aus, sobald ihr oben seid.','LÄRCHE|Sternenklar. Man vergisst fast, wofür man überhaupt hochsteigt.|ruhig'],
     mid:[
       {on:'time',t:30,line:'LÄRCHE|Sag mal, was machst du eigentlich, wenn das alles vorbei ist? …Nur so gefragt.|ruhig'},
@@ -867,7 +867,7 @@ const CAMPAIGN = [
       { id:'clear', kind:'destroyAir', count:5, primary:true, label:'Den Anflugkorridor freikämpfen' },
       { id:'land', kind:'land', primary:true, label:'Ein letztes Mal ruhig aufsetzen' },
     ],
-    spawns:{ air:[['f22',3],['f18',2]] },
+    spawns:{ air:[['f22',3],['f18',2]] }, allyTakeoff:true,
     intro:['LÄRCHE|Was morgen kommt, kommt morgen. Heute Nacht gehört der Himmel nur uns.|ruhig'],
     mid:[
       {on:'time',t:40,line:'LÄRCHE|Komm heil runter, Geier. Das ist ein Befehl. Und eine Bitte.|ruhig'},
@@ -7799,7 +7799,7 @@ const BARK_GROUND={
   depot:{ L:['LÄRCHE|Depot geht hoch! Abstand!|dringend'] } };
 // ND §9.2 hpLow / §9.3 allyHp — only when the mission has no mid[] line for it (once per mission)
 const BARK_HPLOW={ H1:['WAGNER|Struktur kritisch, Geier. Kein Heldentum jetzt.|dringend'],
-  H2:['LÄRCHE|Geier, du verlierst Sprit. Raus aus dem Getümmel, ich deck dich!|dringend'],
+  H2:['LÄRCHE|Geier, du bist angeschossen! Raus aus dem Getümmel, ich deck dich!|dringend'],
   BT_SEPP:['SEPP|Bua! Du bist ja nur no a Sieb! Raus do!|dringend'],
   BT_WIGGERL:['WIGGERL|Sepp, dei Flieger schaut aus wia mei Auto. Des is ned guad.'] };
 const BARK_ALLY50={ LAERCHE:['LÄRCHE|Treffer bei mir. Ich halt noch.|dringend'], SEPP:['SEPP|I hab a Loch im Flügl! Und im Stolz!'], WIGGERL:['WIGGERL|Aua! D\'Resi is troffn!'] };
@@ -7862,6 +7862,12 @@ HOOKS.reset.push(()=>{ missionGen++; clearMidTimers(); _missionT0=null; });
 EV.on('takeoff', ()=>{
   if(_takeoffSeen) return; _takeoffSeen=true;
   _missionT0=performance.now(); _missionP0=mission.pausedMs||0;
+  // def.allyTakeoff: runway-start two-ship story (Lärche) — she lifts off right behind you (tougher: no protect objective)
+  if(storyActive() && mission.def.allyTakeoff && !ally && campaignId!=='bteam'){
+    spawnAlly({hp:ALLY_HP*3});
+    const f=new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion);
+    ally.obj.position.copy(player.obj.position).addScaledVector(f,-320).add(new THREE.Vector3(40,25,0));
+  }
   if(!dispatch('airborne') && storyActive()) bark('takeoff', barkList(BARK_TAKEOFF), {must:true});
 });
 EV.on('landReady', ()=>{
@@ -7877,14 +7883,14 @@ EV.on('groundKill', d=>{
   const set=BARK_GROUND[gt.tag]; if(!set) return;
   let list;
   if(campaignId==='bteam') list=set.BT;
-  else { const L=!!(mission.def.spawns&&mission.def.spawns.ally); list=(L?set.L:set.W)||set.W||set.L; }
+  else { const L=!!ally; list=(L?set.L:set.W)||set.W||set.L; }   // Lärche's lines only while she flies with you
   bark('ground_'+gt.tag, list, {p:0.5, cd:8});
 });
 EV.on('playerHit', ()=>{
   const ratio=player.hp/(player.maxHp||CFG.playerHP);
   if(dispatch('hpLow', m=>ratio<=m.lt)) return;
   if(ratio<0.35 && !_hpLowBarked && storyActive() && !hasMid('hpLow')){
-    const c=barkCtx(); const list=c==='BT' ? BARK_HPLOW['BT_'+btWingman()] : BARK_HPLOW[c==='H2'?'H2':'H1'];
+    const c=barkCtx(); const list=c==='BT' ? BARK_HPLOW['BT_'+btWingman()] : BARK_HPLOW[(c==='H2' && ally)?'H2':'H1'];   // Lärche only when she flies with you
     if(list && bark('hpLow', list, {cd:1})) _hpLowBarked=true;
   }
 });
@@ -7897,7 +7903,8 @@ EV.on('allyHit', d=>{
   else if(ratio<0.5 && !_allyBark50){ if(bark('ally50', BARK_ALLY50[k], {cd:1})) _allyBark50=true; }
 });
 // boss events (BOSSES track, bible §4.1): payloads {kind,name} {kind,left} {kind,phase} {kind,open} {kind,frac} {kind}
-EV.on('bossSpawn',  ()=>dispatch('bossSpawn'));
+// deferred: setupMission spawns the boss BEFORE the missionStart hook creates a fresh _midFired
+EV.on('bossSpawn',  ()=>{ setTimeout(()=>dispatch('bossSpawn'), 0); });
 EV.on('bossPart',   d=>dispatch('bossPart', m=>m.left===d.left));
 EV.on('bossExposed',d=>{ if(d && d.open) dispatch('bossExposed'); });           // fires once: first open only
 EV.on('bossPhase',  d=>dispatch('bossPhase', m=>m.phase===d.phase));
