@@ -483,15 +483,28 @@ const CFG = {
   liftoffSpeed: 300,       // above this with nose up = airborne
   stallSpeed: 190,         // below this in the air = losing lift (sink)
   taxiAccel: 55,           // m/s^2 thrust while rolling with boost/throttle on ground
-  taxiBrake: 70,           // wheel-brake decel (Strg on ground)
+  taxiBrake: 45,           // wheel-brake decel (Strg on ground)
   taxiDrag: 6,             // rolling resistance
-  touchGood: 18,           // |sink rate| m/s under this = clean landing
-  touchHard: 34,           // under this = hard (damage); above = crash
+  touchGood: 10,           // real sink rate (m/s, flare included) under this = clean landing
+  touchHard: 30,           // under this = hard (damage); above = crash
   touchAlignGood: 0.965,   // nose·runway dot above this = well aligned
   // --- Landing feel (LANDING track: flare/suspension/rollout/approach FX) ---
-  flareHeight: 22,         // wheel-AGL (m) where auto-flare authority ramps in
-  touchSoftFrac: 0.35,     // fraction of touchGood = "butterweich" (softest tier)
-  strutTravel: 0.6,        // visual suspension compression depth (world units)
+  glideDeg: 3,             // glide path (PAPI, HUD, KIEBITZ) to the aiming point
+  aimDist: 300,            // aiming point: m past the threshold
+  flareHeight: 24,         // wheel height (m) below which the auto-flare may act
+  flareSinkMin: 1.8,       // auto-flare sink target at contact (m/s) ...
+  flareTau: 1.0,           // ... plus height/tau: the sink shrinks with the wheel height
+  flareRate: 0.09,         // auto-flare max nose-up rate (rad/s): bad approaches stay bad
+  aoaApproach: 0.09,       // cosmetic nose-high attitude, slow with gear down (rad)
+  aoaFlare: 0.04,          // extra cosmetic attitude in the flare (rad)
+  touchSoftFrac: 0.33,     // fraction of touchGood = "butterweich" (softest tier)
+  gearK: 42, gearC: 5.5,   // strut spring / damper (per unit mass): visible, slightly bouncy
+  noseHold: 0.8,           // s the nose is held off after touchdown before derotating
+  derotRate: 0.1,          // max nose-lowering rate (rad/s)
+  autobrakeMin: 5, autobrakeMax: 65,   // rollout decel window (m/s^2): stop before the far end
+  landDoneSpeed: 90,       // landing objective completes once rolled out below this (m/s) ...
+  landDoneT: 4.5,          // ... or this long after touchdown
+  liftBlend: 1.4,          // s over which the climb path eases in after liftoff
   approachSpeedMax: 235,   // short-final speed above this = "zu schnell" callout
   kiebitzRepeatCd: 8,      // repeatable approach-callout cooldown per condition (s)
   kiebitzGap: 3.0,         // minimum gap between any two KIEBITZ landing callouts (s)
@@ -1298,15 +1311,16 @@ function terrainHeightRaw(x, z){
 // Active airfield plateau. When set, terrainHeight() flattens the ground to a
 // smooth level pad around the runway so (a) no mountain pokes through the strip
 // and (b) the rendered ground and the landing collision use the SAME height.
-let AIRFIELD=null;   // {x,z,cos,sin,halfL,halfW,ramp,y}
+let AIRFIELD=null;   // {x,z,cos,sin,halfL,halfW,ramp,y,cut?}
 function terrainHeight(x, z){
-  const h = terrainHeightRaw(x, z);
+  let h = terrainHeightRaw(x, z);
   const A = AIRFIELD;
   if(!A) return h;
   // into runway-local frame (lx across width, lz along length)
   const dx=x-A.x, dz=z-A.z;
   const lx = dx*A.cos - dz*A.sin;
   const lz = dx*A.sin + dz*A.cos;
+  if(A.cut) h = A.cut(h, lx, lz);   // approach-corridor cut (LANDING)
   const outX = Math.max(0, Math.abs(lx) - A.halfW);
   const outZ = Math.max(0, Math.abs(lz) - A.halfL);
   const d = Math.hypot(outX, outZ);
@@ -4216,9 +4230,17 @@ function buildEurofighter(withLight){
      }
     st.position.set(x,-0.95,z); return st;
   }
-  gear.add(strut(0,-4.2,false));     // nose gear, under the intake
-  gear.add(strut(-2.3,2.0,true));    // left main
-  gear.add(strut(2.3,2.0,true));     // right main
+  const stN=strut(0,-4.2,false), stL=strut(-2.3,2.0,true), stR=strut(2.3,2.0,true);
+  gear.add(stN); gear.add(stL); gear.add(stR);   // nose (under the intake), left main, right main
+  // bay doors, hinged at their outer edge; updateGearVisual swings struts + doors
+  const doorMat=new THREE.MeshStandardMaterial({color:0x5d666f, metalness:0.5, roughness:0.5, side:THREE.DoubleSide});
+  const doors=[];
+  for(const [x,z,w,l,side] of [[-0.18,-4.0,0.34,1.3,-1],[0.18,-4.0,0.34,1.3,1],[-2.0,2.0,0.55,1.4,-1],[2.0,2.0,0.55,1.4,1]]){
+    const hinge=new THREE.Group(); hinge.position.set(x+side*w/2,-0.92,z);
+    const d=new THREE.Mesh(new THREE.BoxGeometry(w,0.04,l), doorMat); d.position.x=-side*w/2; hinge.add(d);
+    hinge.userData.side=side; hinge.rotation.z=side*1.35; gear.add(hinge); doors.push(hinge);
+  }
+  gear.userData.struts=[stN,stL,stR]; gear.userData.doors=doors;
   g.add(gear); g.userData.gear=gear;
 
   g.userData.nozzleZ=7; g.userData.wingSpan=6.6;
@@ -4230,6 +4252,10 @@ function buildEurofighter(withLight){
   // (pre-retract), so this box is the fully-extended footprint.
   g.updateMatrixWorld(true);
   g.userData.gearMinY = new THREE.Box3().setFromObject(gear).min.y;
+  // per-leg contact points (lowest wheel point, world units from the origin) for the
+  // attitude-aware wheel height (wheelLow, 16b): mains behind the CG touch first nose-up
+  { const bN=new THREE.Box3().setFromObject(stN), bM=new THREE.Box3().setFromObject(stR);
+    g.userData.gearPts={ nose:{y:bN.min.y, z:(bN.min.z+bN.max.z)/2}, main:{y:bM.min.y, z:(bM.min.z+bM.max.z)/2, x:bM.max.x} }; }
   return g;
 }
 
@@ -4249,23 +4275,159 @@ HOOKS.always.push(function(){
 
 // ---- Runway / airbase strip (a landing surface the player can roll on) ----
 let runwayMesh=null;
-// Runway threshold numerals — one small canvas texture per label, built ONCE and cached
-// (buildRunway may run once per mission; a fresh CanvasTexture each time would leak GPU
-// memory since disposeTree only frees geometry, not textures/materials — see its comment).
-const _rwyNumTex={};
-function runwayNumTex(label){
-  if(_rwyNumTex[label]) return _rwyNumTex[label];
-  const c=document.createElement('canvas'); c.width=128; c.height=128; const g=c.getContext('2d');
-  g.fillStyle='#2b2e33'; g.fillRect(0,0,128,128);
-  g.fillStyle='#e8ecf0'; g.font='bold 92px system-ui, sans-serif'; g.textAlign='center'; g.textBaseline='middle';
-  g.fillText(label, 64, 68);
-  const t=new THREE.CanvasTexture(c); t.anisotropy=4;
-  return _rwyNumTex[label]=t;
+// ---- Runway resources: built ONCE and reused by every buildRunway (one per mission).
+// disposeTree frees geometry only, so per-build materials/textures used to leak; the
+// cached geometries carry userData.keep so disposeTree leaves them alone.
+// The whole airfield is 4 draw calls: baked strip, merged apron+buildings, 2 light sets.
+const RW_L=1400, RW_W=60;
+const _rw={};
+function rwStripTex(){
+  const cw=256, ch=4096, L=RW_L, W=RW_W;
+  const c=document.createElement('canvas'); c.width=cw; c.height=ch; const g=c.getContext('2d');
+  // asphalt base with per-pixel grain
+  const img=g.createImageData(cw,ch), d=img.data;
+  for(let i=0;i<d.length;i+=4){ const n=(Math.random()-0.5)*10;
+    d[i]=43+n; d[i+1]=46+n; d[i+2]=51+n*1.1; d[i+3]=255; }
+  g.putImageData(img,0,0);
+  // draw in metres: x across (-W/2..W/2), z along (-L/2 top .. +L/2 bottom)
+  const sx=cw/W, sz=ch/L; g.setTransform(sx,0,0,sz,W/2*sx,L/2*sz);
+  // re-tarred patches, a polished centre band, rubber in both touchdown zones
+  for(let i=0;i<46;i++){ g.fillStyle=Math.random()<0.5?'rgba(20,22,26,0.22)':'rgba(70,72,76,0.12)';
+    g.fillRect((Math.random()-0.5)*(W-10)-6, (Math.random()-0.5)*(L-40), 6+Math.random()*18, 10+Math.random()*50); }
+  g.fillStyle='rgba(18,19,22,0.18)'; g.fillRect(-4, -L/2, 8, L);
+  for(const s of [-1,1]){ const thr=s*(L/2-16);
+    for(let i=0;i<140;i++){ const z0=thr-s*(50+Math.random()*460), len=8+Math.random()*60;
+      g.fillStyle='rgba(8,8,9,'+(0.05+Math.random()*0.12).toFixed(3)+')';
+      g.fillRect((Math.random()<0.5?-1:1)*(1.2+Math.random()*4.2)-0.5, z0-(s>0?len:0), 0.9+Math.random()*1.2, len); } }
+  const white='rgba(236,238,240,0.93)';
+  g.fillStyle=white;
+  // edge lines + centreline dashes (30 m dash / 20 m gap)
+  for(const ex of [-W/2+1, W/2-1.9]) g.fillRect(ex, -L/2+16, 0.9, L-32);
+  for(let zz=-L/2+110; zz<L/2-110-30; zz+=50) g.fillRect(-0.45, zz, 0.9, 30);
+  for(const s of [-1,1]){ const thr=s*(L/2-16), inn=-s;   // inn = direction into the runway
+    g.fillRect(-W/2+1, thr-0.9, W-2, 1.8);                          // threshold line
+    for(let k=0;k<6;k++) for(const side of [-1,1]){                 // piano keys
+      const kx=side*(4+k*3.9); g.fillRect(kx-0.9, Math.min(thr+inn*6, thr+inn*36), 1.8, 30); }
+    for(const dz of [150,450]){ const zc=thr+inn*dz, n=dz<300?3:2;   // touchdown zone bars
+      for(const side of [-1,1]) for(let k=0;k<n;k++) g.fillRect(side*(6+k*2.6)-(side<0?1.8:0), zc-11, 1.8, 22); }
+    { const zc=thr+inn*CFG.aimDist;                                 // aiming point
+      for(const side of [-1,1]) g.fillRect(side*9-(side<0?6:0), zc-22, 6, 44); }
+    // stopway chevrons beyond the threshold (yellow)
+    g.strokeStyle='rgba(215,190,60,0.85)'; g.lineWidth=1.4;
+    for(let k=0;k<2;k++){ const zb=s*(L/2-3-k*6); g.beginPath();
+      g.moveTo(-W/2+3, zb); g.lineTo(0, zb+inn*5); g.lineTo(W/2-3, zb); g.stroke(); }
+    // designator: '36' is read by an aircraft landing heading 0 (travelling -z), i.e.
+    // at the +z end, upright for a viewer facing -z; '18' at the -z end, turned 180°
+    g.save(); g.translate(0, thr+inn*80); if(s<0) g.rotate(Math.PI);
+    g.scale(0.1,0.1); g.font='bold 190px system-ui, sans-serif'; g.textAlign='center'; g.textBaseline='middle';
+    g.fillStyle=white; g.fillText(s>0?'36':'18', 0, 0); g.restore();
+  }
+  // wear: fine dark speckle over paint + asphalt
+  g.setTransform(1,0,0,1,0,0);
+  for(let i=0;i<9000;i++){ g.fillStyle='rgba(20,20,22,'+(0.08+Math.random()*0.2).toFixed(2)+')'; g.fillRect(Math.random()*cw, Math.random()*ch, 1, 1+Math.random()*2); }
+  const t=new THREE.CanvasTexture(c);
+  t.anisotropy=Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  return t;
+}
+// merge [geometry, hex colour, Matrix4] parts into one vertex-coloured BufferGeometry
+function rwMergeColored(parts){
+  const pos=[], nor=[], col=[], cc=new THREE.Color();
+  for(const [g0,hex,m] of parts){
+    const g=g0.index? g0.toNonIndexed() : g0.clone(); g.applyMatrix4(m); cc.setHex(hex);
+    const P=g.attributes.position.array, N=g.attributes.normal.array;
+    for(let i=0;i<P.length;i++){ pos.push(P[i]); nor.push(N[i]); }
+    for(let i=0;i<P.length/3;i++) col.push(cc.r,cc.g,cc.b);
+    g.dispose(); if(g!==g0) g0.dispose();
+  }
+  const out=new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+  out.setAttribute('normal', new THREE.Float32BufferAttribute(nor,3));
+  out.setAttribute('color', new THREE.Float32BufferAttribute(col,3));
+  out.computeBoundingSphere(); return out;
+}
+function rwBaseGeo(){
+  const W=RW_W, L=RW_L, parts=[], e=new THREE.Euler(), q=new THREE.Quaternion();
+  const at=(g,hex,x,y,z,rx=0,ry=0,rz=0,s=null)=>{ e.set(rx,ry,rz); q.setFromEuler(e);
+    parts.push([g,hex,new THREE.Matrix4().compose(new THREE.Vector3(x,y,z), q, s||new THREE.Vector3(1,1,1))]); };
+  const flat=(w,l,hex,x,y,z)=>at(new THREE.PlaneGeometry(w,l),hex,x,y,z,-Math.PI/2);
+  // concrete shoulders under the strip, taxiway stub and aprons
+  flat(W+14, L+30, 0x4a4c50, 0,0.12,0);
+  flat(90,16,0x35383d, -W/2-45,0.24,-60);
+  flat(70,210,0x44464a, -75,0.1,-70);
+  flat(64,80,0x44464a, 72,0.1,120);
+  flat(24,40,0x35383d, W/2+12,0.24,120);
+  // hangars: box + shallow arched roof + dark door toward the strip
+  for(const [hx,hz] of [[-72,-130],[-72,-10],[72,120]]){ const sd=hx<0?1:-1;
+    at(new THREE.BoxGeometry(30,9,40), 0x4a525b, hx,4.5,hz);
+    at(new THREE.CylinderGeometry(15,15,40,12,1,false,-Math.PI/2,Math.PI), 0x59626c, hx,9,hz, -Math.PI/2,0,0, new THREE.Vector3(1,1,0.42));
+    at(new THREE.BoxGeometry(0.4,8,26), 0x1f2328, hx+sd*15.1,4.1,hz); }
+  // tower with glass cab, roof and antenna mast (beacon sits on top at y 36)
+  at(new THREE.CylinderGeometry(5,6,26,10), 0x5b626a, -80,13,60);
+  at(new THREE.BoxGeometry(12,7,12), 0x16202c, -80,29.5,60);
+  at(new THREE.BoxGeometry(13.4,0.8,13.4), 0x6b727a, -80,33.4,60);
+  at(new THREE.CylinderGeometry(0.25,0.25,2.4,5), 0x8a9098, -80,35,60);
+  // fuel tanks + windsock pole and sock
+  for(const tz of [-40,-18]) at(new THREE.CylinderGeometry(6,6,7,14), 0xa7abb0, -98,3.5,tz);
+  at(new THREE.CylinderGeometry(0.35,0.35,9,6), 0x9a9ea3, -W/2-10,4.5,40);
+  at(new THREE.ConeGeometry(1.6,7,10,1,true), 0xff7a30, -W/2-6,8.4,40, 0,0,Math.PI/2);
+  const g=rwMergeColored(parts); g.userData.keep=true; return g;
+}
+// glow points: size in metres, never below uMin px (so a far runway still reads as lights)
+function rwLightMat(){
+  return new THREE.ShaderMaterial({
+    uniforms:{ map:{value:glowTex}, uScale:{value:800}, uMin:{value:1.5}, uOpacity:{value:0.7} },
+    vertexShader:`attribute vec3 aCol; attribute float aSize; uniform float uScale, uMin;
+      varying vec3 vCol; varying float vA;
+      void main(){ vec4 mv=modelViewMatrix*vec4(position,1.0); float d=max(-mv.z,1.0);
+        float px=aSize*uScale/d; gl_PointSize=max(px,uMin);
+        vA=clamp(px/uMin,0.6,1.0)*(1.0-smoothstep(7000.0,11000.0,d)); vCol=aCol;
+        gl_Position=projectionMatrix*mv; }`,
+    fragmentShader:`uniform sampler2D map; uniform float uOpacity; varying vec3 vCol; varying float vA;
+      void main(){ float a=texture2D(map,gl_PointCoord).a; gl_FragColor=vec4(vCol*a*vA*uOpacity,1.0);
+        #include <encodings_fragment>
+      }`,
+    transparent:true, depthWrite:false, blending:THREE.AdditiveBlending });
+}
+function rwPoints(pos,col,size){
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('aCol', new THREE.Float32BufferAttribute(col,3));
+  g.setAttribute('aSize', new THREE.Float32BufferAttribute(size,1));
+  const p=new THREE.Points(g,_rw.lightMat); p.frustumCulled=true; return p;
+}
+// Corridor cut, called by terrainHeight as AIRFIELD.cut (this = AIRFIELD): lowers any
+// terrain poking above a 2.2° surface out of both thresholds, so the 3° glide path to the
+// aim point is flyable wherever the mission drops the strip. Only ever lowers.
+const RW_CUT_TAN=Math.tan(2.2*Math.PI/180);
+function rwCorridorCut(h, lx, lz){
+  const e=Math.abs(lz)-(RW_L/2-16); if(e<=0 || e>6500) return h;
+  const ceil=this.y+e*RW_CUT_TAN; if(h<=ceil) return h;
+  const w=120+0.12*e, f=350+0.1*e, ax=Math.abs(lx); if(ax>=w+f) return h;
+  let k=1; if(ax>w){ const t=1-(ax-w)/f; k=t*t*(3-2*t); }
+  if(e>4500){ const t=1-(e-4500)/2000; k*=t*t*(3-2*t); }
+  return h-(h-ceil)*k;
+}
+// drop every loaded chunk touching the plateau+corridor of airfield A, then refill
+function rwRebuildTerrain(A){
+  const size=CFG.chunkSize, r=size*0.72, ext=RW_L/2+6500+r, wid=1900+r;
+  for(const [key,m] of chunks){ const i=key.indexOf(',');
+    const dx=(+key.slice(0,i))*size-A.x, dz=(+key.slice(i+1))*size-A.z;
+    const lx=dx*A.cos-dz*A.sin, lz=dx*A.sin+dz*A.cos;
+    if(Math.abs(lx)<wid && Math.abs(lz)<ext){ terrainGroup.remove(m); m.geometry.dispose(); chunks.delete(key); } }
+  updateTerrain(player.obj.position.x, player.obj.position.z, 999);   // no holes allowed
+  updateDepthTex(player.obj.position.x, player.obj.position.z, true);
 }
 function buildRunway(x, z, heading){
   if(runwayMesh){ scene.remove(runwayMesh); disposeTree(runwayMesh); runwayMesh=null; }
+  const L=RW_L, W=RW_W;
+  if(!_rw.stripGeo){
+    _rw.stripGeo=new THREE.PlaneGeometry(W,L); _rw.stripGeo.userData.keep=true;
+    _rw.stripMat=new THREE.MeshStandardMaterial({map:rwStripTex(), roughness:0.93, metalness:0.0, polygonOffset:true, polygonOffsetFactor:-1, polygonOffsetUnits:-2});
+    _rw.baseGeo=rwBaseGeo();
+    _rw.baseMat=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.8, metalness:0.15});
+    _rw.lightMat=rwLightMat();
+  }
   const grp=new THREE.Group();
-  const L=1400, W=60;
   // Pad height = a robust average of the RAW terrain across the strip footprint,
   // lifted above any water. The plateau then flattens the ground to this level.
   const cosH=Math.cos(heading), sinH=Math.sin(heading);
@@ -4276,75 +4438,36 @@ function buildRunway(x, z, heading){
     sum += terrainHeightRaw(wx, wz); cnt++;
   }}
   const gy = Math.max(sum/cnt, CFG.waterLevel+8);
-  // Register the plateau BEFORE rebuilding terrain so chunks bake in the flat pad.
-  // Ramp reaches well past the runway ends into the approach corridor itself — real
-  // strips grade a clear overrun/approach area, so final approach shouldn't clip a
-  // stray hill just short of the threshold (LANDING track fix; was 40/420).
-  AIRFIELD = { x, z, cos:cosH, sin:sinH, halfL:L/2+120, halfW:W/2+30, ramp:700, y:gy };
-  rebuildTerrainAround(x, z);
-  const strip=new THREE.Mesh(new THREE.PlaneGeometry(W,L), new THREE.MeshStandardMaterial({color:0x2b2e33, roughness:0.95, metalness:0.0}));
-  strip.rotation.x=-Math.PI/2; strip.position.y=0.4; grp.add(strip);
-  // asphalt patches — subtle re-tarred blotches so the strip isn't a flat colour
-  for(let i=0;i<9;i++){ const pw=14+Math.random()*30, pl=20+Math.random()*46;
-    const p=new THREE.Mesh(new THREE.PlaneGeometry(pw,pl), new THREE.MeshStandardMaterial({color:Math.random()<0.5?0x33363c:0x24272b, roughness:1.0, metalness:0.0, transparent:true, opacity:0.5, polygonOffset:true, polygonOffsetFactor:-1, polygonOffsetUnits:-1}));
-    p.rotation.x=-Math.PI/2; p.rotation.z=Math.random()*Math.PI;
-    p.position.set((Math.random()-0.5)*(W-18), 0.42, (Math.random()-0.5)*(L-160)); grp.add(p); }
-  // centre dashes
-  for(let i=-L/2+40;i<L/2-40;i+=70){ const d=new THREE.Mesh(new THREE.PlaneGeometry(2.5,26), new THREE.MeshBasicMaterial({color:0xf0f0f0, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-4}));
-    d.rotation.x=-Math.PI/2; d.position.set(0,0.5,i); grp.add(d); }
-  // threshold bars + edge lines
-  for(const zz of [-L/2+16, L/2-16]){ for(let k=-4;k<=4;k++){ const b=new THREE.Mesh(new THREE.PlaneGeometry(3,16), new THREE.MeshBasicMaterial({color:0xffffff, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-4}));
-    b.rotation.x=-Math.PI/2; b.position.set(k*5.5,0.5,zz); grp.add(b);} }
-  for(const ex of [-W/2+2, W/2-2]){ const e=new THREE.Mesh(new THREE.PlaneGeometry(1.2,L), new THREE.MeshBasicMaterial({color:0xd8d84a, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-4}));
-    e.rotation.x=-Math.PI/2; e.position.set(ex,0.5,0); grp.add(e); }
-  // touchdown-zone bar pairs (~150/300m in) + a wide aiming-point pair (~300m), both ends
-  for(const dir of [-1,1]){ const base=dir*(L/2-16);
-    for(const dz of [110,180,250]){ for(const k of [-1,1]){ const b=new THREE.Mesh(new THREE.PlaneGeometry(2.6,10), new THREE.MeshBasicMaterial({color:0xf0f0f0, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-4}));
-      b.rotation.x=-Math.PI/2; b.position.set(k*10,0.5, base-dir*dz); grp.add(b); } }
-    for(const k of [-1,1]){ const a=new THREE.Mesh(new THREE.PlaneGeometry(4.5,20), new THREE.MeshBasicMaterial({color:0xffffff, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-4}));
-      a.rotation.x=-Math.PI/2; a.position.set(k*7,0.5, base-dir*320); grp.add(a); }
-    // threshold numeral, upright for an aircraft landing FROM this end (facing -dir along Z)
-    const num=new THREE.Mesh(new THREE.PlaneGeometry(16,16), new THREE.MeshBasicMaterial({map:runwayNumTex(dir<0?'36':'18'), transparent:true, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-4}));
-    num.rotation.x=-Math.PI/2; num.rotation.z=dir<0?0:Math.PI; num.position.set(0,0.5, base-dir*46); grp.add(num);
+  // Register plateau + approach-corridor cut BEFORE rebuilding terrain so chunks bake them in.
+  AIRFIELD = { x, z, cos:cosH, sin:sinH, halfL:L/2+120, halfW:W/2+30, ramp:700, y:gy, cut:rwCorridorCut };
+  rwRebuildTerrain(AIRFIELD);
+  const strip=new THREE.Mesh(_rw.stripGeo, _rw.stripMat);
+  strip.rotation.x=-Math.PI/2; strip.position.y=0.45; grp.add(strip);
+  grp.add(new THREE.Mesh(_rw.baseGeo, _rw.baseMat));
+  // static lights: edge (white, amber last 600 m), centreline, threshold/end bars, approach
+  const P=[], C=[], S=[];
+  const put=(lx,ly,lz,r,g,b,s)=>{ P.push(lx,ly,lz); C.push(r,g,b); S.push(s); };
+  const gl=(lx,lz)=>{ // ground height in group space (approach lights stand on real terrain)
+    const wx=x+lx*cosH+lz*sinH, wz=z-lx*sinH+lz*cosH; return Math.max(0.6, terrainHeight(wx,wz)-gy+1.0); };
+  for(let lz=-L/2+16; lz<=L/2-16+0.1; lz+=60) for(const lx of [-W/2-1.5, W/2+1.5]) put(lx,1.0,lz, 1.0,0.93,0.78, 2.2);
+  for(let lz=-L/2+45; lz<L/2-44; lz+=30) put(0,0.8,lz, 0.85,0.9,1.0, 1.3);
+  for(const s of [-1,1]){ const thr=s*(L/2-16);
+    for(let lx=-W/2; lx<=W/2+0.1; lx+=4) put(lx,0.9,thr+s*1.5, 0.25,1.0,0.45, 2.0);      // threshold: green
+    for(let lx=-W/2+6; lx<=W/2-6+0.1; lx+=6) put(lx,0.9,thr-s*1.5, 1.0,0.18,0.12, 1.6);  // runway end: red
+    for(let d=30; d<=600; d+=30){ const lz=thr+s*d; put(0,gl(0,lz),lz, 1.0,0.97,0.9, 2.6);
+      if(d%150===0) for(const lx of [-15,-10,-5,5,10,15]) put(lx,gl(lx,lz),lz, 1.0,0.97,0.9, 2.2); }
   }
-  // a couple of hangars + a tower beside the strip (base dressing)
-  const bldMat=new THREE.MeshStandardMaterial({color:0x40474f, metalness:0.4, roughness:0.7});
-  for(const hp of [[-72,-130],[-72,-10],[72,120]]){
-    const h=new THREE.Mesh(new THREE.BoxGeometry(30,14,40), bldMat); h.position.set(hp[0],7,hp[1]); grp.add(h);
-    const door=new THREE.Mesh(new THREE.PlaneGeometry(12,11), new THREE.MeshStandardMaterial({color:0x23272c, metalness:0.5, roughness:0.6, side:THREE.DoubleSide}));
-    door.rotation.y=Math.PI/2; door.position.set(hp[0]+(hp[0]<0?15.1:-15.1),5.6,hp[1]); grp.add(door);
-   }
-  const tower=new THREE.Mesh(new THREE.CylinderGeometry(5,6,26,8), bldMat); tower.position.set(-60,13,-60); grp.add(tower);
-  const cab=new THREE.Mesh(new THREE.BoxGeometry(12,7,12), new THREE.MeshStandardMaterial({color:0x223, metalness:0.5, roughness:0.3, transparent:true, opacity:0.8})); cab.position.set(-60,29,-60); grp.add(cab);
-  // taxiway stub linking the strip to the apron, + a windsock on a pole
-  const taxi=new THREE.Mesh(new THREE.PlaneGeometry(16,90), new THREE.MeshStandardMaterial({color:0x2b2e33, roughness:0.95}));
-  taxi.rotation.x=-Math.PI/2; taxi.rotation.z=Math.PI/2; taxi.position.set(-W/2-38, 0.35, -60); grp.add(taxi);
-  { const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.35,9,6), bldMat); pole.position.set(-W/2-10,4.5,40); grp.add(pole);
-    const sock=new THREE.Mesh(new THREE.ConeGeometry(1.6,7,10,1,true), new THREE.MeshStandardMaterial({color:0xff7a30, roughness:0.8, side:THREE.DoubleSide}));
-    sock.rotation.z=Math.PI/2; sock.position.set(-W/2-10+4,8.4,40); grp.add(sock); grp.userData.windsock=sock; }
-     // tower beacon (red, blinks in loop) + runway edge lights: green threshold / white centre / red end
-  const beacon=new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xff3020, transparent:true, opacity:0.9, depthWrite:false, blending:THREE.AdditiveBlending }));
-  beacon.scale.set(9,9,1); beacon.position.set(-60,35.5,-60); grp.add(beacon); grp.userData.beacon=beacon;
-  for(let ez=-L/2+40; ez<L/2-40; ez+=85){ for(const ex of [-W/2+3, W/2-3]){
-    const m=new THREE.SpriteMaterial({ map:glowTex, color:0xd8f0ff, transparent:true, opacity:0.9, depthWrite:false, blending:THREE.AdditiveBlending });
-    m.color.setHex(ez<-L/2+130?0x30ff60:(ez>L/2-130?0xff3030:0xd8f0ff));
-    const sp=new THREE.Sprite(m); sp.scale.set(7,7,1); sp.position.set(ex,1.2,ez); grp.add(sp);
-     }}
-  // centreline lights — sparse, low, white; alternate red near either stop-end
-  for(let ez=-L/2+55; ez<L/2-55; ez+=140){ const m=new THREE.SpriteMaterial({ map:glowTex, color:0xf0f0e0, transparent:true, opacity:0.85, depthWrite:false, blending:THREE.AdditiveBlending });
-    const sp=new THREE.Sprite(m); sp.scale.set(4,4,1); sp.position.set(0,0.9,ez); grp.add(sp); }
-  // approach lighting system: a dashed line of lights running out from each threshold
-  for(const dir of [-1,1]){ const base=dir*(L/2+16);
-    for(let d=30; d<=280; d+=40){ const m=new THREE.SpriteMaterial({ map:glowTex, color:0xffffff, transparent:true, opacity:0.8, depthWrite:false, blending:THREE.AdditiveBlending });
-      const sp=new THREE.Sprite(m); sp.scale.set(5,5,1); sp.position.set(0, 0.6, base+dir*d); grp.add(sp); } }
-  // PAPI (precision approach path indicator): 4 lights beside each threshold, white above /
-  // red below the 3° glideslope — colour is updated live per-frame from the player's angle
-  // (see updatePapi in section 16b). Placed both ends: the strip is landable from either side.
-  grp.userData.papi=[];
-  for(const dir of [-1,1]){ const zz=dir*(L/2-70);
-    for(let k=0;k<4;k++){ const m=new THREE.SpriteMaterial({ map:glowTex, color:0xffffff, transparent:true, opacity:0.95, depthWrite:false, blending:THREE.AdditiveBlending, fog:false });
-      const sp=new THREE.Sprite(m); sp.scale.set(5.5,5.5,1); sp.position.set(dir*(W/2+14+k*6), 3.2, zz); grp.add(sp);
-      grp.userData.papi.push({spr:sp, dir, k}); } }
+  const lights=rwPoints(P,C,S); lights.renderOrder=2; grp.add(lights);
+  // dynamic lights: 2 PAPI bars (4 each) + tower beacon; colour set per frame in updatePapi.
+  // Each bar stands left of the landing aircraft abeam the aim point; the light nearest
+  // the runway has the highest reference angle (3.50 / 3.17 / 2.83 / 2.50°).
+  const DP=[], DC=[], DS=[], meta=[];
+  for(const dirZ of [1,-1]){ const aimZ=-dirZ*(L/2-16)+dirZ*CFG.aimDist;
+    for(let k=0;k<4;k++){ DP.push(dirZ*(W/2+15+k*9), 1.3, aimZ); DC.push(0,0,0); DS.push(4.2);
+      meta.push({dirZ, ref:3.5-k*(1/3)}); } }
+  DP.push(-80,36.4,60); DC.push(0,0,0); DS.push(4.0);
+  const dyn=rwPoints(DP,DC,DS); dyn.renderOrder=2; dyn.userData.meta=meta; grp.add(dyn);
+  grp.userData.dyn=dyn;
   grp.position.set(x, gy, z);
   grp.rotation.y = heading;
   scene.add(grp); runwayMesh=grp;
@@ -4353,7 +4476,7 @@ function buildRunway(x, z, heading){
 function clearRunway(){
   if(runwayMesh){ scene.remove(runwayMesh); disposeTree(runwayMesh); runwayMesh=null; }
   player.runway=null;
-  if(AIRFIELD){ const a=AIRFIELD; AIRFIELD=null; rebuildTerrainAround(a.x, a.z); }  // restore natural terrain
+  if(AIRFIELD){ const a=AIRFIELD; AIRFIELD=null; rwRebuildTerrain(a); }  // restore natural terrain
 }
 // Rebuild the terrain chunks overlapping a point so plateau flattening is baked in.
 function rebuildTerrainAround(wx, wz){
@@ -7350,12 +7473,20 @@ function updateGearVisual(dt){
   const gear=player.obj.userData.gear; if(!gear) return;
   const target=player.gearDown?1:0;
   const prev=gear.userData.t!=null?gear.userData.t:target;
-  const t=prev+(target-prev)*(1-Math.exp(-7*dt));
+  // constant-rate travel (~1.6 s): doors open first, then the legs swing out and lock
+  const t=prev<target ? Math.min(target, prev+dt/1.6) : Math.max(target, prev-dt/1.6);
   gear.userData.t=t;
-  gear.visible=t>0.01;
-  gear.scale.y=Math.max(0.05,t);
-  gear.rotation.x=(1-t)*-0.5;    // struts swing back/up as they fold into the bay
-  if(Math.abs(t-target)<0.02 && Math.abs(prev-target)>=0.02) gearClunk();
+  gear.visible=t>0.005;
+  gear.scale.y=1;
+  gear.position.y=(player._land.comp||0)/(player.obj.scale.y||1);   // strut compression: wheels stay on the ground
+  if(gear.visible){
+    let s=THREE.MathUtils.clamp((t-0.18)/0.82,0,1); s=s*s*(3-2*s);
+    const st=gear.userData.struts, dr=gear.userData.doors;
+    if(st){ st[0].rotation.x=-(1-s)*1.5;                      // nose leg folds aft
+      st[1].rotation.z=(1-s)*1.5; st[2].rotation.z=-(1-s)*1.5; } // mains fold inward
+    if(dr){ const o=THREE.MathUtils.clamp(t/0.18,0,1)*1.35; for(const d of dr) d.rotation.z=d.userData.side*o; }
+  }
+  if(t===target && prev!==target) gearClunk(target);
 }
 
 /* ---------------------------------------------------------------------------
@@ -7366,60 +7497,96 @@ function updateGearVisual(dt){
    build) plus a damped suspension spring, not a hand-picked fuselage offset.
    --------------------------------------------------------------------------- */
 function updatePlayerGround(dt){
-  const gy = player.runway ? player.runway.y : Math.max(terrainHeight(player.obj.position.x,player.obj.position.z),CFG.waterLevel);
-  const restY = gy - (player.obj.userData.gearMinY||-1.9);
-  const L=player._land;
+  const L=player._land, rw=player.runway, p=player.obj.position;
+  // runway-local position: the flat pad is the runway datum; beyond it roll over the
+  // (plateau-blended) terrain instead of floating at pad height
+  let inPad=false, paved=false;
+  if(rw){ rwLocal(rw, p.x, p.z, _rwL); const ax=Math.abs(_rwL.x), az=Math.abs(_rwL.z);
+    inPad = ax<rw.width/2+28 && az<rw.length/2+115; paved = ax<rw.width/2+1 && az<rw.length/2+1; }
+  const gy = inPad ? rw.y : Math.max(terrainHeight(p.x,p.z), CFG.waterLevel);
+  dom.warn.style.opacity=0;
   // throttle: Shift = full thrust, Strg = wheel brakes, otherwise idle roll-down
   const thrust = (!!keys['ShiftLeft']||!!keys['ShiftRight']);
   const brake  = (!!keys['ControlLeft']||!!keys['ControlRight']);
   player.boost = thrust;
-  let a = -CFG.taxiDrag;                       // rolling resistance always
-  if(L.rolloutT>0){ L.rolloutT-=dt; a-=CFG.taxiDrag*1.6; }   // spoilers/extra drag just after touchdown
+  L.tdT += dt;
+  if(thrust) L.autobrake=false;                // touch-and-go / taxi: thrust cancels the autobrake
+  let a = -CFG.taxiDrag*(paved?1:2.5);         // rolling resistance (grass drags harder)
   if(thrust) a += CFG.taxiAccel;
-  if(brake)  a -= CFG.taxiBrake;
+  if(brake)  a -= CFG.taxiBrake*Math.min(1, L.tdT/1.2);   // wheel brakes bite once the mains are loaded
+  // autobrake after touchdown: decelerate to stop before the far end, jerk-limited ramp-in
+  if(L.autobrake && rw && player.speed>3){
+    const dirZ = -Math.cos(player.heading-rw.heading) < 0 ? -1 : 1;   // travel direction along local z
+    const remain = Math.max(80, rw.length/2 - _rwL.z*dirZ - 60 - player.speed*0.4);
+    const need = THREE.MathUtils.clamp(player.speed*player.speed/(2*remain), CFG.autobrakeMin, CFG.autobrakeMax);
+    if(L.tdT>0.3) L.brakeK=Math.min(1, L.brakeK+dt/0.8);
+    a -= Math.max(0, need-CFG.taxiDrag)*L.brakeK;
+    if(player.speed<12) L.autobrake=false;     // taxi speed: hand back to the pilot
+  }
   player.speed = Math.max(0, player.speed + a*dt);
   // nose-wheel steering (A/D or mouse-x) — gentle, scaled down at high speed
   let steer=0; if(keys['KeyA']||keys['ArrowLeft']) steer+=1; if(keys['KeyD']||keys['ArrowRight']) steer-=1;
   if(mouseActive){ const dz=0.05; const mx=Math.abs(mouseX)>dz?(mouseX-Math.sign(mouseX)*dz)/(1-dz):0; steer+=-mx; }
-  // centreline tendency: with no manual input, weather-vane gently back toward the
-  // runway's own heading (nose-wheel caster/tracking) instead of holding whatever
-  // heading you touched down with forever.
-  if(steer===0 && player.runway && player.speed>8){
-    let da=player.heading-player.runway.heading; while(da>Math.PI)da-=2*Math.PI; while(da<-Math.PI)da+=2*Math.PI;
-    if(Math.abs(da)>Math.PI/2){ da += (da>0?-Math.PI:Math.PI); }   // strip is landable from both ends
-    steer += THREE.MathUtils.clamp(-da*2.0, -0.6, 0.6);
+  // hands-off: track the runway heading and drift back to the centreline (either direction)
+  if(steer===0 && rw && inPad && player.speed>8){
+    let da=player.heading-rw.heading; while(da>Math.PI)da-=2*Math.PI; while(da<-Math.PI)da+=2*Math.PI;
+    let side=1; if(Math.abs(da)>Math.PI/2){ da += (da>0?-Math.PI:Math.PI); side=-1; }
+    const right=_rwL.x*side;                   // + = right of the centreline, seen along travel
+    steer += THREE.MathUtils.clamp(-(da - THREE.MathUtils.clamp(right*0.004,-0.08,0.08))*2.0, -0.6, 0.6);
   }
   player.heading += steer * (0.9*Math.min(1,player.speed/120)) * dt;
-  // rotation: pull back (W / mouse up) past Vr raises the nose
+  // attitude: player.pitch is the (level) roll path, L.aoa the nose attitude above it.
+  // Pull back (W / mouse up) past Vr rotates about the mains; after a touchdown the nose
+  // is held off briefly, then derotated smoothly onto its wheel.
   let pull=0; if(keys['KeyW']||keys['ArrowUp']) pull+=1; if(keys['KeyS']||keys['ArrowDown']) pull-=1;
   if(mouseActive){ const dz=0.05; const my=Math.abs(mouseY)>dz?(mouseY-Math.sign(mouseY)*dz)/(1-dz):0; pull+=-my; }
-  const canRotate = player.speed>=CFG.rotateSpeed;
-  const targetPitch = (canRotate && pull>0) ? 0.28 : 0.0;   // nose-up attitude when rotating
-  player.pitch += (targetPitch-player.pitch)*(1-Math.exp(-2.5*dt));
+  player.pitch += (0-player.pitch)*(1-Math.exp(-8*dt));
+  const rest=gearRestAtt(), canRotate = player.speed>=CFG.rotateSpeed;
+  const attWant = (canRotate && pull>0) ? 0.2 : (L.tdT<CFG.noseHold && player.speed>60 ? L.aoa : rest);
+  const vWant = THREE.MathUtils.clamp((attWant-L.aoa)*2.5, -CFG.derotRate, 0.16);
+  L.aoaV += (vWant-L.aoaV)*(1-Math.exp(-5*dt));
+  L.aoa += L.aoaV*dt;
+  if(L.aoa<=rest){
+    if(!L.noseDown && player.speed>30){ L.compV += 0.25+Math.min(0.5,-L.aoaV*4); tyreScreech(0.1); }   // nose wheel meets the runway
+    L.aoa=rest; if(L.aoaV<0) L.aoaV=0; L.noseDown=true;
+  } else if(L.aoa>rest+0.01) L.noseDown=false;
   player.roll  += (0-player.roll)*(1-Math.exp(-4*dt));
-  // liftoff: enough speed + nose up → become airborne
-  if(player.speed>=CFG.liftoffSpeed && player.pitch>0.12){
-    player.onGround=false; player.vy = 6;   // gentle initial climb
-    player.gearRetractT=1.2;                 // auto-retract shortly after
+  // liftoff: enough speed + nose up → airborne. The path starts level and eases up
+  // (updatePlayer), the attitude carries over: no vertical-speed jump.
+  const att0 = player.pitch + L.aoa;
+  if(player.speed>=CFG.liftoffSpeed && att0>0.12){
+    player.onGround=false; player.pitch=0; player.vy=0; player.pitchRate=0;
+    L.liftT=CFG.liftBlend; L.liftAtt=att0; L.liftPitch=0; L.autobrake=false; L.comp=0; L.compV=0;
+    player.gearRetractT=1.8;                  // auto-retract once positively climbing
     L.once={}; L.kbCd=0;                      // fresh approach-callout state for the next landing
+    if(L.pendingLand!=null) flushLanded();
     if(mission.active) onTakeoff();
+    kiebitzTakeoff();
+    updateGearVisual(dt); updateRunwayRumble(dt);
+    return;
   }
-  // suspension: a damped spring settles the fuselage onto restY (bounces off a hard touchdown,
-  // never teleports) — see onTouchdown() in 16b for the impulse.
-  L.compV += (-140*L.comp - 15*L.compV)*dt;
-  L.comp = Math.max(0, L.comp + L.compV*dt);
-  player.obj.position.y = restY - L.comp*CFG.strutTravel;
-  player.pitch += L.compV*0.0035;
-  player.vy=0;
+  // suspension: underdamped strut spring; a touchdown hands over the real sink rate (compV)
+  L.compV += (-CFG.gearK*L.comp - CFG.gearC*L.compV)*dt;
+  L.comp += L.compV*dt;
+  if(L.comp>1.1){ L.comp=1.1; if(L.compV>0) L.compV=0; }        // bottomed out
+  if(L.comp<-0.3){ L.comp=-0.3; if(L.compV<0) L.compV=0; }      // fully extended
+  const att = att0 - (L.noseDown ? L.comp*0.02 : 0);               // nose strut dips a touch more
+  if(L.gyPrev!=null && Math.abs(gy-L.gyPrev)<3) L.comp+=gy-L.gyPrev;   // a step in the ground (pad edge) goes into the strut
+  L.gyPrev=gy;
+  const prevY=p.y;
+  p.y = gy - wheelLow(att, player.roll) - L.comp;
+  player.vy = (p.y-prevY)/Math.max(dt,1e-3);
   if(L.lastRatingT>0) L.lastRatingT-=dt;
-  // orient + move along heading
-  tmpE.set(player.pitch, player.heading, player.roll, 'YXZ'); player.obj.quaternion.setFromEuler(tmpE);
-  const fwd=tmpV.set(0,0,-1).applyQuaternion(player.obj.quaternion);
-  player.obj.position.addScaledVector(fwd, player.speed*dt);
-  player.vel.copy(fwd).multiplyScalar(player.speed);
+  // orient (visual attitude) + roll along the ground (horizontal: no hop from the nose-up attitude)
+  tmpE.set(att, player.heading, player.roll, 'YXZ'); player.obj.quaternion.setFromEuler(tmpE);
+  const fwd=tmpV.set(-Math.sin(player.heading), 0, -Math.cos(player.heading));
+  p.addScaledVector(fwd, player.speed*dt);
+  player.vel.copy(fwd).multiplyScalar(player.speed); player.vel.y=player.vy;
   // wheel dust when moving fast
-  if(player.speed>60 && Math.random()<0.5){ const p=player.obj.position; smokeP.spawn(p.x-fwd.x*6,gy+1,p.z-fwd.z*6,(Math.random()-0.5)*8,3,(Math.random()-0.5)*8,0.5,6,20,C_GREY,C_SMOKE,0.9,0); }
+  if(player.speed>60 && Math.random()<0.5){ smokeP.spawn(p.x-fwd.x*6,gy+1,p.z-fwd.z*6,(Math.random()-0.5)*8,3,(Math.random()-0.5)*8,0.5,6,20,C_GREY,C_SMOKE,0.9,0); }
   if(player.obj.userData.ab) player.obj.userData.ab.intensity = thrust?2.0:0.3;
+  // the landing objective completes once rolled out (or after a few seconds): the rollout is seen
+  if(L.pendingLand!=null && (player.speed<CFG.landDoneSpeed || L.tdT>CFG.landDoneT)) flushLanded();
   updateGearVisual(dt);
   updateRunwayRumble(dt);
   // engine sound scales with taxi speed
@@ -7567,85 +7734,63 @@ function updatePlayer(dt){
   }
 
   // --- Ground / altitude ---
+  const L=player._land, rw=player.runway;
+  // just after liftoff the climb path eases in while the attitude carries over (no vy jump)
+  if(L.liftT>0){
+    L.liftT-=dt; let k=THREE.MathUtils.clamp(1-L.liftT/CFG.liftBlend,0,1); k=k*k*(3-2*k);
+    if(player.pitch<0.1*k) player.pitch=0.1*k;
+    // pitch-up authority ramps in like a real rotation (~9°/s -> full stick), else full
+    // back-stick right at liftoff swings the flight path 50° up within half a second
+    const upRate=0.16+0.9*k*k;
+    if(player.pitchRate>upRate) player.pitchRate=upRate;
+    if(player.pitch>L.liftPitch+upRate*dt) player.pitch=L.liftPitch+upRate*dt;
+    L.liftPitch=player.pitch;
+  }
   const gh=terrainHeight(player.obj.position.x, player.obj.position.z);
   const groundY=Math.max(gh, CFG.waterLevel);
   const clear=player.obj.position.y - groundY;
   dom.warn.style.opacity = (clear<180 && player.obj.position.y<gh+260) ? 1:0;
 
-  // Are we over the active runway (for a graded landing rather than a crash)?
-  let overRunway=false;
-  if(player.runway){
-    const rdx=player.obj.position.x-player.runway.x, rdz=player.obj.position.z-player.runway.z;
-    const ch=Math.cos(-player.runway.heading), sh=Math.sin(-player.runway.heading);
-    const localX=rdx*ch - rdz*sh, localZ=rdx*sh + rdz*ch;   // into runway frame
-    overRunway = Math.abs(localX) < player.runway.width*0.6 && Math.abs(localZ) < player.runway.length*0.5;
+  // Runway-local position: the flat pad accepts a touchdown, the paved strip grades it clean,
+  // the flare zone reaches a little short of the threshold.
+  let inPad=false, onStrip=false, flareZone=false;
+  if(rw){
+    rwLocal(rw, player.obj.position.x, player.obj.position.z, _rwL);
+    const ax=Math.abs(_rwL.x), az=Math.abs(_rwL.z);
+    inPad     = ax < rw.width/2+25 && az < rw.length/2+110;
+    onStrip   = ax < rw.width/2+2  && az < rw.length/2;
+    flareZone = ax < rw.width/2+60 && az < rw.length/2+500;
+    if(player.gearDown && ax<400 && az<rw.length/2+3000) dom.warn.style.opacity=0;   // a stabilised approach is not a terrain alarm
   }
-  // Height of the WHEELS (not the fuselage origin) above the ground — derived from the
-  // actual gear geometry (gearMinY, a Box3 measured once at model-build time) instead of
-  // a hand-picked fuselage offset. This is what actually decides ground contact below.
-  // Measured against the RUNWAY's own flat datum when one is assigned (matching the plant
-  // height updatePlayerGround uses) — NOT raw local terrain, which can be far off (hills,
-  // dips) anywhere outside the strip's own flattened footprint and would otherwise fire a
-  // "touchdown" kilometres from the actual pad whenever the flight path happens to graze it.
-  const gearOff = -(player.obj.userData.gearMinY||-1.9);
-  const groundRefY = player.runway ? player.runway.y : groundY;
-  const wheelClear = (player.obj.position.y - groundRefY) - gearOff;
+  // Cosmetic angle of attack: slow with the gear down the jet flies nose-high (the velocity
+  // still follows player.pitch) — the mains touch first and the nose has something to lower.
+  const aoaWant = L.liftT>0 ? Math.max(0, L.liftAtt-player.pitch)
+    : (player.gearDown ? THREE.MathUtils.clamp((CFG.cruiseSpeed+40-player.speed)/120,0,1)*CFG.aoaApproach + CFG.aoaFlare*L.flareK : 0);
+  L.aoa += (aoaWant-L.aoa)*(1-Math.exp(-(L.liftT>0?4:1.5)*dt));
+  // height of the lowest WHEEL above the pad (attitude + bank aware)
+  const padOk = player.gearDown && inPad;
+  const wheelClear = (player.obj.position.y - (padOk ? rw.y : groundY)) + wheelLow(player.pitch+L.aoa, player.roll);
 
-  // Auto-flare: continuous authority (0..1, critically-damped) that ramps in as the
-  // wheels approach the runway — never an on/off snap, so pitch/sink never jump.
-  const flareWant = (player.gearDown && overRunway && player.vy<0 && wheelClear<CFG.flareHeight && wheelClear>-2) ? 1 : 0;
-  const L=player._land;
-  L.flareK += (flareWant-L.flareK)*(1-Math.exp(-4*dt));
-  if(L.flareK>0.01){
-    player.pitch += (0.07*L.flareK - player.pitch)*(1-Math.exp(-3*dt));   // ease the nose up
-    if(player.vy<0) player.obj.position.y -= player.vy*dt*(0.55*L.flareK);   // arrest sink smoothly
+  // Auto-flare: wanted sink shrinks with wheel height (flareSinkMin at contact); the nose rises
+  // toward it rate-limited, so the REAL sink rate falls smoothly and grading sees it as flown.
+  let flareOn=false;
+  if(player.gearDown && flareZone && wheelClear<CFG.flareHeight && player.vy<0.5 && L.liftT<=0){
+    flareOn=true;
+    const want = -(CFG.flareSinkMin + Math.max(0,wheelClear)/CFG.flareTau);
+    const pWant = Math.asin(THREE.MathUtils.clamp(want/Math.max(60,player.speed),-0.5,0.5));
+    const k = Math.min(1, L.flareK*1.5);
+    if(player.pitch<pWant) player.pitch += Math.min(pWant-player.pitch, CFG.flareRate*k*dt);
+    else if(pitchIn<=0 && wheelClear<10) player.pitch -= Math.min(player.pitch-pWant, 0.03*k*dt);   // floating: settle
   }
-  if(L.flareK>0.5 && !L.once.flare){ L.once.flare=true; radio('KIEBITZ|Abfangen … abfangen …|leise'); }
+  L.flareK += ((flareOn?1:0)-L.flareK)*(1-Math.exp(-4*dt));
+  if(flareOn && L.flareK>0.5 && !L.once.flare && player.vy<-0.5){ L.once.flare=true; kiebitzSay('flare','KIEBITZ|Abfangen … abfangen …|leise'); }
 
-  if(player.gearDown && overRunway && wheelClear<=0.05 && player.pitch>-0.15){
-    // ---- LANDING TOUCHDOWN: grade by sink rate + alignment ----
-    // Triggered by the WHEELS reaching the ground (wheelClear), so the mains (the
-    // gear's lowest point) always touch first — no separate nose/main simulation needed.
-    // Requires the real runway footprint (overRunway), not just "a runway exists for this
-    // mission" — touching down kilometres away over rolling terrain is a crash, not a landing.
-    // A runway is landable from BOTH ends, so use |dot| — flying back down the
-    // strip the "wrong" way is a perfectly valid approach, not a crash.
-    const sink=Math.max(0,-player.vy);
-    const runHead=tmpV2.set(0,0,-1).applyAxisAngle(UP, player.runway?player.runway.heading:player.heading);
-    const align=Math.abs(fwd.dot(runHead));
-    if(sink>CFG.touchHard || align<0.55){
-      // too hard / too crooked → crash
-      EV.emit('crash',{cause:'landing'});
-      radio('KIEBITZ|…Rettung zur Piste. Sofort.|erschuettert');
-      player.hp=0; player.alive=false; damageFlash=Math.max(damageFlash,1.2);
-      explode(player.obj.position.x, groundY+6, player.obj.position.z, 2.0); Audio.explosion(true);
-      spawnDebris(player.obj.position.x, groundY+4, player.obj.position.z, 14, 1.4, true);
-      mission.failReason='Harte Bruchlandung — Maschine zerstört.';
-      gameOver(false); return;
-    }
-    // touchdown: hand off to the ground-roll spring/suspension (updatePlayerGround), which
-    // eases the fuselage onto its resting height and derotates the nose — never a snap here.
-    player.onGround=true; player.vy=0; player.pitchRate=0; L.flareK=0;
-    L.compV = -sink*0.12; L.rolloutT=1.4;                 // suspension impulse + extra rollout drag
-    const hard = sink>CFG.touchGood || align<CFG.touchAlignGood;
-    const soft = sink < CFG.touchGood*CFG.touchSoftFrac;
-    const bt = campaignId==='bteam';
-    L.lastRating = hard?'Harte Landung':(soft?'Butterweich!':'Sauber aufgesetzt'); L.lastRatingT=3.5;
-    EV.emit('touchdown',{vs:sink, rating: hard?'hart':(soft?'butterweich':'sauber')});
-    if(hard){ player.hp=Math.max(1,player.hp-18); shake=Math.max(shake,0.8); damageFlash=Math.max(damageFlash,0.6); Audio.hitTaken();
-      banner('HARTE LANDUNG','Struktur beschädigt — aber unten');
-      radio(bt ? ((player.hero==='wiggerl')?'WIGGERL|Tschuldigung, Resi. Des war ned so gmeint.':'SEPP|Des war ned hart. Des war bodenständig.')
-               : (Math.random()<0.5?'KIEBITZ|Hart, aber ganz. Die Techniker werden fluchen.':'KIEBITZ|Das hat gerummst. Alles dran?')); }
-    else { shake=Math.max(shake,0.25); banner('AUFGESETZT','Saubere Landung, Geier'); Audio.reload();
-      radio(bt ? 'KIEBITZ|Aufgesetzt. Ich sag\'s ungern: Das war ordentlich.'
-               : (soft ? 'KIEBITZ|Butterweich. Das schreib ich mir auf.' : 'KIEBITZ|Aufgesetzt. Willkommen daheim, Geier.|warm')); }
-    tyreScreech(THREE.MathUtils.clamp(sink/CFG.touchHard,0,1));
-    // touchdown smoke puffs
-    for(let i=0;i<8;i++) smokeP.spawn(player.obj.position.x,groundY+1,player.obj.position.z,(Math.random()-0.5)*20,4,(Math.random()-0.5)*20,0.7,8,26,C_GREY,C_SMOKE,0.9,0);
-    player.landed=true;
-    if(mission.active) onLanded(hard);
-  } else if(clear<3.4 && player.crashCd<=0 && !(player.gearDown && overRunway)){
-    // hard terrain impact (no gear / not a runway / nose down) — forgiving bounce
+  if(padOk && wheelClear<=0){
+    if(L.liftT>0){ player.obj.position.y -= wheelClear; }        // just lifted off: never scrape back
+    // ---- LANDING TOUCHDOWN (graded in landingTouchdown, section 16b) ----
+    else if(landingTouchdown(fwd, wheelClear, onStrip, groundY)) return;
+  } else if(!padOk && (player.gearDown ? wheelClear<=0 : clear<3.4) && player.crashCd<=0){
+    // hard terrain impact (no gear / wheels short of or beside the pad) — forgiving bounce
     EV.emit('crash',{cause:'terrain'});
     player.hp-=34; player.crashCd=1.0; shake=Math.max(shake,1.2); damageFlash=Math.max(damageFlash,1.0);
     explode(player.obj.position.x, groundY+8, player.obj.position.z, 1.0);
@@ -7657,6 +7802,8 @@ function updatePlayer(dt){
   }
   if(player.crashCd>0) player.crashCd-=dt;
   updateKiebitzApproach(dt);
+  // visual attitude = flight path + cosmetic angle of attack
+  if(!player.onGround && Math.abs(L.aoa)>1e-4){ tmpE.set(player.pitch+L.aoa, player.heading, player.roll, 'YXZ'); player.obj.quaternion.setFromEuler(tmpE); }
   // ceiling
   if(player.obj.position.y>4200){ player.obj.position.y=4200; }
 
@@ -7722,17 +7869,107 @@ function updatePlayer(dt){
    shared Audio IIFE itself is never touched (VOICE track owns it).
    --------------------------------------------------------------------------- */
 player._land = {
-  comp:0, compV:0,      // suspension spring state (world units of strut travel)
-  rolloutT:0,            // extra-drag window right after touchdown (s)
+  comp:0, compV:0,        // strut compression (m, + = body below static rest) and its rate (m/s)
+  aoa:0, aoaV:0,          // cosmetic nose-up attitude on top of player.pitch (rad) and its rate
   flareK:0,               // 0..1 auto-flare authority, ramps continuously — never a snap
+  liftT:0, liftAtt:0, liftPitch:0,   // liftoff blend timer (s), attitude carried over from the roll, last capped pitch
+  tdT:99,                 // time since touchdown (s)
+  noseDown:true,          // nose wheel on the ground
+  autobrake:false, brakeK:0,   // rollout autobrake (armed at touchdown, thrust cancels) + ramp
+  pendingLand:null,       // touchdown rating waiting for the rollout before onLanded()
   once:{},                // one-shot approach-callout flags; reset per approach (liftoff/reset)
   cd:{},                  // per-condition repeat cooldowns (tooHigh/tooLow/tooFast/misaligned/gearUp)
   kbCd:0,                 // global minimum gap between any two KIEBITZ landing callouts
   wasFinal:false,         // were we just in the "lined up on final" envelope? (for goAround)
-  lastRating:'', lastRatingT:0,   // touchdown-rating text shown briefly on the landing HUD
+  lastRating:'', lastRatingT:0, lastSink:0,   // touchdown rating shown briefly on the landing HUD
 };
 
-// ---- synthesized SFX ----
+// runway-local frame (x across, z along the strip): inverse of buildRunway's local->world
+const _rwL={x:0,z:0};
+function rwLocal(rw, x, z, out){
+  const c=Math.cos(rw.heading), s=Math.sin(rw.heading), dx=x-rw.x, dz=z-rw.z;
+  out.x=dx*c-dz*s; out.z=dx*s+dz*c; return out;
+}
+// lowest wheel point relative to the jet origin (negative, world units) for a nose-up
+// attitude `att` and bank `roll` (gearPts are the wheel-bottom points of the extended gear)
+function wheelLow(att, roll){
+  const gp=player.obj.userData.gearPts; if(!gp) return (player.obj.userData.gearMinY||-1.9);
+  const c=Math.cos(att), s=Math.sin(att), n=gp.nose, m=gp.main;
+  const yn = n.y*c - n.z*s;
+  const ym = m.y*c - m.z*s - m.x*Math.abs(Math.sin(roll||0));
+  return yn<ym ? yn : ym;
+}
+// attitude at which nose and main wheels touch together (static stance on the ground)
+function gearRestAtt(){
+  const gp=player.obj.userData.gearPts; if(!gp) return 0;
+  const n=gp.nose, m=gp.main;
+  return Math.atan(THREE.MathUtils.clamp((n.y-m.y)/(n.z-m.z), -0.3, 0.3));
+}
+// is a radio line on screen or queued? (non-critical barks stay quiet then)
+function radioBusy(){
+  return radioHideT>0.8 || (mission.radioQueue && mission.radioQueue.length>0);
+}
+
+// Wheels reached the pad: grade the REAL sink rate (flare included), then hand over to the
+// strut spring with the same vertical speed (no snap). Returns true on a fatal crash.
+function landingTouchdown(fwd, wheelClear, onStrip, groundY){
+  const L=player._land, rw=player.runway, p=player.obj.position;
+  const sink=Math.max(0,-player.vy);
+  const fh=Math.max(1e-3, Math.hypot(fwd.x,fwd.z));
+  const align=Math.abs(-fwd.x*Math.sin(rw.heading) - fwd.z*Math.cos(rw.heading))/fh;   // landable from both ends
+  const att=player.pitch+L.aoa, rest=gearRestAtt();
+  const noseFirst = att < rest-0.012;            // nose wheel is the lowest point
+  if(sink>CFG.touchHard || align<0.55 || (noseFirst && sink>CFG.touchGood*2)){
+    EV.emit('crash',{cause:'landing'});
+    radio('KIEBITZ|…Rettung zur Piste. Sofort.|erschuettert');
+    player.hp=0; player.alive=false; damageFlash=Math.max(damageFlash,1.2);
+    explode(p.x, groundY+6, p.z, 2.0); Audio.explosion(true);
+    spawnDebris(p.x, groundY+4, p.z, 14, 1.4, true);
+    mission.failReason= noseFirst ? 'Bugrad zuerst aufgeschlagen — Maschine zerstört.' : 'Harte Bruchlandung — Maschine zerstört.';
+    gameOver(false); return true;
+  }
+  // attitude carries over into the ground model (pitch = level roll path, aoa = nose attitude)
+  player.onGround=true; player.pitchRate=0; player.yawRate=0; player.pitch=0;
+  L.aoa=att; L.aoaV=0; L.flareK=0; L.liftT=0;
+  L.comp=Math.max(0,-wheelClear); L.compV=sink;      // strut takes over the sink rate
+  L.tdT=0; L.noseDown = att-rest<0.004; L.autobrake=true; L.brakeK=0; L.gyPrev=null;
+  const hard = sink>CFG.touchGood || align<CFG.touchAlignGood || !onStrip || noseFirst;
+  const soft = !hard && sink < CFG.touchGood*CFG.touchSoftFrac;
+  const bt = campaignId==='bteam';
+  L.lastRating = hard?'Harte Landung':(soft?'Butterweich!':'Sauber aufgesetzt'); L.lastRatingT=4;
+  L.lastSink = sink;
+  EV.emit('touchdown',{vs:sink, rating: hard?'hart':(soft?'butterweich':'sauber')});
+  if(hard){ player.hp=Math.max(1,player.hp-18); shake=Math.max(shake,0.8); damageFlash=Math.max(damageFlash,0.6); Audio.hitTaken();
+    banner('HARTE LANDUNG', !onStrip?'Neben der Piste aufgesetzt':(noseFirst?'Bugrad zuerst — Struktur beschädigt':'Struktur beschädigt — aber unten'));
+    radio(bt ? ((player.hero==='wiggerl')?'WIGGERL|Tschuldigung, Resi. Des war ned so gmeint.':'SEPP|Des war ned hart. Des war bodenständig.')
+             : (Math.random()<0.5?'KIEBITZ|Hart, aber ganz. Die Techniker werden fluchen.':'KIEBITZ|Das hat gerummst. Alles dran?')); }
+  else { shake=Math.max(shake, soft?0.06:0.18); banner('AUFGESETZT', soft?'Butterweich, Geier':'Saubere Landung, Geier');
+    radio(bt ? 'KIEBITZ|Aufgesetzt. Ich sag\'s ungern: Das war ordentlich.'
+             : (soft ? 'KIEBITZ|Butterweich. Das schreib ich mir auf.' : 'KIEBITZ|Aufgesetzt. Willkommen daheim, Geier.|warm')); }
+  tyreScreech(THREE.MathUtils.clamp(0.3+sink/CFG.touchHard,0,1));
+  // tyre smoke from the main wheels (or the nose wheel), streaming back
+  const gp=player.obj.userData.gearPts, sh=Math.sin(player.heading), ch=Math.cos(player.heading);
+  const mz=gp?(noseFirst?gp.nose.z:gp.main.z):9, mx=gp&&!noseFirst?gp.main.x:0.1;
+  for(let i=0;i<10;i++){ const side=(i&1)?1:-1, ox=ch*side*mx, oz=-sh*side*mx;
+    smokeP.spawn(p.x+sh*mz+ox, groundY+0.8, p.z+ch*mz+oz, (Math.random()-0.5)*5-sh*player.speed*0.06, 1.5+Math.random()*2, (Math.random()-0.5)*5-ch*player.speed*0.06, 0.6+Math.random()*0.3, 4, 18, C_GREY, C_SMOKE, 0.9, 0); }
+  player.landed=true;
+  L.pendingLand = hard;     // onLanded() fires after the rollout (updatePlayerGround)
+  return false;
+}
+function flushLanded(){
+  const L=player._land, h=L.pendingLand; L.pendingLand=null;
+  if(h!=null && mission.active && player.alive) onLanded(h);
+}
+// KIEBITZ takeoff bark (verbatim from the narrative catalogue); quiet when the radio is busy
+function kiebitzTakeoff(){
+  if(!mission.active || radioBusy()) return;
+  const bt=campaignId==='bteam', r=Math.random();
+  radio(bt ? (r<0.5?'KIEBITZ|Reserve ist in der Luft. Ich trag\'s ins Logbuch ein, sonst glaubt\'s keiner.|trocken':'KIEBITZ|Abgehoben. Und der Zaun steht noch. Das ist Fortschritt.|trocken')
+           : (r<0.34?'KIEBITZ|Geier ist in der Luft. Fahrwerk kommt rein. Gute Jagd.':(r<0.67?'KIEBITZ|Abgehoben. Kiebitz wünscht guten Flug. Und bring sie heil zurück.':'KIEBITZ|Geier, du bist frei. Horst übernimmt. Kiebitz hört mit.')),
+        {prio:'bark'});
+}
+
+// ---- synthesized SFX (on Audio.ctx()/Audio.out(); the Audio IIFE itself is not touched) ----
 let _landNoiseBuf=null;
 function noiseBuffer(){
   const ctx=Audio.ctx(); if(!ctx) return null;
@@ -7741,93 +7978,131 @@ function noiseBuffer(){
   for(let i=0;i<n;i++) d[i]=Math.random()*2-1;
   buf._ctx=ctx; return _landNoiseBuf=buf;
 }
+// tyre chirp: a short bright squeal whose pitch drops as the wheel spins up, plus a dull thump
 function tyreScreech(intensity){
   const ctx=Audio.ctx(); const buf=noiseBuffer(); if(!ctx||!buf) return;
   const amt=THREE.MathUtils.clamp(intensity,0,1); if(amt<0.05) return;
+  const now=ctx.currentTime, dur=0.18+amt*0.35, out=Audio.out();
   const src=ctx.createBufferSource(); src.buffer=buf; src.loop=true;
-  const bp=ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=2200; bp.Q.value=1.4;
-  const g=ctx.createGain(); const now=ctx.currentTime, dur=0.5+amt*0.5;
-  g.gain.setValueAtTime(0.0001,now); g.gain.linearRampToValueAtTime(0.22*amt,now+0.05); g.gain.exponentialRampToValueAtTime(0.0001,now+dur);
+  const bp=ctx.createBiquadFilter(); bp.type='bandpass'; bp.Q.value=6;
+  bp.frequency.setValueAtTime(2600+amt*600,now); bp.frequency.exponentialRampToValueAtTime(1200,now+dur);
+  const g=ctx.createGain();
+  g.gain.setValueAtTime(0.0001,now); g.gain.linearRampToValueAtTime(0.2*amt,now+0.015); g.gain.exponentialRampToValueAtTime(0.0001,now+dur);
+  src.connect(bp); bp.connect(g); g.connect(out);
+  src.start(now, Math.random()*0.5); src.stop(now+dur+0.05);
+  const th=ctx.createBufferSource(); th.buffer=buf;
+  const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=180;
+  const g2=ctx.createGain(); g2.gain.setValueAtTime(0.35*amt,now); g2.gain.exponentialRampToValueAtTime(0.0001,now+0.25);
+  th.connect(lp); lp.connect(g2); g2.connect(out); th.start(now); th.stop(now+0.3);
+  src.onended=()=>{ try{src.disconnect(); bp.disconnect(); g.disconnect();}catch(e){} };
+  th.onended=()=>{ try{th.disconnect(); lp.disconnect(); g2.disconnect();}catch(e){} };
+}
+// gear lock: a metallic clack (down = heavier lock, up = lighter uplock)
+function gearClunk(down){
+  const ctx=Audio.ctx(); const buf=noiseBuffer(); if(!ctx||!buf) return;
+  const now=ctx.currentTime;
+  const src=ctx.createBufferSource(); src.buffer=buf;
+  const bp=ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=down?420:620; bp.Q.value=2.5;
+  const g=ctx.createGain();
+  g.gain.setValueAtTime(down?0.5:0.3,now); g.gain.exponentialRampToValueAtTime(0.001,now+(down?0.22:0.14));
   src.connect(bp); bp.connect(g); g.connect(Audio.out());
-  src.start(now); src.stop(now+dur+0.05);
+  src.start(now, Math.random()*0.5); src.stop(now+0.25);
   src.onended=()=>{ try{src.disconnect(); bp.disconnect(); g.disconnect();}catch(e){} };
 }
-function gearClunk(){
-  const ctx=Audio.ctx(); const buf=noiseBuffer(); if(!ctx||!buf) return;
-  const src=ctx.createBufferSource(); src.buffer=buf;
-  const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=350;
-  const g=ctx.createGain(); const now=ctx.currentTime;
-  g.gain.setValueAtTime(0.5,now); g.gain.exponentialRampToValueAtTime(0.001,now+0.18);
-  src.connect(lp); lp.connect(g); g.connect(Audio.out());
-  src.start(now); src.stop(now+0.2);
-  src.onended=()=>{ try{src.disconnect(); lp.disconnect(); g.disconnect();}catch(e){} };
-}
 let _rumble=null;
+function stopRumble(soft){
+  if(!_rumble) return; const node=_rumble; _rumble=null; const ctx=Audio.ctx();
+  if(soft && ctx){ try{ node.gain.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.08); }catch(e){}
+    setTimeout(()=>{ try{ node.src.stop(); node.src.disconnect(); node.lp.disconnect(); node.gain.disconnect(); }catch(e){} }, 260); }
+  else { try{ node.src.stop(); node.src.disconnect(); node.lp.disconnect(); node.gain.disconnect(); }catch(e){} }
+}
 function updateRunwayRumble(dt){
   const ctx=Audio.ctx();
-  const want = ctx && player.onGround && player.speed>4;
-  if(!want){
-    if(_rumble){ const node=_rumble; _rumble=null;
-      try{ node.gain.gain.setTargetAtTime(0.0001, ctx?ctx.currentTime:0, 0.08); }catch(e){}
-      setTimeout(()=>{ try{ node.src.stop(); node.src.disconnect(); node.lp.disconnect(); node.gain.disconnect(); }catch(e){} }, 220);
-    }
-    return;
-  }
+  if(!(ctx && state==='playing' && player.alive && player.onGround && player.speed>4)){ stopRumble(true); return; }
   if(!_rumble){
     const buf=noiseBuffer(); if(!buf) return;
     const src=ctx.createBufferSource(); src.buffer=buf; src.loop=true;
-    const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=140;
+    const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=120;
     const g=ctx.createGain(); g.gain.value=0.0001;
     src.connect(lp); lp.connect(g); g.connect(Audio.out()); src.start();
     _rumble={src,lp,gain:g};
   }
   const target=THREE.MathUtils.clamp(player.speed/220,0,1)*0.16;
   _rumble.gain.gain.setTargetAtTime(target, ctx.currentTime, 0.15);
+  _rumble.lp.frequency.setTargetAtTime(80+player.speed*0.55, ctx.currentTime, 0.2);   // rougher with speed
 }
+// pause / game over / menu: the roll noise must not keep droning
+HOOKS.always.push(()=>{ if(_rumble && (state!=='playing' || !player.onGround || !player.alive)) stopRumble(true); });
 HOOKS.reset.push(()=>{
-  if(_rumble){ try{ _rumble.src.stop(); _rumble.src.disconnect(); _rumble.lp.disconnect(); _rumble.gain.disconnect(); }catch(e){} _rumble=null; }
-  const L=player._land; L.comp=0; L.compV=0; L.rolloutT=0; L.flareK=0; L.once={}; L.cd={}; L.kbCd=0; L.wasFinal=false; L.lastRating=''; L.lastRatingT=0;
+  stopRumble(false);
+  const L=player._land; L.comp=0; L.compV=0; L.aoa=0; L.aoaV=0; L.flareK=0; L.liftT=0; L.liftAtt=0; L.tdT=99; L.noseDown=true;
+  L.autobrake=false; L.brakeK=0; L.gyPrev=null; L.pendingLand=null; L.once={}; L.cd={}; L.kbCd=0; L.wasFinal=false; L.lastRating=''; L.lastRatingT=0; L.lastSink=0;
+  const gear=player.obj && player.obj.userData.gear; if(gear) gear.userData.t=null;   // no retract animation / clunk on the next start
+});
+// runway start: sit exactly on all three wheels (no first-frame settle)
+HOOKS.missionStart.push(()=>{
+  if(!player.onGround || !player.runway) return;
+  const L=player._land; L.aoa=gearRestAtt(); L.aoaV=0; L.noseDown=true; player.pitch=0;
+  player.obj.position.y = player.runway.y - wheelLow(L.aoa, 0);
+  tmpE.set(L.aoa, player.heading, 0, 'YXZ'); player.obj.quaternion.setFromEuler(tmpE);
 });
 
-// ---- PAPI (precision approach path indicator): recolour the 4 sprites per threshold
-// live from the player's own glide angle to each light (white above / red below that
-// light's individual reference angle) ----
-const _papiV=new THREE.Vector3();
+// ---- PAPI + tower beacon: per-frame colours of the runway's dynamic light points.
+// A bar shows white where the player's angle to that light is above its reference angle,
+// red below (2 white / 2 red = on the 3° path). The bar behind the player stays dark. ----
+const _papiCol=[[1.7,1.6,1.45],[1.8,0.2,0.12]], _rwBuf=new THREE.Vector2();
 function updatePapi(){
-  if(!runwayMesh || !runwayMesh.userData.papi) return;
-  for(const Lp of runwayMesh.userData.papi){
-    Lp.spr.getWorldPosition(_papiV);
-    const dx=player.obj.position.x-_papiV.x, dz=player.obj.position.z-_papiV.z, dy=player.obj.position.y-_papiV.y;
-    const dist=Math.hypot(dx,dz); if(dist<20) continue;
-    const ang=Math.atan2(dy,dist)*180/Math.PI;
-    const ref=3+(Lp.k-1.5)*0.35;
-    Lp.spr.material.color.setHex(ang>ref?0xffffff:0xff2020);
-  }
+  const R=runwayMesh; if(!R || !R.userData.dyn) return;
+  const D=R.userData.dyn, meta=D.userData.meta, pa=D.geometry.attributes.position.array, ca=D.geometry.attributes.aCol.array;
+  const p=player.obj.position, c=Math.cos(R.rotation.y), s=Math.sin(R.rotation.y);
+  const dx=p.x-R.position.x, dz=p.z-R.position.z, plx=dx*c-dz*s, plz=dx*s+dz*c, ply=p.y-R.position.y;
+  for(let i=0;i<meta.length;i++){ const M=meta[i], j=i*3;
+    const ahead=(pa[j+2]-plz)*M.dirZ;               // >0: player is still short of this bar
+    let r=0, g=0, b=0;
+    if(ahead>40){ const ang=Math.atan2(ply-pa[j+1], Math.hypot(plx-pa[j], ahead))*57.29578;
+      const C=_papiCol[ang>M.ref?0:1]; r=C[0]; g=C[1]; b=C[2]; }
+    ca[j]=r; ca[j+1]=g; ca[j+2]=b; }
+  const bj=meta.length*3, on=(performance.now()%1100)<450;
+  ca[bj]=on?1:0.06; ca[bj+1]=on?0.16:0.01; ca[bj+2]=on?0.1:0.01;
+  D.geometry.attributes.aCol.needsUpdate=true;
+  const u=_rw.lightMat.uniforms;
+  renderer.getDrawingBufferSize(_rwBuf);
+  u.uScale.value=_rwBuf.y/(2*Math.tan(camera.fov*Math.PI/360));
+  u.uMin.value=2.0*renderer.getPixelRatio();
+  u.uOpacity.value=THREE.MathUtils.clamp(1.25-hemi.intensity*1.3, 0.55, 1);   // day ~0.6, night ~0.9
 }
-HOOKS.update.push(()=>updatePapi());
+HOOKS.preRender.push(()=>updatePapi());
 
-// runway-local approach geometry, shared by the KIEBITZ triggers and the landing HUD
+// runway-local approach geometry toward the threshold AHEAD (landable from either end),
+// shared by the KIEBITZ triggers and the landing HUD. Reuses one object: no per-frame garbage.
+const _apL={x:0,z:0}, _apInfo={localX:0, right:0, distToThr:0, distToAim:0, agl:0, devH:0, devDeg:0, da:0, dirZ:1, aimZ:0};
 function approachInfo(){
   const rw=player.runway; if(!rw) return null;
-  const dx=player.obj.position.x-rw.x, dz=player.obj.position.z-rw.z;
-  const ch=Math.cos(-rw.heading), sh=Math.sin(-rw.heading);
-  const localX=dx*ch-dz*sh, localZ=dx*sh+dz*ch;
-  const thrZ=Math.sign(localZ||1)*(rw.length/2-16);
-  const distToThr=Math.abs(localZ-thrZ);
-  const agl=player.obj.position.y-rw.y;
-  const devH=agl-distToThr*Math.tan(3*Math.PI/180);   // + too high, - too low vs. a 3° glidepath
+  const p=player.obj.position; rwLocal(rw, p.x, p.z, _apL);
+  const dirZ = -Math.cos(player.heading-rw.heading) < 0 ? -1 : 1;   // travel direction along local z
+  const thrZ = -dirZ*(rw.length/2-16), aimZ = thrZ + dirZ*CFG.aimDist;
+  const I=_apInfo;
+  I.localX=_apL.x; I.right=-_apL.x*dirZ; I.dirZ=dirZ; I.aimZ=aimZ;
+  I.distToThr=(thrZ-_apL.z)*dirZ; I.distToAim=(aimZ-_apL.z)*dirZ;
+  I.agl=p.y-rw.y;
+  const dA=Math.max(60, I.distToAim);
+  I.devH = I.agl - dA*Math.tan(CFG.glideDeg*Math.PI/180);   // + too high, - too low vs. the glide path
+  I.devDeg = Math.atan2(I.agl, dA)*180/Math.PI - CFG.glideDeg;
   let da=player.heading-rw.heading; while(da>Math.PI)da-=2*Math.PI; while(da<-Math.PI)da+=2*Math.PI;
-  if(Math.abs(da)>Math.PI/2) da += (da>0?-Math.PI:Math.PI);   // landable from either end
-  return {localX, distToThr, agl, devH, da};
+  if(Math.abs(da)>Math.PI/2) da += (da>0?-Math.PI:Math.PI);
+  I.da=da;
+  return I;
 }
 
 // KIEBITZ approach/touchdown radio: trigger logic only — text is verbatim from the
 // narrative design doc's bark catalog (fixed string literals for the voice-clip bake).
-function kiebitzSay(name, line, cooldown){
+// Only on a real approach (gear down or "bring her home"), lined up in front of the threshold.
+function kiebitzSay(name, line, cooldown, urgent){
   const L=player._land;
   if(L.kbCd>0) return false;
+  if(!urgent && radioBusy()) return false;
   if(cooldown){ if((L.cd[name]||0)>0) return false; L.cd[name]=cooldown; }
-  L.kbCd=CFG.kiebitzGap; radio(line,{prio:'normal'}); return true;
+  L.kbCd=CFG.kiebitzGap; radio(line,{prio:urgent?'high':'normal'}); return true;
 }
 function updateKiebitzApproach(dt){
   const L=player._land;
@@ -7835,75 +8110,126 @@ function updateKiebitzApproach(dt){
   for(const k in L.cd) if(L.cd[k]>0) L.cd[k]-=dt;
   const info = approachInfo();
   if(!info || player.onGround){ L.wasFinal=false; return; }
-  const inFinal = info.distToThr<3200 && info.agl<900 && info.agl>-20;
-  if(!inFinal){ L.wasFinal=false; return; }
+  const lat=Math.abs(info.right);
+  const inFinal = info.distToThr>-150 && info.distToThr<3600 && info.agl<900 && info.agl>-20
+               && lat<250+info.distToThr*0.12 && Math.abs(info.da)<0.6;
+  if(!inFinal || !(player.gearDown || mission.landReady)){ L.wasFinal=false; return; }
   const bt = campaignId==='bteam';
   // go-around: was lined up close-in, now climbing away under power
-  if(L.wasFinal && info.distToThr<2500 && info.agl>150 && player.vy>4 && player.boost && !L.once.goAround){
+  if(L.wasFinal && info.distToThr<2500 && info.agl>60 && player.vy>4 && player.boost && !L.once.goAround){
     L.once.goAround=true; L.once.onGlide=false; L.once.shortFinal=false; L.once.flare=false;   // re-arm for the next attempt
-    kiebitzSay('goAround','KIEBITZ|Durchstarten! Vollgas, Nase hoch, neuer Anflug.|dringend'); L.wasFinal=false; return;
+    kiebitzSay('goAround','KIEBITZ|Durchstarten! Vollgas, Nase hoch, neuer Anflug.|dringend', 0, true); L.wasFinal=false; return;
   }
   L.wasFinal=true;
-  if(!player.gearDown && info.distToThr<1800){
-    kiebitzSay('gearUpOnFinal', bt?'KIEBITZ|Reserve! RÄDER! Ihr habt die Räder vergessen!|dringend':'KIEBITZ|Geier, Fahrwerk! Prüf dein Fahrwerk!|dringend', CFG.kiebitzRepeatCd); return;
+  if(info.distToThr<0) return;                     // over the strip: the flare call is the only one left
+  if(!player.gearDown && info.distToThr<2000 && info.agl<450){
+    kiebitzSay('gearUpOnFinal', bt?'KIEBITZ|Reserve! RÄDER! Ihr habt die Räder vergessen!|dringend':'KIEBITZ|Geier, Fahrwerk! Prüf dein Fahrwerk!|dringend', CFG.kiebitzRepeatCd, true); return;
   }
-  if(player.speed>CFG.approachSpeedMax && info.distToThr<2000){ kiebitzSay('tooFast','KIEBITZ|Zu schnell für die Piste. Drosseln, Strg.', CFG.kiebitzRepeatCd); return; }
-  if(info.devH>15){ kiebitzSay('tooHigh','KIEBITZ|Zu hoch. Nase leicht runter, Gas raus.', CFG.kiebitzRepeatCd); return; }
-  if(info.devH<-15){ kiebitzSay('tooLow','KIEBITZ|Zu tief! Etwas Schub, Nase hoch.|dringend', CFG.kiebitzRepeatCd); return; }
-  if(Math.abs(info.da)>0.35){ kiebitzSay('misaligned','KIEBITZ|Du liegst schief zur Piste. Korrigieren, bevor es knallt.', CFG.kiebitzRepeatCd); return; }
-  if(!L.once.onGlide && Math.abs(info.devH)<8 && info.distToThr<2200 && info.distToThr>200){ L.once.onGlide=true; kiebitzSay('onGlide','KIEBITZ|Gleitweg gut. So lassen.|ruhig'); return; }
-  if(!L.once.shortFinal && info.distToThr<400 && info.agl<120){ L.once.shortFinal=true; kiebitzSay('shortFinal','KIEBITZ|Kurzer Endanflug. Ruhig. Fast da.|ruhig'); return; }
+  if(info.distToThr<250) { if(!L.once.shortFinal && info.agl<120){ L.once.shortFinal=true; kiebitzSay('shortFinal','KIEBITZ|Kurzer Endanflug. Ruhig. Fast da.|ruhig'); } return; }
+  const tol=Math.max(12, info.distToAim*0.012);    // ~0.7° either side of the glide path
+  if(player.speed>CFG.approachSpeedMax && info.distToThr<2200){ kiebitzSay('tooFast','KIEBITZ|Zu schnell für die Piste. Drosseln, Strg.', CFG.kiebitzRepeatCd); return; }
+  if(info.devH>tol*1.6){ kiebitzSay('tooHigh','KIEBITZ|Zu hoch. Nase leicht runter, Gas raus.', CFG.kiebitzRepeatCd); return; }
+  if(info.devH<-tol){ kiebitzSay('tooLow','KIEBITZ|Zu tief! Etwas Schub, Nase hoch.|dringend', CFG.kiebitzRepeatCd, true); return; }
+  if(info.distToThr<2500 && (Math.abs(info.da)>0.2 || lat>40+info.distToThr*0.03)){ kiebitzSay('misaligned','KIEBITZ|Du liegst schief zur Piste. Korrigieren, bevor es knallt.', CFG.kiebitzRepeatCd); return; }
+  if(!L.once.onGlide && Math.abs(info.devH)<tol*0.6 && info.distToThr<2500 && info.distToThr>400){ L.once.onGlide=true; kiebitzSay('onGlide','KIEBITZ|Gleitweg gut. So lassen.|ruhig'); return; }
+  if(!L.once.shortFinal && info.distToThr<500 && info.agl<120){ L.once.shortFinal=true; kiebitzSay('shortFinal','KIEBITZ|Kurzer Endanflug. Ruhig. Fast da.|ruhig'); return; }
 }
 
-// ---- landing HUD panel (extracted from drawHUD; a single drawLandingHUD() call
-// remains there so the UI track can restyle the rest of the HUD independently) ----
+// ---- landing HUD (a single drawLandingHUD() call remains in drawHUD). On approach: a real
+// flight-path marker (where the jet is actually going) and the aiming-point bracket on the
+// runway — put the one on the other and the jet flies the glide path — plus ILS-style
+// glide-path/course scales, sink rate, gear and the flare cue. On the ground: takeoff or rollout.
+const _hudA=new THREE.Vector3();
+function hudProject(x,y,z){   // world -> HUD px in _hudA (z<1 = in front of the camera)
+  _hudA.set(x,y,z).project(camera);
+  _hudA.x=(_hudA.x+1)*0.5*innerWidth; _hudA.y=(1-_hudA.y)*0.5*innerHeight; return _hudA.z<1;
+}
+function fmtKm(m){ return m>=1000 ? (m/1000).toFixed(1).replace('.',',')+' km' : Math.round(m/10)*10+' m'; }
 function drawLandingHUD(){
-  const w=innerWidth, h=innerHeight, cx=w/2;
-  const nearRunway = player.runway && !player.onGround &&
-    Math.hypot(player.obj.position.x-player.runway.x, player.obj.position.z-player.runway.z) < 2600 &&
-    player.obj.position.y - player.runway.y < 700;
-  if(!(state==='playing' && (player.onGround || (player.gearDown && nearRunway)))) return;
-  const kmh=Math.round(player.speed*3.6), Vr=Math.round(CFG.rotateSpeed*3.6);
-  const bx=cx-150, by=h-150, bw=300;
-  hctx.save();
-  hctx.fillStyle='rgba(4,12,20,0.6)'; hctx.fillRect(bx-12,by-20,bw+24, player.onGround?70:114);
-  hctx.strokeStyle='rgba(125,200,255,0.5)'; hctx.strokeRect(bx-12,by-20,bw+24, player.onGround?70:114);
-  hctx.font='11px monospace'; hctx.textAlign='left';
+  if(state!=='playing' || !player.alive) return;
+  const L=player._land, w=innerWidth, h=innerHeight, cx=w/2;
+  const kmh=Math.round(player.speed*3.6);
+  const bw=300, bx=Math.max(16, w-bw-40), by=h-200;     // bottom right: clear of the radio subtitles and the jet
   if(player.onGround){
-    hctx.fillStyle='#bfe0ff'; hctx.fillText('START', bx, by-4);
-    hctx.fillStyle='rgba(255,255,255,0.15)'; hctx.fillRect(bx,by+4,bw,10);
-    const frac=Math.min(1,player.speed/CFG.liftoffSpeed);
-    hctx.fillStyle = player.speed>=CFG.rotateSpeed?'#7dffb0':'#ffd85a'; hctx.fillRect(bx,by+4,bw*frac,10);
-    const vrx=bx+bw*(CFG.rotateSpeed/CFG.liftoffSpeed);
-    hctx.strokeStyle='#ff5a5a'; hctx.beginPath(); hctx.moveTo(vrx,by); hctx.lineTo(vrx,by+18); hctx.stroke();
-    hctx.fillStyle='#ff8a8a'; hctx.fillText('Vr', vrx-6, by-4);
-    hctx.fillStyle='#fff'; hctx.fillText(kmh+' km/h', bx, by+30);
-    hctx.fillStyle=player.speed>=CFG.rotateSpeed?'#7dffb0':'#9fb8d0';
-    hctx.fillText(player.speed>=CFG.rotateSpeed?'▲ NASE HOCH (W / Maus hoch)':'VOLLGAS (Shift)', bx+90, by+30);
-    if(player._land.lastRatingT>0){ hctx.fillStyle='#ffe27a'; hctx.globalAlpha=Math.min(1,player._land.lastRatingT); hctx.fillText(player._land.lastRating, bx, by+48); hctx.globalAlpha=1; }
-  } else {
-    const info=approachInfo();
-    const sink=Math.round(-player.vy);
-    const aligned = info ? Math.abs(info.da)<0.25 : true;
-    hctx.fillStyle='#bfe0ff'; hctx.fillText('LANDEANFLUG', bx, by-4);
-    const sinkOk = -player.vy <= CFG.touchGood;
-    hctx.fillStyle=sinkOk?'#7dffb0':(-player.vy<=CFG.touchHard?'#ffd85a':'#ff5a5a');
-    hctx.fillText('SINKRATE  '+sink+' m/s  '+(sinkOk?'[GUT]':(-player.vy<=CFG.touchHard?'[HART]':'[ZU STEIL]')), bx, by+16);
-    hctx.fillStyle=aligned?'#7dffb0':'#ffd85a'; hctx.fillText('AUSRICHTUNG  '+(aligned?'● auf Bahn':'◄ korrigieren ►'), bx, by+34);
-    hctx.fillStyle=player.gearDown?'#7dffb0':'#ff5a5a'; hctx.fillText('FAHRWERK  '+(player.gearDown?'▼ AUS':'▲ EIN — B drücken!'), bx, by+52);
-    if(info){
-      const glideOk=Math.abs(info.devH)<12;
-      hctx.fillStyle=glideOk?'#7dffb0':'#ffd85a';
-      hctx.fillText('GLEITPFAD  '+(glideOk?'● i.O.':(info.devH>0?'▲ zu hoch':'▼ zu tief')), bx, by+70);
+    const rollout = L.tdT<25;
+    hctx.save();
+    hctx.fillStyle='rgba(4,12,20,0.6)'; hctx.fillRect(bx-12,by-20,bw+24,70);
+    hctx.strokeStyle='rgba(125,200,255,0.5)'; hctx.strokeRect(bx-12,by-20,bw+24,70);
+    hctx.font='11px monospace'; hctx.textAlign='left';
+    if(rollout){
+      hctx.fillStyle='#bfe0ff'; hctx.fillText('AUSROLLEN', bx, by-4);
+      hctx.fillStyle='#fff'; hctx.fillText(kmh+' km/h', bx+bw-70, by-4);
+      hctx.fillStyle=L.autobrake?'#7dffb0':'#9fb8d0';
+      hctx.fillText(L.autobrake?'AUTOBREMSE AKTIV':(player.speed>3?'Strg = Bremsen · Shift = Durchstarten':'Stillstand'), bx, by+14);
+      if(L.lastRating){ hctx.fillStyle = L.lastRating==='Harte Landung'?'#ff9a6a':'#ffe27a';
+        hctx.fillText(L.lastRating+' — '+L.lastSink.toFixed(1).replace('.',',')+' m/s', bx, by+32); }
+    } else {
+      hctx.fillStyle='#bfe0ff'; hctx.fillText('START', bx, by-4);
+      hctx.fillStyle='rgba(255,255,255,0.15)'; hctx.fillRect(bx,by+4,bw,10);
+      const frac=Math.min(1,player.speed/CFG.liftoffSpeed);
+      hctx.fillStyle = player.speed>=CFG.rotateSpeed?'#7dffb0':'#ffd85a'; hctx.fillRect(bx,by+4,bw*frac,10);
+      const vrx=bx+bw*(CFG.rotateSpeed/CFG.liftoffSpeed);
+      hctx.strokeStyle='#ff5a5a'; hctx.beginPath(); hctx.moveTo(vrx,by); hctx.lineTo(vrx,by+18); hctx.stroke();
+      hctx.fillStyle='#ff8a8a'; hctx.fillText('Vr', vrx-6, by-4);
+      hctx.fillStyle='#fff'; hctx.fillText(kmh+' km/h', bx, by+30);
+      hctx.fillStyle=player.speed>=CFG.rotateSpeed?'#7dffb0':'#9fb8d0';
+      hctx.fillText(player.speed>=CFG.rotateSpeed?'▲ NASE HOCH (W / Maus hoch)':'VOLLGAS (Shift)', bx+90, by+30);
     }
-    hctx.fillStyle='#9fb8d0'; hctx.fillText('weich & gerade aufsetzen', bx, by+88);
-    if(player._land.flareK>0.15){ hctx.fillStyle='#ffe27a'; hctx.font='bold 13px monospace'; hctx.fillText('ABFANGEN', bx+bw-90, by+16); hctx.font='11px monospace'; }
-    // flight-path marker: a small circle offset by the angle between velocity and nose
-    const fpmDy = THREE.MathUtils.clamp((player.vy/Math.max(1,player.speed))*400 + player.pitch*220, -70, 70);
-    hctx.strokeStyle='#7dffb0'; hctx.lineWidth=1.5;
-    hctx.beginPath(); hctx.arc(cx, by-40-fpmDy, 6, 0, Math.PI*2); hctx.stroke();
-    hctx.beginPath(); hctx.moveTo(cx-14,by-40-fpmDy); hctx.lineTo(cx-7,by-40-fpmDy); hctx.moveTo(cx+7,by-40-fpmDy); hctx.lineTo(cx+14,by-40-fpmDy); hctx.stroke();
+    hctx.restore(); return;
   }
+  const info=approachInfo();
+  if(!info || !player.gearDown || info.distToThr>4200 || info.distToThr<-player.runway.length || info.agl>900 || Math.abs(info.right)>1500) return;
+  const rw=player.runway, sink=-player.vy;
+  hctx.save(); hctx.lineWidth=1.5;
+  // flight-path marker + aiming-point bracket (3D-projected)
+  const vl=Math.max(1, player.vel.length()), p=player.obj.position;
+  const fpmOk = hudProject(p.x+player.vel.x/vl*600, p.y+player.vel.y/vl*600, p.z+player.vel.z/vl*600);
+  const fx=THREE.MathUtils.clamp(_hudA.x,40,w-40), fy=THREE.MathUtils.clamp(_hudA.y,40,h-180);
+  if(info.distToAim>0 && hudProject(rw.x+info.aimZ*Math.sin(rw.heading), rw.y, rw.z+info.aimZ*Math.cos(rw.heading))
+     && _hudA.x>0 && _hudA.x<w && _hudA.y>0 && _hudA.y<h){
+    const ax=_hudA.x, ay=_hudA.y;
+    hctx.strokeStyle='rgba(255,216,90,0.9)'; hctx.beginPath();
+    hctx.moveTo(ax-16,ay-6); hctx.lineTo(ax-16,ay+6); hctx.moveTo(ax-16,ay); hctx.lineTo(ax-10,ay);
+    hctx.moveTo(ax+16,ay-6); hctx.lineTo(ax+16,ay+6); hctx.moveTo(ax+16,ay); hctx.lineTo(ax+10,ay); hctx.stroke();
+  }
+  if(fpmOk){
+    hctx.strokeStyle='#7dffb0'; hctx.beginPath(); hctx.arc(fx,fy,6,0,Math.PI*2);
+    hctx.moveTo(fx-15,fy); hctx.lineTo(fx-6,fy); hctx.moveTo(fx+6,fy); hctx.lineTo(fx+15,fy); hctx.moveTo(fx,fy-6); hctx.lineTo(fx,fy-12); hctx.stroke();
+    if(L.flareK>0.15){ hctx.fillStyle='#ffe27a'; hctx.font='bold 13px monospace'; hctx.textAlign='center'; hctx.globalAlpha=Math.min(1,L.flareK*1.5);
+      hctx.fillText('ABFANGEN', fx, fy-20); hctx.globalAlpha=1; }
+  }
+  // panel
+  hctx.fillStyle='rgba(4,12,20,0.6)'; hctx.fillRect(bx-12,by-20,bw+24,116);
+  hctx.strokeStyle='rgba(125,200,255,0.5)'; hctx.strokeRect(bx-12,by-20,bw+24,116);
+  hctx.font='11px monospace'; hctx.textAlign='left';
+  hctx.fillStyle='#bfe0ff'; hctx.fillText('LANDEANFLUG', bx, by-4);
+  hctx.fillStyle='#fff'; hctx.fillText(info.distToThr>0?'SCHWELLE '+fmtKm(info.distToThr):'ÜBER DER BAHN', bx+110, by-4);
+  const sOk = sink<=CFG.touchGood, sHard = sink<=CFG.touchHard;
+  hctx.fillStyle = sOk?'#7dffb0':(sHard?'#ffd85a':'#ff5a5a');
+  hctx.fillText('SINKRATE  '+Math.max(0,sink).toFixed(1).replace('.',',')+' m/s  '+(sOk?'[GUT]':(sHard?'[HART]':'[ZU STEIL]')), bx, by+14);
+  hctx.fillStyle='#fff'; hctx.fillText('FAHRT  '+kmh+' km/h', bx, by+32);
+  hctx.fillStyle='#7dffb0'; hctx.fillText('FAHRWERK  ▼ AUSGEFAHREN', bx, by+50);
+  const hint = L.flareK>0.15 ? 'Nase kommt hoch — ruhig halten'
+             : (info.distToThr>0 ? 'Flugweg-Kreis auf die Zielmarke' : 'weich & gerade aufsetzen');
+  hctx.fillStyle='#9fb8d0'; hctx.fillText(hint, bx, by+68);
+  // glide-path scale (vertical, diamond = where the glide path is: below centre = too high)
+  const gx=bx+bw-22, gy0=by+26, gs=30;
+  hctx.strokeStyle='rgba(255,255,255,0.55)'; hctx.fillStyle='rgba(255,255,255,0.55)';
+  for(let i=-2;i<=2;i++){ hctx.beginPath(); hctx.arc(gx, gy0+i*gs/2, i?2:0.1, 0, Math.PI*2); hctx.fill(); }
+  hctx.beginPath(); hctx.moveTo(gx-8,gy0); hctx.lineTo(gx+8,gy0); hctx.stroke();
+  const gd=THREE.MathUtils.clamp(info.devDeg/0.7,-1,1)*gs;
+  hctx.fillStyle = Math.abs(info.devDeg)<0.35?'#7dffb0':'#ffd85a';
+  hctx.beginPath(); hctx.moveTo(gx,gy0+gd-6); hctx.lineTo(gx+5,gy0+gd); hctx.lineTo(gx,gy0+gd+6); hctx.lineTo(gx-5,gy0+gd); hctx.closePath(); hctx.fill();
+  // course scale (horizontal, diamond = where the centreline is)
+  const lx0=bx+bw-110, ly=by+84, ls=40;
+  const latDeg=Math.atan2(-info.right, Math.max(200, info.distToThr+rw.length))*180/Math.PI;
+  hctx.fillStyle='rgba(255,255,255,0.55)';
+  for(let i=-2;i<=2;i++){ hctx.beginPath(); hctx.arc(lx0+i*ls/2, ly, i?2:0.1, 0, Math.PI*2); hctx.fill(); }
+  hctx.beginPath(); hctx.moveTo(lx0,ly-7); hctx.lineTo(lx0,ly+7); hctx.stroke();
+  const ld=THREE.MathUtils.clamp(latDeg/2.5,-1,1)*ls;
+  hctx.fillStyle = Math.abs(latDeg)<1?'#7dffb0':'#ffd85a';
+  hctx.beginPath(); hctx.moveTo(lx0+ld-6,ly); hctx.lineTo(lx0+ld,ly-5); hctx.lineTo(lx0+ld+6,ly); hctx.lineTo(lx0+ld,ly+5); hctx.closePath(); hctx.fill();
+  hctx.fillStyle='#9fb8d0'; hctx.fillText('GP', gx-26, by+4); hctx.fillText('KURS', lx0-ls-36, ly+4);
   hctx.restore(); hctx.textAlign='left';
 }
 
