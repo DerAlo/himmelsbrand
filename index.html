@@ -4654,11 +4654,9 @@ function buildEurofighter(withLight){
     const cf=decalPlane(TEX_CROSS,0.85,0.85,crossMat); cf.rotation.y=sx*Math.PI/2; cf.position.set(sx*1.14,0.10,2.6); collectMerge(cf,mrg);
     const st=decalPlane(TEX_STENCIL,1.5,0.38,stencilMat); st.rotation.y=sx*Math.PI/2; st.position.set(sx*1.12,0.62,-2.4); collectMerge(st,mrg);
    }
-  // The two sides need MIRRORED textures: a plane turned to face the other way shows its
-  // texture reversed, which had the tail number reading backwards from port.
-  const texNumFlip=TEX_TAILNUM.clone(); texNumFlip.needsUpdate=true;
-  texNumFlip.wrapS=THREE.RepeatWrapping; texNumFlip.repeat.x=-1; texNumFlip.offset.x=1;
-  const tailNum=decalPlane(texNumFlip,1.15,1.15); tailNum.rotation.y=-Math.PI/2;
+  // Each plane is rotated to face outward, so both sides read correctly with the same texture
+  // (a mirrored per-jet clone made port read backwards and leaked one GPU texture per wingman spawn).
+  const tailNum=decalPlane(TEX_TAILNUM,1.15,1.15); tailNum.rotation.y=-Math.PI/2;
   tailNum.position.set(-0.13,1.55,4.75); collectMerge(tailNum,mrg);
   const tailNum2=decalPlane(TEX_TAILNUM,1.15,1.15); tailNum2.rotation.y=Math.PI/2;
   tailNum2.position.set(0.03,1.55,4.75); collectMerge(tailNum2,mrg);
