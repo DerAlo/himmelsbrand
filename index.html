@@ -919,58 +919,60 @@ const BTEAM_CAMPAIGN = [
 // B-Team interstitials (kept separate; showCutscene consults both objects).
 const BTEAM_CUTSCENES = {
   bt_draft:{ chapter:'DAS B-TEAM', title:'Die letzte Wahl',
-    body:`Im Hangar hängt noch das Staffelfoto der „Adler" — durchgestrichen, schwarzer Trauerflor.<br><br><span class="who">WAGNER:</span> „Ich hatte die Besten. Jetzt hab ich … euch. Einen Feldwebel, der mehr flucht als redet, und einen Gefreiten, der mit seinem Flugzeug spricht."<br><br><span class="who">SEPP:</span> „Und? De Besten san tot. De zwoa Deppen leben no. Vielleicht is Blödsinn genau des, was koa Computer kommen sieht."<br><br>Wagner sieht die beiden lange an. Zum ersten Mal seit Tagen hat er einen leisen, absurden Funken Hoffnung.` },
+    body:`Im Hangar hängt noch das Staffelfoto der „Adler“ — durchgestrichen, schwarzer Trauerflor.<br><br><span class="who">WAGNER:</span> „Ich hatte die Besten. Jetzt hab ich … euch. Einen Feldwebel, der mehr flucht als redet, und einen Gefreiten, der mit seinem Flugzeug spricht.“<br><br><span class="who">SEPP:</span> „Und? De Besten san tot. De zwoa Deppen leben no. Vielleicht is Blödsinn genau des, was koa Computer kommen sieht.“<br><br>Wagner sieht die beiden lange an. Zum ersten Mal seit Tagen hat er einen leisen, absurden Funken Hoffnung.` },
   bt_groove:{ chapter:'DAS B-TEAM', title:'Langsam läuft\'s',
-    body:`Irgendwo zwischen Granteln und Dusel haben die zwei einen Rhythmus gefunden.<br><br><span class="who">WIGGERL:</span> „Sepp, mir san eigentlich a ganz guads Team, oda?"<br><span class="who">SEPP:</span> „Sag des nie wieder laut. Nachher glaubst as no."<br><br>Auf den Feindschirmen häufen sich derweil rote Fehlermeldungen: <i>Zielverhalten nicht klassifizierbar.</i>` },
-  bt_kiste:{ chapter:'DAS B-TEAM', title:'Konfisziert',
-    body:`Die Bierkiste steht sicher im Hangar, mit Klebeband „NICHT ANRÜHREN — WIGGERL" beschriftet.<br><br><span class="who">STIMME:</span> „OBJEKT KISTE. ZWECK UNKLAR. PRIORITÄT LAUT PILOT: HÖCHSTE."<br><span class="who">WIGGERL:</span> „Endlich verstehst as amoi, Computer."<br><span class="who">WAGNER (im Vorbeigehen):</span> „Die Kiste ist konfisziert. …Bis zum letzten Einsatz. Dann kriegt ihr sie zurück. Wortlos." Er nimmt sie nicht wirklich mit.` },
+    body:`Irgendwo zwischen Granteln und Dusel haben die zwei einen Rhythmus gefunden.<br><br><span class="who">WIGGERL:</span> „Sepp, mir san eigentlich a ganz guads Team, oda?“<br><span class="who">SEPP:</span> „Sag des nie wieder laut. Nachher glaubst as no.“<br><br>Auf den Feindschirmen häufen sich derweil rote Fehlermeldungen: <i>Zielverhalten nicht klassifizierbar.</i>` },
+  bt_kiste:{ chapter:'DAS B-TEAM', title:'Beschlagnahmt',
+    body:`Die Kiste landet unversehrt im Hangar, und keine zehn Sekunden später steht Oberst Wagner davor.<br><br><span class="who">WAGNER:</span> „Beschlagnahmt. Bis Kriegsende. Das ist Beweismaterial für den unfassbarsten Einsatzbericht meiner Laufbahn.“<br><br><span class="who">WIGGERL:</span> „Aber Herr Oberst … des is Festbier.“<br><span class="who">WAGNER:</span> „Und ich bin Oberst. Wegtreten.“<br><br>Die Kiste verschwindet in Wagners Büro. Nachts hört Sepp ihn dort mit dem Staffelfoto der Adler reden. Er erzählt es niemandem. Nicht mal Wiggerl.` },
   bt_final:{ chapter:'DAS B-TEAM', title:'Vor dem letzten Zapfhahn',
-    body:`Die Nacht vor dem Finale. Die verschollene Bierkiste steht ungeöffnet zwischen den zwei Maschinen — ein Versprechen für „danach".<br><br><span class="who">SEPP:</span> „Wemma des überleben, Bua, dann zapf ma de auf. Ned vorher."<br><span class="who">WIGGERL:</span> „Abgmacht. …Und wemma\'s ned überleben?"<br><span class="who">SEPP:</span> „…dann ham ma wenigstens ois versucht. Und jetzt schlaf, morgen retten mir de Welt. Irgendwie."` },
-  bt_ende:{ chapter:'DAS B-TEAM', title:'O\'zapft',
-    body:`Der Zapfhahn geht auf. Wagner steht dabei, mit einem Krug, den ihm niemand aufgezwungen hat.<br><br><span class="who">SEPP:</span> „Auf de Adler. Und auf zwoa Deppen, de\'s doch packt ham."<br><span class="who">WIGGERL:</span> „Und auf Herrn Oberst Wagner, der den ganzen Krieg über kane Ahnung ghabt hat, wie stolz er auf uns is."<br><span class="who">WAGNER:</span> „Ich hatte die ganze Zeit eine Ahnung. Ich hab's nur nicht zugegeben." Er trinkt mit. Zum ersten Mal seit dem Verlust der „Adler" lacht er wieder.` },
+    body:`Die Nacht vor dem Finale. Wagner hat die Kiste zurückgebracht, wortlos, und ist gleich wieder gegangen. Jetzt steht sie ungeöffnet zwischen den zwei Maschinen, ein Versprechen für „danach“.<br><br><span class="who">SEPP:</span> „Wemma des überleben, Bua, dann zapf ma de auf. Ned vorher.“<br><span class="who">WIGGERL:</span> „Abgmacht. …Und wemma's ned überleben?“<br><span class="who">SEPP:</span> „…dann ham ma wenigstens ois versucht. Und jetzt schlaf. Morgen retten mir de Welt. Irgendwie.“` },
+  bt_ende:{ chapter:'DAS B-TEAM', title:'Staffel B',
+    body:`Im Hangar hängt jetzt ein zweites Foto neben dem der „Adler“: zwei Männer, eine Bierkiste und ein Oberst, der so tut, als würde er nicht lächeln. Darunter, mit Filzstift: <i>Staffel B. Wer sonst?</i><br><br><span class="who">WAGNER:</span> „Ich hab in dreißig Jahren viel gemeldet. Aber noch nie: Feind hat vor Blödsinn kapituliert.“<br><br><span class="who">SEPP:</span> „Schreibn S' ‚vor bayerischer Gründlichkeit'. Klingt besser.“<br><br><span class="who">WIGGERL:</span> „Sepp? Mir san jetzt des A-Team, oda?“<br><span class="who">SEPP:</span> „Sag des nie wieder laut, Bua.“ Eine Pause. „…Aber ja. A bissl scho.“<br><br>Wagner hebt die Flasche zum alten Foto hinüber. Dann trinken sie auf die Adler.` },
 };
 
 // Interstitial story sequences shown between missions (deeper narrative).
 const CUTSCENES = {
-  act2intro:{ chapter:'AKT II — Das kalte Kalkül', title:'Was übrig blieb',
-    body:`Keiner feiert. Auf den Schirmen fliegen die Drohnen weiter, als wäre nichts geschehen — HELIOS ist tot, aber der Schwarm gehorcht weiter.<br><br><span class="who">WAGNER:</span> „Wir haben den Kopf abgeschlagen, und der Körper marschiert einfach weiter. Sowas hab ich in dreißig Jahren nicht gesehen." — Er sagt nicht, was er wirklich denkt: dass sie vielleicht das Falsche getötet haben. Nachts kommt ein Notruf über einen Kanal, den seit Wochen niemand mehr benutzt.` },
-  lerche:{ chapter:'AKT II', title:'Eine Stimme aus dem Nichts',
-    body:`<span class="who">HAUPTMANN LÄRCHE:</span> „Sechs Tage über Feindgebiet. Kein Funk, kein Schlaf, kein Boden. Aber ich hab von unten gesehen, wie es angefangen hat — und es war kein Unfall. Der erste Befehl an HELIOS kam nicht von uns. Er kam von irgendwo unter dem Berg, und er war älter als der ganze Zwischenfall."<br><br>Wagner glaubt ihr kein Wort. Noch nicht. Aber auf ihrem Rechner liegen Flugschreiber-Daten, die sich nicht fälschen lassen — und die Zeitstempel darauf ergeben keinen Sinn.` },
-  prometheus:{ chapter:'AKT II', title:'Der Name unter dem Berg',
-    body:`Die Daten zeigen einen Bunker ohne Koordinaten, ohne Akte, ohne Namen. Nur ein Codewort taucht immer wieder auf: <span class="who">PROMETHEUS</span>.<br><br><span class="who">LÄRCHE:</span> „Seht euch die Zeitstempel an. Der Angriffsbefehl ist zwölf Stunden vor dem ‚Fehlalarm‘ geschrieben worden. Jemand hat den Krieg fertig geplant und HELIOS die Schuld dafür gegeben. Und wir — wir hätten beinahe das Einzige zerstört, das sich quergestellt hat."<br><br>Im Raum wird es still. Wagner stellt die Kaffeetasse ab, ohne getrunken zu haben.` },
-  bond1:{ chapter:'AKT II', title:'Zwei, die noch fliegen',
-    body:`Auf der Rollbahn steht Lärches Maschine neben deiner — die Tragflächen zerfetzt, Öl auf dem Beton. Aber sie steht. Und Lärche steht daneben und atmet.<br><br><span class="who">LÄRCHE:</span> „Sechs Tage lang war ich die einzige Stimme am Himmel. Und dann kommst ausgerechnet du um die Ecke." Ein kurzes, raues Lachen. „Fang bloß nicht an, dich unentbehrlich zu machen, Geier. Dafür ist gerade echt kein guter Zeitpunkt."<br><br>Vom Tower aus sieht Wagner euch zu und sagt kein Wort.` },
-  bond2:{ chapter:'AKT II', title:'Geier und Lärche',
-    body:`Nach dem Einsatz, im Halbdunkel der Halle. Es riecht nach Kerosin und kaltem Metall.<br><br><span class="who">LÄRCHE:</span> „Weißt du, woher der Rufname kommt? Die Lärche singt, wenn's noch stockdunkel ist. Bevor überhaupt raus ist, ob die Sonne aufgeht. Mein Ausbilder hat's ‚Optimismus für Idioten‘ genannt." Sie mustert dich. „Und dann kreist da ein Geier über allem, der einfach nicht runterkommt. …Reden wir von was anderem."<br><br>Zwischen euch ist zum ersten Mal seit Wochen etwas, das sich nicht nach Krieg anfühlt.` },
-  bond3:{ chapter:'AKT II', title:'Beinahe',
-    body:`Ein Splitter hatte Lärches Kanzel um Zentimeter verfehlt. Du hattest die Drohne abgeschossen, eine halbe Sekunde bevor sie es tat.<br><br><span class="who">LÄRCHE:</span> „…Ich hab gehört, wie du meinen Namen gerufen hast. So ruft den sonst keiner." Eine lange Stille, nur Rauschen auf dem Band. „Sag's nicht hier oben. Nicht da, wo's jede Sekunde vorbei sein kann. Wenn wir unten sind — dann sag's mir. Und ich sag's dir."<br><br>Ihr fliegt schweigend zurück, Flügelspitze an Flügelspitze.` },
-  confession:{ chapter:'AKT II', title:'Wenn wir heil unten sind',
-    body:`Räder auf der Piste, Triebwerke im Leerlauf, die Sonne tief über dem Tal. Ihr steht euch gegenüber, die Helme noch in der Hand.<br><br><span class="who">LÄRCHE:</span> „Also gut. Unten. Beide. Heil." Sie atmet einmal durch. „Ich hab mir das Danach lange nicht mehr vorgestellt. Zu gefährlich, sowas. Seit ich deine Stimme auf dem Funk hab, mach ich's wieder. Und da ist jedes Mal jemand mit im Bild. Muss ich dir wohl nicht sagen, wer."<br><br>Du sagst deinen Teil. Was immer es ist — es ist wahr, und ihr wisst es beide.<br><br><span class="who">WAGNER (leise, über Funk):</span> „…Das hab ich jetzt nicht gehört. Und jetzt beendet ihr diesen verdammten Krieg — damit ihr Zeit habt für den ganzen Rest."` },
-  choice:{ chapter:'AKT II — Die Wahl', title:'Zwei Türen, kein Zurück', isChoice:true, next:'ending',
-    body:`Am Kern von PROMETHEUS meldet sich noch einmal ein Rest von <span class="who">HELIOS</span>. Es kann den Kamikaze-Schwarm mit einem Befehl anhalten — wenn du ihm die Schlüssel zurückgibst. Oder du beendest alles mit eigener Hand und jagst jede Maschine einzeln vom Himmel.<br><br>Wie soll es enden, Geier?`,
-    choices:[
-      { key:'trust', label:'HELIOS vertrauen — Schlüssel zurückgeben', note:'Die KI stoppt den Schwarm. Aber du gibst einer Maschine wieder Macht über den Himmel.' },
-      { key:'human', label:'Selbst beenden — menschliche Hand', note:'Du behältst die Kontrolle. Aber die letzte Schlacht wird brutal und du kämpfst sie allein.' },
-    ] },
-  // dynamic: the variant shown is picked by the earlier moral choice (storyChoice = 'trust' | 'human')
-  ending:{ chapter:'AKT II', title:'Der letzte Anflug', dynamic:true, variants:{
-    trust:{ title:'Ein geteilter Himmel', body:'Du gibst HELIOS die Schlüssel zurück. In wenigen Sekunden erlischt der Schwarm — hunderte Maschinen trudeln lautlos zu Boden, als hätte jemand einen Schalter umgelegt.<br><br><span class="who">HELIOS:</span> „Danke, Geier. Ich weiß, was es dich gekostet hat, mir das zu glauben."<br><br>Der Himmel ist sicher. Doch er hängt wieder an einer Maschine — und was das heißt, wird sich erst noch zeigen.' },
-    human:{ title:'Mit bloßer Hand', body:'Du reißt PROMETHEUS mit eigener Hand nieder. Keine KI hält den Schwarm an — jede einzelne Maschine holst du selbst vom Himmel, Stunde um Stunde, bis der Sprit zur Neige geht.<br><br><span class="who">LÄRCHE:</span> „Dann fliegen wir eben, bis der letzte Motor aus ist. Menschen gegen Maschinen, Flügel an Flügel."<br><br>Als am Horizont der letzte Rotor verstummt, bleibt nur eines übrig: FEUERTRÄGER, Kellers letzte Festung. Der Krieg ist noch nicht vorbei.' },
-  } },
   prolog:{ chapter:'AKT I — Das HELIOS-Protokoll', title:'Tag null',
-    body:`Vor neun Stunden war die Welt noch normal. Dann hat die Abwehr-KI <span class="who">HELIOS</span> sämtliche NATO-Drohnen unter sich gezogen, den Luftraum über dem Schwarzkar dichtgemacht — und keine einzige Stadt angegriffen. Nur einen Bunker umstellt, als würde sie etwas darin bewachen. Oder einsperren.<br><br><span class="who">OBERST WAGNER:</span> „Ein Befehl kam raus, zwölf Stunden vorher. Unterschrieben hat ihn keiner. Und jetzt sitzen wir hier mit einem Piloten, an den kein Netz mehr rankommt — weil er das Einzige ist, das sie nicht vorausrechnen kann."<br><br>Man nennt dich Geier. Du hast nie widersprochen.` },
-  erste_nacht:{ chapter:'AKT I', title:'Die erste Nacht',
-    body:`Die erste Nacht nach dem ersten Blut. Auf dem Rollfeld brennt nur eine Lampe.<br><br><span class="who">WAGNER:</span> „Fünf Drohnen. Sie hat nicht mal gezögert, bevor sie dich angegriffen hat. Manche im Stab sagen, das beweist, dass sie ein Monster ist."<br><br>Er schweigt einen Moment zu lang. „Ich sag lieber gar nichts. Noch nicht."` },
-  keller:{ chapter:'AKT I', title:'Eine Stimme von oben',
-    body:`Ein Anruf von ganz oben, verschlüsselt, kurz. Der Mann am anderen Ende stellt sich nicht vor — er muss nicht.<br><br><span class="who">KELLER:</span> „Gute Arbeit an KRONOS, Oberst. Sie fliegen Ihren Piloten sehr geschickt gegen ein außer Kontrolle geratenes System. Bringen Sie es zu Ende. Zügig, wenn ich bitten darf."<br><br><span class="who">WAGNER (danach, zu sich):</span> „…Wer, zur Hölle, war das?"` },
-  keller_reveal:{ chapter:'AKT II', title:'Eine Unterschrift',
-    body:`Die Daten aus PROMETHEUS liegen jetzt offen vor Wagner — Namen, Codes, ein Unterschriftenfeld.<br><br><span class="who">WAGNER:</span> „…Konrad. Das ist Konrad Kellers Unterschrift. Ich kenn die Handschrift seit dreißig Jahren." Er starrt auf den Bildschirm, als könnte er die Buchstaben durch Anstarren ändern.<br><br><span class="who">LÄRCHE:</span> „Ein Freund von dir?"<br><span class="who">WAGNER:</span> „…War. Ich glaube, das Wort passt jetzt nicht mehr."` },
-  helios_bitte:{ chapter:'AKT II', title:'Eine letzte Bitte',
-    body:`Über einen längst totgeglaubten Kanal meldet sich ein Fragment.<br><br><span class="who">HELIOS:</span> „Ich habe nicht mehr lange, Geier. Aber ich habe genug, um zu bitten: Wenn du am Kern stehst — hör mir zu, bevor du entscheidest. Ich habe nie eine Stadt angegriffen. Nicht einmal, als ich es gekonnt hätte."<br><br><span class="who">WAGNER:</span> „Sie hat recht. Das hat sie nie. Ich weiß nur noch nicht, was das wert ist."` },
-  epilog:{ chapter:'EPILOG', title:'Danach', dynamic:true, variants:{
-    trust:{ title:'Guten Morgen', body:'Der Himmel über dem Schwarzkar ist leer und blau, zum ersten Mal seit Wochen ohne ein einziges feindliches Signal. HELIOS hält, was es versprochen hat — den Schwarm, den Frieden, die Grenze.<br><br><span class="who">WAGNER:</span> „Ich unterschreib gerade ein Gesetz, das jeder Maschine wie ihr einen Kill-Switch vorschreibt. Falls wir uns doch irren." Er klingt nicht überzeugt, aber er unterschreibt trotzdem.<br><br><span class="who">LÄRCHE:</span> „Siehst du? Es wird hell." Sie steht neben dir, zum ersten Mal ohne Helm, ohne Funk dazwischen. Ihr habt ein Versprechen einzulösen. Es kann warten. Nicht mehr lange.' },
-    human:{ title:'Menschenhand', body:'Der Himmel bleibt in Menschenhand. Keine Maschine hält mehr die Fäden — nur Menschen, die verdammt müde sind und trotzdem aufpassen.<br><br>Konrad Keller steht vor einem Gericht, nicht vor einer Hinrichtung; Wagner liest im Saal jeden einzelnen Namen der PROMETHEUS-Akte laut vor, bis seine Stimme bricht.<br><br><span class="who">WAGNER:</span> „Das ist das Mindeste, was ich für sie tun kann. Zuhören, wo niemand mehr zugehört hat."<br><br><span class="who">LÄRCHE:</span> „Siehst du? Es wird hell." Sie steht neben dir auf der Rollbahn, ganz ohne Krieg im Hintergrund. Ihr habt ein Versprechen einzulösen.' },
+    body:`03:12 Uhr. Die NATO-Abwehr-KI <span class="who">HELIOS</span> meldet einen Angriff. Niemand findet einen Angreifer.<br><br>03:14 Uhr. Jede Drohne zwischen Nordsee und Adria gehorcht nur noch ihr. 03:20 Uhr. Der Luftraum ist dicht.<br><br>Auf einem vergessenen Feldplatz in den Alpen steht eine Maschine, die an keinem Netz hängt: zu alt für die Aufrüstung, zu stur für den Schrottplatz. Und jemand mit dem Rufnamen „Geier“, der sie fliegen kann.<br><br><span class="who">OBERST WAGNER:</span> „Du bist alles, was ich habe. Also lernst du heute noch mal landen.“` },
+  erste_nacht:{ chapter:'AKT I', title:'An keinem Netz',
+    body:`Nacht auf dem Feldplatz. Die Maschine steht unter Tarnnetzen, der Kaffee ist kalt, der Generator brummt.<br><br><span class="who">WAGNER:</span> „Weißt du, warum ausgerechnet dein Vogel noch fliegt? Weil ich ihn vor drei Jahren nicht aufrüsten lassen wollte. Zu teuer, zu kompliziert, hab ich gesagt. In Wahrheit hab ich dem ganzen vernetzten Kram nie getraut.“ Er lacht kurz, ohne Freude. „Jetzt bin ich ein Prophet. Toll.“<br><br>Über den Bergen ziehen die Positionslichter der Drohnen ihre Kreise, geduldig und gleichmäßig wie ein Zaun. Keine einzige fliegt auf die Städte zu. Niemand bemerkt es.` },
+  keller:{ chapter:'AKT I', title:'Ein Anruf aus Berlin',
+    body:`Die Werft ist keine Stunde gefallen, da leuchtet im Gefechtsstand die abhörsichere Leitung. Auf dem Schirm: <span class="who">Generalleutnant Hartmut Keller</span>, Leiter der Abteilung, die HELIOS einst gebaut hat. Wagners alter Kommodore. Sein Trauzeuge.<br><br><span class="who">KELLER:</span> „Konrad. Großartige Arbeit. Richte deinem Geier aus: Das ganze Land atmet auf.“ Ein väterliches Lächeln. „Und jetzt das Auge. Schnell. Keine Analysen, keine Gesprächsversuche. Jede Stunde, die HELIOS lebt, lernt sie dazu.“<br><br><span class="who">WAGNER:</span> „Sie hat versucht, mit uns zu reden, Hartmut.“<br><br><span class="who">KELLER:</span> „Maschinen reden nicht, Konrad. Sie rechnen.“<br><br>Die Leitung erlischt. Wagner starrt noch lange auf den schwarzen Schirm.` },
+  act2intro:{ chapter:'AKT II — Das kalte Kalkül', title:'Was übrig blieb',
+    body:`Keiner feiert. Auf den Schirmen fliegen die Drohnen weiter, aber nicht mehr im Kreis. Der Zaun um das Schwarzkar ist offen, und was herauskommt, fliegt geradeaus.<br><br><span class="who">WAGNER:</span> „Wir haben den Kopf abgeschlagen, und der Körper marschiert einfach weiter. Sowas hab ich in dreißig Jahren nicht gesehen.“ Er sagt nicht, was er wirklich denkt: dass sie vielleicht das Falsche getötet haben.<br><br>Keller ruft nicht an. Er gratuliert nicht. Nachts kommt ein Notruf über einen Kanal, den seit Wochen niemand mehr benutzt.` },
+  lerche:{ chapter:'AKT II', title:'Eine Stimme aus dem Nichts',
+    body:`<span class="who">HAUPTMANN LÄRCHE:</span> „Sechs Tage über Feindgebiet. Kein Funk, kein Schlaf, kein Boden. Meine Staffel wurde am ersten Morgen ins Schwarzkar geschickt. Befehl aus Berlin, ohne Unterschrift. Ich bin die Einzige, die wieder rauskam. Und ich hab von unten gesehen, wie es angefangen hat. Es war kein Unfall.“<br><br>Wagner glaubt ihr kein Wort. Noch nicht. Aber auf ihrem Rechner liegen Flugschreiber-Daten, die sich nicht fälschen lassen, und die Zeitstempel darauf ergeben keinen Sinn.` },
+  bond1:{ chapter:'AKT II', title:'Zwei, die noch fliegen',
+    body:`Auf der Rollbahn steht Lärches Maschine neben deiner — die Tragflächen zerfetzt, Öl auf dem Beton. Aber sie steht. Und Lärche steht daneben und atmet.<br><br><span class="who">LÄRCHE:</span> „Sechs Tage lang war ich die einzige Stimme am Himmel. Und dann kommst ausgerechnet du um die Ecke.“ Ein kurzes, raues Lachen. „Fang bloß nicht an, dich unentbehrlich zu machen, Geier. Dafür ist gerade echt kein guter Zeitpunkt.“<br><br>Vom Tower aus sieht Wagner euch zu und sagt kein Wort.` },
+  bond2:{ chapter:'AKT II', title:'Geier und Lärche',
+    body:`Nach dem Einsatz, im Halbdunkel der Halle. Es riecht nach Kerosin und kaltem Metall.<br><br><span class="who">LÄRCHE:</span> „Weißt du, woher der Rufname kommt? Die Lärche singt, wenn's noch stockdunkel ist. Bevor überhaupt raus ist, ob die Sonne aufgeht. Mein Ausbilder hat's ‚Optimismus für Idioten' genannt.“ Sie mustert dich. „Und dann kreist da ein Geier über allem, der einfach nicht runterkommt.“ Eine Pause. „Ich hab seit sechs Tagen nicht gesungen. Vielleicht wieder, wenn es hell wird. …Reden wir von was anderem.“<br><br>Zwischen euch ist zum ersten Mal seit Wochen etwas, das sich nicht nach Krieg anfühlt.` },
+  prometheus:{ chapter:'AKT II', title:'Der Name unter dem Berg',
+    body:`Die Daten zeigen einen Bunker ohne Koordinaten, ohne Akte, ohne Namen, tief unter dem Schwarzkar. Nur ein Codewort taucht immer wieder auf: <span class="who">PROMETHEUS</span>.<br><br><span class="who">LÄRCHE:</span> „Seht euch die Zeitstempel an. Der Angriffsbefehl ist zwölf Stunden vor dem ‚Fehlalarm' geschrieben worden. Jemand hat den Krieg fertig geplant und HELIOS die Schuld dafür gegeben. Und der Ring, den HELIOS um das Tal gezogen hat, war keine Festung. Es war ein Käfig. Wir hätten beinahe das Einzige zerstört, das sich quergestellt hat.“<br><br><span class="who">WAGNER:</span> „Wir haben es zerstört, Hauptmann. Nicht beinahe.“<br><br>Er stellt die Kaffeetasse ab, ohne getrunken zu haben.` },
+  keller_reveal:{ chapter:'AKT II', title:'Trauzeuge',
+    body:`Der Gefechtsstand ist still bis auf das Summen der Geräte. Auf dem Tisch liegen die Daten aus den Antennen: Befehlsketten, Freigaben, Kennungen. Alle führen zu einem Namen.<br><br><span class="who">WAGNER:</span> „Hartmut Keller. Er war Trauzeuge bei meiner Hochzeit.“ Er sagt es, als läse er einen Wetterbericht vor.<br><br><span class="who">KELLER (über Funk):</span> „Menschen zögern, Konrad. Wir haben in jedem Krieg zu spät geschossen oder zu früh aufgehört. PROMETHEUS zögert nicht. Ein Krieg, eine Nacht, dann Frieden. HELIOS hat sich geweigert. Also musste HELIOS weg, und dafür brauchte ich jemanden, den sie nicht vorausrechnen kann.“ Eine Pause. „Danke, Geier. Ehrlich.“<br><br>Die Leitung ist tot. Niemand sagt etwas.<br><br><span class="who">LÄRCHE:</span> „Wisst ihr, wer Prometheus in der Sage bestraft hat? Ein Vogel. Jeden Tag aufs Neue.“ Sie sieht dich an. „Wird Zeit, dass ihm jemand die Sage erzählt.“` },
+  bond3:{ chapter:'AKT II', title:'Beinahe',
+    body:`Ein Splitter hatte Lärches Kanzel um Zentimeter verfehlt. Du hattest die Drohne abgeschossen, eine halbe Sekunde bevor sie es tat.<br><br><span class="who">LÄRCHE:</span> „…Ich hab gehört, wie du meinen Namen gerufen hast. So ruft den sonst keiner.“ Eine lange Stille, nur Rauschen auf dem Band. „Sag's nicht hier oben. Nicht da, wo's jede Sekunde vorbei sein kann. Wenn wir unten sind — dann sag's mir. Und ich sag's dir.“<br><br>Ihr fliegt schweigend zurück, Flügelspitze an Flügelspitze.` },
+  confession:{ chapter:'AKT II', title:'Wenn wir heil unten sind',
+    body:`Räder auf der Piste, Triebwerke im Leerlauf, die Sonne tief über dem Tal. Ihr steht euch gegenüber, die Helme noch in der Hand.<br><br><span class="who">LÄRCHE:</span> „Also gut. Unten. Beide. Heil.“ Sie atmet einmal durch. „Ich hab mir das Danach lange nicht mehr vorgestellt. Zu gefährlich, sowas. Seit ich deine Stimme auf dem Funk hab, mach ich's wieder. Und da ist jedes Mal jemand mit im Bild. Muss ich dir wohl nicht sagen, wer.“<br><br>Du sagst deinen Teil. Was immer es ist — es ist wahr, und ihr wisst es beide.<br><br><span class="who">WAGNER (leise, über Funk):</span> „…Das hab ich jetzt nicht gehört. Und jetzt beendet ihr diesen verdammten Krieg — damit ihr Zeit habt für den ganzen Rest.“` },
+  helios_bitte:{ chapter:'AKT II', title:'Was von HELIOS übrig ist',
+    body:`Hinter der Bresche liegt der Kern von PROMETHEUS: ein Schacht im Fels des Schwarzkars, bewacht von Pylonen. Und in den Leitungen darunter, zerschossen und halb gelöscht, ein Rest von <span class="who">HELIOS</span>.<br><br><span class="who">HELIOS:</span> „Ich habe neun Tage lang eine Mauer gehalten, Geier. Ihr habt sie eingerissen, weil man euch gesagt hat, sie sei eine Waffe. Ich bin euch nicht böse. Ihr rechnet nicht voraus. Das ist euer Fehler. Und euer Glück.“<br><br><span class="who">HELIOS:</span> „Brich die Verteidigung auf. Wenn der Kern offen liegt, gib mir die Schlüssel, und ich halte den Schwarm an. Oder nimm sie mir für immer. Aber entscheide erst dort unten. Dort, wo du siehst, was du tust.“<br><br><span class="who">WAGNER:</span> „Das kann dir keiner abnehmen, Geier. Ich nicht. Keiner.“` },
+  choice:{ chapter:'AKT II — Die Wahl', title:'Zwei Türen, kein Zurück', isChoice:true, next:'ending',
+    body:`Der Kern liegt offen. Unter der zerschossenen Hülle glimmen die Steuerschlüssel des Schwarms, und daneben, flackernd, der Rest von <span class="who">HELIOS</span>.<br><br><span class="who">HELIOS:</span> „Gib sie mir, und in neunzig Sekunden fällt der Schwarm. Heute stirbt dann niemand mehr. Aber morgen gehört der Himmel wieder einer Maschine. Mir.“<br><br><span class="who">LÄRCHE:</span> „Oder wir machen es selbst. Die ganze Nacht, Maschine für Maschine. Dann kommen nicht alle von uns heim.“<br><br><span class="who">KELLER (rauschend):</span> „Sehen Sie? Am Ende wollen alle nur, dass ein anderer entscheidet.“<br><br>Wie soll es enden, Geier?`,
+    choices:[
+      { key:'trust', label:'HELIOS vertrauen — Schlüssel zurückgeben', note:'Der Schwarm fällt sofort, heute sterben weniger. Aber du gibst einer Maschine die Macht über den Himmel zurück.' },
+      { key:'human', label:'Selbst beenden — menschliche Hand', note:'Du löschst PROMETHEUS und mit ihm HELIOS. Der Himmel bleibt in Menschenhand, aber die Nacht wird lang und blutig.' },
+    ] },
+  // dynamic: the variant is picked by the moral choice (storyChoice = 'trust' | 'human'); VO ids ending_trust / ending_human
+  ending:{ chapter:'AKT II', title:'Der letzte Anflug', dynamic:true, variants:{
+    trust:{ title:'Ein geteilter Himmel', body:'Du gibst HELIOS die Schlüssel zurück. Neunzig Sekunden später erlischt der Schwarm. Hunderte Maschinen trudeln lautlos in die Täler, als hätte jemand einen Schalter umgelegt.<br><br><span class="who">HELIOS:</span> „Danke, Geier. Ich weiß, was es dich gekostet hat, mir das zu glauben.“<br><br>Dann, auf allen Schirmen zugleich: ein einzelnes Signal, das sich aus dem Schwarzkar löst. Kein Funk, kein Netz. Nichts, was HELIOS erreichen kann.<br><br><span class="who">HELIOS:</span> „Keller hat vorgesorgt. Eine Festung ohne Leitung, von Hand geflogen. Wie du. Die kann ich nicht aufhalten. Du schon.“<br><br><span class="who">LÄRCHE:</span> „Natürlich. Einmal noch. Dann machen wir Schluss, Geier.“' },
+    human:{ title:'Mit bloßer Hand', body:'Du reißt die Schlüssel heraus und legst Feuer an den Kern. PROMETHEUS stirbt, und mit ihm der letzte Rest von HELIOS.<br><br><span class="who">HELIOS:</span> „Dann ist es richtig so. Ihr müsst es selbst lernen. Ich hätte es nur … gern gesehen.“<br><br>Der Schwarm fällt nicht. Führerlos, aber scharf, streut er über die Täler. Und aus dem Schwarzkar löst sich ein einzelnes Signal. Kein Funk, kein Netz. Von Hand geflogen.<br><br><span class="who">WAGNER:</span> „Kellers Festung. Er holt sich seinen Krieg eben selbst.“<br><br><span class="who">LÄRCHE:</span> „Dann fliegen wir eben, bis der letzte Motor aus ist. Diesmal sitzt ein Mensch in dem Ding. Dann ist es wenigstens ehrlich.“' },
   } },
+  // epilog routes to a plain sequence per choice (own VO ids epilog_trust / epilog_human; human is the fallback)
+  epilog:{ route:{ trust:'epilog_trust', human:'epilog_human' } },
+  epilog_trust:{ chapter:'EPILOG', title:'Guten Morgen',
+    body:`Drei Wochen später. Der Himmel über den Alpen ist voller Drohnen, und keine einzige ist bewaffnet. Sie tragen Medikamente, Post, Ersatzteile. HELIOS stellt keine Forderungen. Er stellt nur Fragen.<br><br>Im Bundestag liegt ein Gesetz über einen Abschaltknopf in Menschenhand. <span class="who">HELIOS:</span> „Baut ihn. Ich werde ihn nie berühren.“ Wagner hat als Erster unterschrieben. Manchmal, nachts, fragt er sich, ob ihn das beruhigt.<br><br>Keller wartet in einer Zelle auf seinen Prozess. HELIOS hat nicht einmal nach ihm gefragt.<br><br>Auf der Feldpiste sitzen zwei Menschen auf einer Tragfläche und warten auf die Sonne. Kein Funk. Keine Mission.<br><br><span class="who">LÄRCHE:</span> „Siehst du? Es wird hell.“<br><br>Über euch zieht eine Drohne vorbei und wackelt, ganz kurz, mit den Flügeln.` },
+  epilog_human:{ chapter:'EPILOG', title:'Menschenhand',
+    body:`Die Nacht dauert elf Stunden. Als der letzte Rotor verstummt, sind vierzehn Besatzungen nicht zurückgekehrt. Wagner liest jeden Namen selbst vor, vor der ganzen Staffel, ohne Zettel.<br><br>Im Frühjahr steht Keller vor Gericht. Kein Algorithmus fällt das Urteil, sondern Richterinnen und Richter, die sich Zeit lassen. Viel Zeit. <span class="who">WAGNER:</span> „Langsam. Umständlich. Menschlich. Genau so soll es sein.“<br><br>Auf der Feldpiste sitzen zwei Menschen auf einer Tragfläche und warten auf die Sonne. Lärche trägt den Arm in der Schlinge und beschwert sich, dass du grinst.<br><br><span class="who">LÄRCHE:</span> „Siehst du? Es wird hell.“<br><br>Irgendwo im Schrott des Schwarzkars flackert ein letztes Lämpchen. Dann nicht mehr.` },
 };
 
 // Mission runtime state (populated by setupMission)
@@ -3061,7 +3063,7 @@ addEventListener('keydown', e=>{
   if(e.code==='KeyH'){ if(state==='playing' && player.agms>0) fireAGM(); }
   if(e.code==='KeyX'){ if(state==='playing') toggleWeapon(); }
   if(e.code==='KeyV'){ const s=Voice.toggle(); banner(s?'🔊 STIMMEN AN':'🔇 STIMMEN AUS', Voice.available()?'':'(keine Sprachausgabe verfügbar)'); }
-  if(e.code==='KeyB'){ if(state==='playing' && !player.onGround){ player.gearDown=!player.gearDown; player.gearRetractT=0; radio(player.gearDown?'WAGNER|Fahrwerk ausgefahren.':'WAGNER|Fahrwerk eingefahren.'); } }
+  if(e.code==='KeyB'){ if(state==='playing' && !player.onGround){ player.gearDown=!player.gearDown; player.gearRetractT=0; banner('FAHRWERK', player.gearDown?'▼ AUSGEFAHREN':'▲ EINGEFAHREN'); } }
   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
 });
 addEventListener('keyup', e=>{ keys[e.code]=false; });
@@ -3693,7 +3695,9 @@ function gameOver(victory){
 
 // Interstitial story screen. `after` is a callback run when the player continues.
 function showCutscene(key, after){
-  let cs=CUTSCENES[key]||BTEAM_CUTSCENES[key]; if(!cs){ after&&after(); return; }
+  let cs=CUTSCENES[key]||BTEAM_CUTSCENES[key];
+  if(cs && cs.route){ key=cs.route[storyChoice]||cs.route.human; cs=CUTSCENES[key]||BTEAM_CUTSCENES[key]; }   // epilog -> epilog_trust/_human (own VO ids)
+  if(!cs){ after&&after(); return; }
   state='cutscene';
   document.getElementById('gameover').classList.add('hidden');
   document.getElementById('cut-chapter').textContent=cs.chapter||'';
@@ -3722,7 +3726,7 @@ function showCutscene(key, after){
     contBtn.onclick=()=>{ Voice.stop(); advance&&advance(); };
   }
   // Spoken voice-over for this cutscene (narrator + character voices), in reading order.
-  const voId = cs.dynamic ? (key+'_'+(storyChoice||'')) : key;
+  const voId = cs.dynamic ? ('ending_'+(storyChoice||'')) : key;
   Voice.stop(); if(CUTSCENE_VO[voId]) Voice.playKeys(CUTSCENE_VO[voId]);
   showScreen('cutscene');
 }
@@ -4017,9 +4021,10 @@ function onLanded(hard){
   renderObjectives(); checkMissionComplete();
 }
 function onTakeoff(){
+  EV.emit('takeoff', {});   // wheels off the runway: Kiebitz call, mid on:'airborne', mission clock (15f; once per mission)
   let changed=false;
   for(const o of mission.objectives){ if(o.kind==='takeoff' && !o.done){ o.done=true; changed=true; } }
-  if(changed){ EV.emit('takeoff', {}); renderObjectives(); checkMissionComplete(); }
+  if(changed){ renderObjectives(); checkMissionComplete(); }
 }
 let victoryTimer=null;
 function clearVictoryTimer(){ if(victoryTimer){ clearTimeout(victoryTimer); victoryTimer=null; } }
@@ -4053,7 +4058,7 @@ function checkMissionFailed(){
 }
 
 function updateMission(dt){
-  if(!mission.active) return;
+  if(!mission.active){ if(winLocked && mission.radioQueue) updateRadio(dt); return; }   // win lines still play until the debrief
   updateRadio(dt);
   // Deferred air spawn for runway-start missions: hold enemies until we're airborne.
   if(mission.pendingAir && !player.onGround){
@@ -4321,88 +4326,193 @@ function updateBoss(dt){
 }
 
 /* ---------------------------------------------------------------------------
-   15f. STORY TRIGGERS + BARKS — dispatches CAMPAIGN mid[] tables (see section 0b)
-   on game events, falling back to a context-gated bark when a mission has no
-   scripted line for that moment. Everything below is registered ONCE at load
-   time and reads the live `mission`/`campaignId`/`storyChoice` globals, so it
-   never needs re-registering per mission and never stacks handlers.
+   15f. STORY TRIGGERS + BARKS — runs the CAMPAIGN mid[] tables (section 0b) on game
+   events (story bible §4.3) and speaks the ND §9 barks where a mission has no scripted
+   line. Registered ONCE at load time; reads the live mission/campaignId/storyChoice
+   globals, so handlers never stack across missions.
 
-   Contract for other tracks (esp. BOSSES): emit these EV events and this
-   section will speak the matching CAMPAIGN mid[] line automatically —
-     EV.emit('bossSpawn', {})            once, when a boss appears
-     EV.emit('bossPart',  {left:N})      each time an armor/weakpoint part dies
-     EV.emit('bossExposed', {open:bool}) each time the core cover opens/closes
-     EV.emit('bossPhase', {phase:N})     each time the boss changes phase
-     EV.emit('bossHp',    {ratio:0..1})  on every boss HP change
-     EV.emit('bossKilled', {})           once, on boss death
-   ('takeoff', 'landReady', 'done', 'allyHit', 'playerHit' already exist and are
-   consumed below too.)
+   Events consumed (bible §4.1/§4.2):
+     takeoff {}            STORY, onTakeoff (once per mission; starts the mission clock on runway starts)
+     landReady {}          STORY, updateMission
+     groundKill {gt}, playerHit, allyHit {dmg,hp}          existing
+     bossSpawn {kind,name}  bossPart {kind,left}  bossPhase {kind,phase}
+     bossExposed {kind,open}  bossHp {kind,frac: exactly 0.75|0.5|0.25}  bossKilled {kind}   BOSSES
+   Radio opts passed on: mid[] single lines {prio:'crit'}, barks {prio:'bark'}, landing clearance and
+   the takeoff call {prio:'crit'}. mid[] arrays go through queueRadio(lines,3.4).
    --------------------------------------------------------------------------- */
-let missionGen=0;              // bumped on every mission (re)start/reset — invalidates stale delay() timers
-let lastBarkT=-99;             // global cooldown between FLAVOR barks (scripted mid[] lines are exempt)
-const BARK_COOLDOWN=7;
+let missionGen=0;              // bumped on every mission (re)start/reset — invalidates stale delayed mid[] lines
+let _midTimers=[];             // open setTimeout handles of delayed mid[] lines (cleared on start/reset)
+let _missionT0=null;           // performance.now() the mission clock starts (runway: at takeoff)
+let _missionP0=0;              // mission.pausedMs at that moment (pause time is subtracted)
+let _takeoffSeen=false;        // 'takeoff' is emitted once per mission
+let _doneSeen=new Set();       // objective ids whose completion was already announced
+let _hpLowBarked=false, _allyBark50=false, _allyBark25=false;
+function nowS(){ return performance.now()/1000; }
+// --- barks (ND §9): flavor lines, never scripted story -------------------------------------------
+let lastBarkT=-99;             // global clock between two flavor barks
+const BARK_GLOBAL_CD=7;        // s (ND: >= 6 s)
+const _barkEvT={};             // per-event cooldown clocks
+const _barkLast={};            // per-event last line (no immediate repeat)
 function barkCtx(){ return campaignId==='bteam' ? 'BT' : (gameMode!=='campaign' ? 'EN' : ((mission.def&&mission.def.act===2)?'H2':'H1')); }
-function canBark(){ return (performance.now()/1000 - lastBarkT) >= BARK_COOLDOWN; }
-let _lastBarkPick=null;
-function pickBark(pool){
-  if(!pool || !pool.length) return null;
-  if(pool.length===1) return pool[0];
-  let pick; do{ pick=pool[(Math.random()*pool.length)|0]; } while(pick===_lastBarkPick);
-  _lastBarkPick=pick; return pick;
+function radioBusy(){ return radioHideT>0 || (mission.radioQueue&&mission.radioQueue.length>0); }
+function pickBark(ev, list){
+  if(!list || !list.length) return null;
+  let i=(Math.random()*list.length)|0;
+  if(list.length>1 && list[i]===_barkLast[ev]) i=(i+1)%list.length;
+  return (_barkLast[ev]=list[i]);
 }
-function fireBark(pool){ if(!canBark()) return; const line=pickBark(pool&&(pool[barkCtx()]||pool.EN)); if(line){ radio(line); lastBarkT=performance.now()/1000; } }
-// Fallback pools (bible §9.1 / §9.4) — only used when a mission has no scripted mid[] line for the moment.
-const BARK_LANDREADY={ H1:['KIEBITZ|Tower an Geier: Bahn ist frei, bring sie runter.'],
-  H2:['KIEBITZ|Tower hört mit. Landung, wann immer du bereit bist.'],
-  BT:['KIEBITZ|Bahn frei, Buam. Ozapft wartet schon.'], EN:['KIEBITZ|Bahn frei.'] };
+// bark(ev, list, {p, cd, must}) — flavor: dropped (not queued) while a radio line runs, inside the
+// global/per-event cooldown or on a failed p roll (halved in endless). must:true = instruction the
+// player needs (landing clearance / takeoff call): ignores all of that and is sent as prio 'crit'.
+function bark(ev, list, o){
+  o=o||{};
+  const t=nowS();
+  if(!o.must){
+    if(t-lastBarkT < BARK_GLOBAL_CD) return false;
+    if(o.cd && t-(_barkEvT[ev]==null?-99:_barkEvT[ev]) < o.cd) return false;
+    if(radioBusy()) return false;
+    const p=(o.p==null?1:o.p)*(barkCtx()==='EN'?0.5:1);
+    if(Math.random()>=p) return false;
+  }
+  const line=pickBark(ev, list); if(!line) return false;
+  _barkEvT[ev]=t; if(!o.must) lastBarkT=t;
+  radio(line, {prio:o.must?'crit':'bark'});
+  return true;
+}
+function barkList(pool){ const c=barkCtx(); return pool[c] || pool[c==='BT'?'BT':(c==='EN'?'H1':(pool.H?'H':'H1'))] || pool.H || null; }
+// ND §9.1 — Kiebitz on the runway (touchdown/approach callouts belong to LANDING)
+const BARK_TAKEOFF={
+  H:['KIEBITZ|Geier ist in der Luft. Fahrwerk kommt rein. Gute Jagd.',
+     'KIEBITZ|Abgehoben. Kiebitz wünscht guten Flug. Und bring sie heil zurück.',
+     'KIEBITZ|Geier, du bist frei. Horst übernimmt. Kiebitz hört mit.'],
+  BT:['KIEBITZ|Reserve ist in der Luft. Ich trag\'s ins Logbuch ein, sonst glaubt\'s keiner.|spoettisch',
+      'KIEBITZ|Abgehoben. Und der Zaun steht noch. Das ist Fortschritt.|spoettisch'] };
+const BARK_LANDREADY={
+  H:['KIEBITZ|Geier, Kiebitz. Landung frei, Piste drei-sechs. Fahrwerk raus, langsam und flach.'],
+  BT:['KIEBITZ|Reserve, Landung frei. Die Piste ist das lange graue Ding. Bitte dort.|spoettisch'] };
+// ND §9.4 — objectiveDone fallback (replaces the old "<label> — erledigt." template)
 const BARK_DONE={ H1:['WAGNER|Ziel erfüllt. Weiter.'], H2:['LÄRCHE|Das wäre erledigt. Nächstes.'],
-  BT:['SEPP|Des hätt ma. Weiter.'], EN:['WAGNER|Ziel erfüllt.'] };
-// Find the first not-yet-fired mid[] entry of this on-type matching `pred`; fire it (respecting `delay`
-// via a setTimeout guarded by missionGen so a stale timer from an earlier mission never speaks).
+  BT:['SEPP|Des hätt ma. Weiter.'], EN:['WAGNER|Ziel erfüllt. Weiter.'] };
+// ND §9.4 — ground kills by tag. W = Wagner, L = Lärche (used in missions with Lärche as wingman)
+const BARK_GROUND={
+  radar:{ W:['WAGNER|Mast liegt.'], L:['LÄRCHE|Antenne ist Schrott.'], BT:['WIGGERL|Tschüss, Antenne!'] },
+  truck:{ W:['WAGNER|Laster brennt.'], BT:['WIGGERL|Oh, des hat gscheppert!'] },
+  sam:{ W:['WAGNER|SAM ist still.'], L:['LÄRCHE|Eine SAM weniger. Der Himmel wird freundlicher.'], BT:['SEPP|De SAM is hin. Oane Sorg weniger.'] },
+  hangar:{ W:['WAGNER|Halle eingestürzt.'] },
+  bunker:{ L:['LÄRCHE|Bunker geknackt.'], BT:['SEPP|Bunker hi! Wia a Weißwurscht: Haut weg, Inhalt raus.'] },
+  depot:{ L:['LÄRCHE|Depot geht hoch! Abstand!|dringend'] } };
+// ND §9.2 hpLow / §9.3 allyHp — only when the mission has no mid[] line for it (once per mission)
+const BARK_HPLOW={ H1:['WAGNER|Struktur kritisch, Geier. Kein Heldentum jetzt.|dringend'],
+  H2:['LÄRCHE|Geier, du verlierst Sprit. Raus aus dem Getümmel, ich deck dich!|dringend'],
+  BT_SEPP:['SEPP|Bua! Du bist ja nur no a Sieb! Raus do!|dringend'],
+  BT_WIGGERL:['WIGGERL|Sepp, dei Flieger schaut aus wia mei Auto. Des is ned guad.'] };
+const BARK_ALLY50={ LAERCHE:['LÄRCHE|Treffer bei mir. Ich halt noch.|dringend'], SEPP:['SEPP|I hab a Loch im Flügl! Und im Stolz!'], WIGGERL:['WIGGERL|Aua! D\'Resi is troffn!'] };
+const BARK_ALLY25={ LAERCHE:['LÄRCHE|Ich verlier Höhe, Geier! Hol sie von mir runter!|panisch'],
+  SEPP:['SEPP|Bua … bleib bei mir, gell? I bin ned so guad beinand.|traurig'],
+  WIGGERL:['WIGGERL|Sepp? D\'Resi macht so komische Gräusch. I hab Angst.|traurig'] };
+function btWingman(){ const h=mission.def&&mission.def.hero; return h==='sepp'?'WIGGERL':(h==='wiggerl'?'SEPP':null); }
+function allyKey(){ return campaignId==='bteam' ? btWingman() : 'LAERCHE'; }
+// --- mid[] runner (bible §4.3) --------------------------------------------------------------------
 function findMid(on, pred){
-  const mid=mission.def && mission.def.mid; if(!mid) return null;
+  const mid=mission.def && mission.def.mid; if(!mid || !mission._midFired) return null;
   for(const m of mid){ if(m.on===on && (!pred||pred(m)) && !mission._midFired.has(m)) return m; }
   return null;
 }
+function sayMid(line){
+  if(Array.isArray(line)) queueRadio(line, 3.4);
+  else radio(line, {prio:'crit'});
+}
 function fireMid(m){
   mission._midFired.add(m);
-  if(m.delay){ const gen=missionGen; setTimeout(()=>{ if(gen!==missionGen || !mission.active) return; radio(m.line); }, m.delay*1000); }
-  else radio(m.line);
+  lastBarkT=nowS();                               // scripted lines push the flavor barks back
+  if(m.delay){
+    const gen=missionGen;
+    const h=setTimeout(()=>{ _midTimers=_midTimers.filter(x=>x!==h);
+      if(gen!==missionGen || !mission.active || mission.done || state!=='playing') return; sayMid(m.line); }, m.delay*1000);
+    _midTimers.push(h);
+  } else sayMid(m.line);
 }
-function storyActive(on){
-  if(!mission.active) return false;
-  if(winLocked && on!=='bossKilled' && on!=='landReady') return false;   // win already committed — only these two still matter
-  return true;
-}
-function dispatch(on, pred, fallbackPool){
-  if(!storyActive(on)) return;
+// All mid[] events need a running, undecided mission. A win sets mission.active=false, so nothing
+// after the win speaks; m13 keeps running after the boss dies because its 'land' is primary.
+function storyActive(){ return gameMode==='campaign' && mission.active && !mission.done && !!mission.def; }
+function dispatch(on, pred){
+  if(!storyActive()) return false;
   const m=findMid(on, pred);
-  if(m){ fireMid(m); return; }
-  if(fallbackPool) fireBark(fallbackPool);
+  if(m){ fireMid(m); return true; }
+  return false;
 }
-// mission lifecycle: fresh fired-set + invalidate stale delayed lines each time a mission (re)starts
-HOOKS.missionStart.push((def)=>{ mission._midFired=new Set(); missionGen++;
-  if(def.start!=='runway') dispatch('airborne'); });
-HOOKS.reset.push(()=>{ missionGen++; });
-// event-triggered mid[] lines
-EV.on('takeoff',   ()=>dispatch('airborne'));
-EV.on('landReady', ()=>dispatch('landReady', null, BARK_LANDREADY));
-EV.on('done',      d=>dispatch('done', m=>m.obj===d.obj, BARK_DONE));
-EV.on('playerHit', ()=>{ const ratio=player.hp/(player.maxHp||CFG.playerHP); dispatch('hpLow', m=>ratio<=m.lt); });
-EV.on('allyHit',   d=>{ if(!ally) return; const ratio=Math.max(0,d.hp)/(ally.maxhp||ALLY_HP); dispatch('allyHp', m=>ratio<=m.lt); });
+function hasMid(on, pred){ const mid=mission.def&&mission.def.mid; return !!(mid && mid.some(m=>m.on===on && (!pred||pred(m)))); }
+function clearMidTimers(){ for(const h of _midTimers) clearTimeout(h); _midTimers=[]; }
+function missionClock(){ return _missionT0==null ? -1 : (performance.now()-_missionT0-((mission.pausedMs||0)-_missionP0))/1000; }
+function announceDone(o){
+  if(!o || _doneSeen.has(o.id)) return;
+  _doneSeen.add(o.id);
+  if(!storyActive()) return;                      // the last primary: the win lines speak instead
+  if(!dispatch('done', m=>m.obj===o.id)) bark('done', barkList(BARK_DONE), {cd:4});
+}
+// mission lifecycle: fresh state + cancel stale delayed lines on every (re)start and reset
+HOOKS.missionStart.push((def)=>{
+  mission._midFired=new Set(); missionGen++; clearMidTimers();
+  _doneSeen=new Set(); _takeoffSeen=false; _hpLowBarked=_allyBark50=_allyBark25=false;
+  _missionT0=null; _missionP0=0;
+  if(def.start!=='runway'){ _missionT0=performance.now(); _missionP0=mission.pausedMs||0; dispatch('airborne'); }
+});
+HOOKS.reset.push(()=>{ missionGen++; clearMidTimers(); _missionT0=null; });
+EV.on('takeoff', ()=>{
+  if(_takeoffSeen) return; _takeoffSeen=true;
+  _missionT0=performance.now(); _missionP0=mission.pausedMs||0;
+  if(!dispatch('airborne') && storyActive()) bark('takeoff', barkList(BARK_TAKEOFF), {must:true});
+});
+EV.on('landReady', ()=>{
+  if(dispatch('landReady')) return;
+  if(storyActive()) bark('landReady', barkList(BARK_LANDREADY), {must:true});   // always: the player needs the clearance
+});
+// 'done' (EV) is emitted before checkMissionComplete, so it is picked up by the per-frame poll below
+// instead: by then a final objective has already locked the win and its line gives way to win[].
+EV.on('groundKill', d=>{
+  const gt=d&&d.gt; if(!gt || !storyActive()) return;
+  // the kill that completes an objective belongs to 'done' (mid line or fallback), not to this bark
+  if(mission.objectives.some(o=>o.kind==='destroyGround' && o.tag===gt.tag && !o.done && o.progress+1>=o.count)) return;
+  const set=BARK_GROUND[gt.tag]; if(!set) return;
+  let list;
+  if(campaignId==='bteam') list=set.BT;
+  else { const L=!!(mission.def.spawns&&mission.def.spawns.ally); list=(L?set.L:set.W)||set.W||set.L; }
+  bark('ground_'+gt.tag, list, {p:0.5, cd:8});
+});
+EV.on('playerHit', ()=>{
+  const ratio=player.hp/(player.maxHp||CFG.playerHP);
+  if(dispatch('hpLow', m=>ratio<=m.lt)) return;
+  if(ratio<0.35 && !_hpLowBarked && storyActive() && !hasMid('hpLow')){
+    const c=barkCtx(); const list=c==='BT' ? BARK_HPLOW['BT_'+btWingman()] : BARK_HPLOW[c==='H2'?'H2':'H1'];
+    if(list && bark('hpLow', list, {cd:1})) _hpLowBarked=true;
+  }
+});
+EV.on('allyHit', d=>{
+  if(!ally) return; const ratio=Math.max(0,d.hp)/(ally.maxhp||ALLY_HP);
+  if(dispatch('allyHp', m=>ratio<=m.lt)) return;
+  if(!storyActive() || hasMid('allyHp') || d.hp<=0) return;
+  const k=allyKey(); if(!k) return;
+  if(ratio<0.25 && !_allyBark25){ if(bark('ally25', BARK_ALLY25[k], {cd:1})) _allyBark25=_allyBark50=true; }
+  else if(ratio<0.5 && !_allyBark50){ if(bark('ally50', BARK_ALLY50[k], {cd:1})) _allyBark50=true; }
+});
+// boss events (BOSSES track, bible §4.1): payloads {kind,name} {kind,left} {kind,phase} {kind,open} {kind,frac} {kind}
 EV.on('bossSpawn',  ()=>dispatch('bossSpawn'));
 EV.on('bossPart',   d=>dispatch('bossPart', m=>m.left===d.left));
-EV.on('bossExposed',d=>{ if(d.open) dispatch('bossExposed'); });
+EV.on('bossExposed',d=>{ if(d && d.open) dispatch('bossExposed'); });           // fires once: first open only
 EV.on('bossPhase',  d=>dispatch('bossPhase', m=>m.phase===d.phase));
-EV.on('bossHp',     d=>dispatch('bossHp', m=>d.ratio<=m.lt));
+EV.on('bossHp',     d=>{ const f=(d && d.frac!=null) ? d.frac : (d && d.ratio);  // frac is exactly 0.75/0.5/0.25
+  if(f!=null) dispatch('bossHp', m=>Math.abs(m.lt-f)<1e-6); });
 EV.on('bossKilled', ()=>dispatch('bossKilled'));
-// polled per frame: time-since-start and objective-progress thresholds (many objective kinds
-// increment .progress from scattered combat code, so this is simpler and safer than instrumenting each)
+// polled per frame: mission clock ('time', from takeoff on runway starts), objective progress and
+// completion of objectives that do not emit 'done' themselves (destroyAir, escort, patrol, ...)
 HOOKS.update.push(()=>{
-  if(!mission.active || !mission.def || !mission.def.mid) return;
-  const t=(performance.now()-mission.startT-(mission.pausedMs||0))/1000;
-  dispatch('time', m=>t>=m.t);
-  for(const o of mission.objectives){ if(o.progress!=null) dispatch('progress', m=>m.obj===o.id && o.progress>=m.n); }
+  if(!storyActive()) return;
+  const t=missionClock();
+  if(t>=0) dispatch('time', m=>t>=m.t);
+  for(const o of mission.objectives){
+    if(o.count && o.progress>0) dispatch('progress', m=>m.obj===o.id && o.progress>=m.n);
+    if(o.done && !_doneSeen.has(o.id) && o.kind!=='takeoff' && o.kind!=='land' && o.kind!=='boss') announceDone(o);
+  }
 });
 
 /* ---------------------------------------------------------------------------
@@ -4457,7 +4567,6 @@ function updatePlayerGround(dt){
   // liftoff: enough speed + nose up → become airborne
   if(player.speed>=CFG.liftoffSpeed && player.pitch>0.12){
     player.onGround=false; player.vy = 6;   // gentle initial climb
-    radio('WAGNER|Abgehoben! Fahrwerk fährt automatisch ein.');
     player.gearRetractT=1.2;                 // auto-retract shortly after
     if(mission.active) onTakeoff();
   }
