@@ -21,10 +21,10 @@
   },
   "archetypes": {
     "officer_f":     { "engine": "chatterbox", "ref": "refs/piper/kerstin.wav",   "exaggeration": 0.45, "cfg_weight": 0.55, "temperature": 0.65, "lax": false },
-    "officer_m":     { "engine": "chatterbox", "ref": "refs/thorsten/thorsten_disgusted.wav", "exaggeration": 0.40, "cfg_weight": 0.55, "temperature": 0.6, "lax": false },
+    "officer_m":     { "engine": "chatterbox", "ref": "refs/librivox/boris.wav", "exaggeration": 0.40, "cfg_weight": 0.55, "temperature": 0.6, "lax": false },
     "boss_ai":       { "engine": "piper", "voice": "de_DE-thorsten-high", "length_scale": 1.12, "sentence_silence": 0.35 },
     "boss_pilot_m":  { "engine": "chatterbox", "ref": "refs/thorsten/thorsten_angry.wav", "exaggeration": 0.65, "cfg_weight": 0.4, "temperature": 0.75, "lax": false },
-    "old_bavarian_m":{ "engine": "chatterbox", "ref": "refs/thorsten/thorsten_disgusted.wav", "exaggeration": 0.55, "cfg_weight": 0.35, "temperature": 0.7, "lax": true,
+    "old_bavarian_m":{ "engine": "chatterbox", "ref": "refs/librivox/carsten.wav", "exaggeration": 0.55, "cfg_weight": 0.35, "temperature": 0.7, "lax": true,
                         "_note": "tiefer/langsamer wirkt hier ueber niedrigeres cfg_weight + hoehere temperature (mehr Drift, weniger stakkato), NICHT ueber Pitch-Shift." },
     "young_m":       { "engine": "chatterbox", "ref": "refs/piper/karlsson.wav", "exaggeration": 0.60, "cfg_weight": 0.45, "temperature": 0.75, "lax": true },
     "young_f":       { "engine": "chatterbox", "ref": "refs/piper/eva_k.wav", "exaggeration": 0.50, "cfg_weight": 0.5, "temperature": 0.7, "lax": false },
@@ -32,12 +32,12 @@
   },
   "speakers": {
     "_comment": "Existing speakers, unchanged text -> unchanged clip key, so a re-bake only touches what really changed.",
-    "WAGNER":  { "engine": "chatterbox", "ref": "refs/thorsten/thorsten_disgusted.wav", "exaggeration": 0.42, "cfg_weight": 0.55, "temperature": 0.6, "lax": false,
-                 "_note": "Ende 50, Bariton, leicht rau, gemessen. Wird nur laut wenn Geier in Gefahr ist." },
+    "WAGNER":  { "engine": "chatterbox", "ref": "refs/librivox/fritzsavira.wav", "exaggeration": 0.42, "cfg_weight": 0.55, "temperature": 0.6, "lax": false,
+                 "_note": "Ende 50, Bariton, leicht rau, gemessen. Wird nur laut wenn Geier in Gefahr ist. Ref: LibriVox-Leser FritzSavira (gemeinfrei), eigene Stimme statt Thorsten (vorher klangen WAGNER/SEPP/KELLER identisch, ECAPA 0.94)." },
     "LÄRCHE":  { "engine": "chatterbox", "ref": "refs/piper/eva_k.wav", "exaggeration": 0.48, "cfg_weight": 0.5, "temperature": 0.7, "lax": false,
                  "_note": "Mitte 30, warmer Alt, leicht heiser/müde. Im Kampf energischer (hoehere exaggeration via Mood-Hinweis), in Ruhe zurueckhaltender." },
-    "SEPP":    { "engine": "chatterbox", "ref": "refs/thorsten/thorsten_disgusted.wav", "exaggeration": 0.58, "cfg_weight": 0.35, "temperature": 0.75, "lax": true,
-                 "_note": "50, Brummbass, langsam-bedaechtig, Altbairisch. Tiefer/langsamer wirkt ueber niedriges cfg_weight + erhoehte temperature (mehr Drift, weniger Stakkato-Praezision), bewusst NICHT ueber Pitch-Shift (siehe _comment2 oben - Pitch-Shift-DSP hat die Qualitaet massiv ruiniert)." },
+    "SEPP":    { "engine": "chatterbox", "ref": "refs/librivox/marham63.wav", "exaggeration": 0.58, "cfg_weight": 0.35, "temperature": 0.75, "lax": true,
+                 "_note": "50, Brummbass, langsam-bedaechtig, Altbairisch. Ref: LibriVox-Leser marham63 (gemeinfrei) - tiefste (F0 ~87 Hz) und langsamste Kandidatenstimme. Langsamer wirkt zusaetzlich ueber niedriges cfg_weight + erhoehte temperature, bewusst NICHT ueber Pitch-Shift (siehe _comment2)." },
     "WIGGERL": { "engine": "chatterbox", "ref": "refs/piper/karlsson.wav", "exaggeration": 0.62, "cfg_weight": 0.40, "temperature": 0.85, "lax": true,
                  "_note": "Mitte 20, höher, luftig, freundlich-verpeilt, schnell mit plötzlichen Pausen. Hoehere temperature + niedrigeres cfg_weight fuer spontanere, weniger gleichfoermige Kadenz." },
     "HELIOS":  { "engine": "piper", "voice": "de_DE-thorsten-high", "length_scale": 1.22, "sentence_silence": 0.4,
@@ -48,8 +48,8 @@
     "?":       { "engine": "chatterbox", "ref": "refs/thorsten/thorsten_whisper.wav", "exaggeration": 0.4, "cfg_weight": 0.5, "temperature": 0.7, "lax": true,
                  "_note": "unbekannter/gestörter Funkkontakt; Game legt Rauschen/Aussetzer zur Laufzeit darüber." },
 
-    "KELLER":  { "engine": "chatterbox", "ref": "refs/thorsten/thorsten_disgusted.wav", "exaggeration": 0.28, "cfg_weight": 0.65, "temperature": 0.5, "polish": true, "lax": false,
-                 "_note": "NEU. Anfang 60, weicher warmer Bassbariton, präzises norddeutsches Hochdeutsch, nie laut, hört sich an wie 'aus einem guten Studio'. Hohes cfg_weight + niedrige temperature fuer maximal ruhige, praezise Kadenz (kein Pitch-Shift mehr - siehe _comment2). 'polish':true legt beim Bake eine leichte Kompression/Präsenzanhebung auf den TROCKENEN Clip (kein Funkrauschen - das bleibt Sache des VOICE-Tracks), damit er sauberer klingt als alle anderen." },
+    "KELLER":  { "engine": "chatterbox", "ref": "refs/librivox/alkadi.wav", "exaggeration": 0.28, "cfg_weight": 0.65, "temperature": 0.5, "polish": true, "lax": false,
+                 "_note": "NEU. Anfang 60, weicher warmer Bassbariton, präzises norddeutsches Hochdeutsch, nie laut, hört sich an wie 'aus einem guten Studio'. Ref: LibriVox-Leser Christian Al-Kadi (gemeinfrei) - sauberste Kandidatenaufnahme (UTMOS 4.2, SNR ~68 dB). Hohes cfg_weight + niedrige temperature fuer maximal ruhige, praezise Kadenz (kein Pitch-Shift mehr - siehe _comment2). 'polish':true legt beim Bake eine leichte Kompression/Präsenzanhebung auf den TROCKENEN Clip (kein Funkrauschen - das bleibt Sache des VOICE-Tracks), damit er sauberer klingt als alle anderen." },
     "KIEBITZ": { "engine": "chatterbox", "ref": "refs/piper/kerstin.wav", "exaggeration": 0.42, "cfg_weight": 0.55, "temperature": 0.6, "lax": false,
                  "_note": "NEU. Ende 20/Anfang 30, heller klarer Mezzo, sehr deutliche Artikulation, leichter fränkischer Anklang, Sprechfunk-Verfahren, sachlich-freundlich. Stimme des LANDING-Tracks." }
   }
