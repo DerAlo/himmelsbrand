@@ -1633,7 +1633,10 @@ const Audio = (function(){
     for(const g of [subGain,whineGain,roarGain,airGain,warnGain]) if(g) g.gain.setTargetAtTime(0, t, 0.08); }
   function duckMusic(on){ if(!enabled||!musicBus) return; musicBus.gain.setTargetAtTime(on?0.0:0.62, ctx.currentTime, 0.12); }
   // Softer duck for speech (VOICE): ~35% instead of silent, so a line reads clearly without killing the score.
-  function voiceDuck(on){ if(!enabled||!musicBus) return; musicBus.gain.setTargetAtTime(on?0.62*0.35:0.62, ctx.currentTime, on?0.15:0.4); }
+  // Scales with the player's music slider (musicVol, 15a2) and yields to a hard pause-duck (musicDucked).
+  function voiceDuck(on){ if(!enabled||!musicBus) return; let base=0.62;
+    try{ if(musicDucked) return; base=0.62*musicVol(); }catch(e){}
+    const t=ctx.currentTime; musicBus.gain.cancelScheduledValues(t); musicBus.gain.setTargetAtTime(on?base*0.35:base, t, on?0.15:0.4); }
   function reload(){ blip(500,0.08,'sine',0.2,800); setTimeout(()=>blip(700,0.1,'sine',0.2,1000),90); }
   function bombDrop(){ noiseBurst(0.25,0.35,900); blip(300,0.2,'sine',0.18,90); }
   function samLaunch(pan){ const d=panNode(pan); noiseBurst(0.6,0.4,1200,'lowpass',d); blip(500,0.6,'sawtooth',0.2,140,d); }
