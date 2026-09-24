@@ -147,6 +147,7 @@
   .debrief-stars { font-size:42px; letter-spacing:9px; color:#3a4a5e; margin-bottom:6px; }
   .debrief-stars .on { color:var(--gold); text-shadow:0 0 18px rgba(255,200,90,.6); }
   .unlock-note { margin-top:12px; color:#7dffb0; letter-spacing:2px; }
+  .debrief-line { font-size:16px; line-height:1.45; margin:0 0 6px; text-align:left; } .debrief-line .dl-spk { color:#ffce8a; font-size:12px; letter-spacing:2px; margin-right:8px; }
   .newrec { color:#ffce8a; font-weight:800; letter-spacing:2px; }
   body.gold-wings .title.brand, body.gold-wings .subbrand { color:var(--gold) !important; -webkit-text-fill-color:var(--gold); }
 
@@ -6206,7 +6207,8 @@ function gameOver(victory){
       if(campaignId==='helios'){ refreshUnlocks(); document.body.classList.toggle('gold-wings', SAVE.unlocks.goldWings); }
       persistSave();
       const hasNext = mission.index < activeCampaign.length-1;
-      const winLine = def.win && def.win[0] ? parseLine(def.win[0]).text : '';
+      // every win line as speaker + text: they keep playing over the debrief, where the #radio subtitle is hidden
+      const winLine = (def.win||[]).map(l=>parseLine(l)).filter(p=>p.text).map(p=>`<div class="debrief-line">${p.spk?`<span class="dl-spk">${p.spk}</span>`:''}${p.text}</div>`).join('');
       const starRow = `<div class="debrief-stars">`+[0,1,2].map(k=>`<span class="${k<res.stars?'on':''}">${k<res.stars?'★':'☆'}</span>`).join('')+`</div>`;
       const unlockNote = campaignId!=='helios' ? '' :
                        ((!wasAce&&SAVE.unlocks.ace?'<div class="unlock-note">FREIGESCHALTET: ASS-MODUS (Endlos)</div>':'')
