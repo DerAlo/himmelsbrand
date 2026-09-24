@@ -6364,7 +6364,7 @@ function buildMissionList(){
       `<span class="mtod ${m.tod||'day'}">${TOD_NAME[m.tod]||TOD_NAME.day}</span>`+
       `<div class="mdesc">${m.objectives.filter(o=>o.primary).map(o=>o.label).join(' · ')}</div>`+
       `<div class="mstars">`+[0,1,2].map(k=>`<span class="${rec&&k<rec.stars?'on':''}">${rec&&k<rec.stars?'★':'☆'}</span>`).join('')+
-        (rec?`<span class="mbest">BEST ${rec.bestScore} · ${fmtTime(rec.bestTime)}</span>`:'')+`</div>`+
+        (rec?`<span class="mbest">REKORD ${rec.bestScore} · ${fmtTime(rec.bestTime)}</span>`:'')+`</div>`+
       (reached?'':'<div class="mlock" title="Noch nicht in der Story erreicht — trotzdem spielbar">⚑</div>');
     card.onclick=()=>openBriefing(i);
     wrap.appendChild(card);
@@ -8859,7 +8859,7 @@ function updateMissiles(dt){
   }
 }
 
-const COMBO_CALL=['','','DOPPELKILL!','TRIPLE KILL!','QUAD KILL!','RAMPAGE!','UNAUFHALTSAM!','LEGENDÄR!'];
+const COMBO_CALL=['','','DOPPELKILL!','DREIFACHKILL!','VIERFACHKILL!','NICHT ZU BREMSEN!','UNAUFHALTSAM!','LEGENDÄR!'];
 function killEnemy(e){
   const idx=enemies.indexOf(e); if(idx<0) return;
   if(e.wing){ e.wing.wing=null; e.wing.pinRole=null; }   // un-pair a pincer partner
@@ -8874,8 +8874,8 @@ function killEnemy(e){
   const mult=Math.min(combo,5);
   if(e.isAce){
     const gain=1500; score+=gain; dom.score.textContent=score;
-    killMsg('★ ACE ZERSTÖRT: '+e.aceName+'  +'+gain);
-    banner('ACE ABGESCHOSSEN', e.aceName);
+    killMsg('★ ASS ZERSTÖRT: '+e.aceName+'  +'+gain);
+    banner('ASS ABGESCHOSSEN', e.aceName);
     player.hp=Math.min(player.maxHp, player.hp+15);
     player.missiles=CFG.missileMax; player.missileRegen=0; updateMissileHUD();   // rearm on the marquee kill — closes the resource loop
     Audio.reload();
