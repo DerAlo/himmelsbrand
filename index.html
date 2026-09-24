@@ -178,7 +178,7 @@
   .obj-line.fail .box { border-color:#ff5a5a; color:#ff5a5a; } .obj-line.fail { color:#ff8a8a; }
 
   /* ---- Radio / subtitles — per-speaker identity via [data-spk] ---- */
-  #radio { position:fixed; left:50%; bottom:64px; transform:translateX(-50%); z-index:7; width:min(700px,84vw); text-align:center;
+  #radio { position:fixed; left:50%; bottom:64px; transform:translateX(-50%); z-index:7; width:min(700px,84vw,calc(100vw - 360px)); text-align:center;
     font-size:17px; color:#cfe6ff; opacity:0; transition:opacity .3s, border-color .3s, bottom .35s; text-shadow:0 2px 10px rgba(0,0,0,.9); pointer-events:none;
     background:linear-gradient(0deg, rgba(4,12,26,.76), rgba(4,12,26,.32)); border:1px solid rgba(140,190,255,.18); border-left:3px solid var(--brass); padding:10px 22px; }
   #radio .rspk { font-family:var(--font-display); color:var(--brass); font-weight:700; letter-spacing:.5px; }
@@ -210,7 +210,7 @@
 
   .weapon-tab { position:fixed; left:22px; bottom:70px; z-index:6; font-size:13px; letter-spacing:1px; }
   .weapon-tab .wsel { color:var(--gold); font-weight:800; }
-  .bosswrap { position:fixed; left:50%; top:84px; transform:translateX(-50%); z-index:6; width:min(560px,80vw); display:none; }
+  .bosswrap { position:fixed; left:50%; top:84px; transform:translateX(-50%); z-index:6; width:min(560px,calc(100vw - 620px)); min-width:240px; display:none; }
   .bosswrap.show{ display:block; }
   .bosswrap .bname { font-family:var(--font-display); text-align:center; color:#ff8a8a; letter-spacing:3px; font-weight:700; font-size:15px; text-shadow:0 0 8px rgba(0,0,0,.9); }
   .bossbar { height:12px; border:1px solid rgba(255,90,90,.7); background:rgba(30,0,0,.5); overflow:hidden; margin-top:3px; clip-path:polygon(6px 0,100% 0,100% 100%,0 100%,0 6px); }
@@ -226,6 +226,8 @@
   .set-label.sub { font-size:12px; color:#9fb8d0; letter-spacing:1.5px; }
   .menu-mini { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
   .menu-mini .btn { font-size:12px; padding:8px 22px; opacity:.6; }
+  .touch-note { display:none; margin-top:14px; font-size:12px; letter-spacing:2px; color:#ffb86b; text-align:center; }
+  @media (pointer:coarse) { .touch-note { display:block; } }
   .credits-list .set-group { padding:11px 0; }
   .credits-list .cr { margin-top:6px; font-size:13px; line-height:1.6; color:#cfe0f2; letter-spacing:.2px; }
   .set-note { margin-top:8px; font-size:11px; color:#7dffb0; letter-spacing:1.5px; }
@@ -286,6 +288,7 @@
     <div class="subbrand">JAGDGESCHWADER 7 · OPERATION</div>
     <h1 class="title brand">HIMMELSBRAND</h1>
     <div class="tag">DAS HELIOS-PROTOKOLL</div>
+    <div class="touch-note">⌨ TASTATUR &amp; MAUS ERFORDERLICH</div>
     <div class="menu-btns">
       <button id="btn-campaign" class="btn">▶ KAMPAGNE</button>
       <button id="btn-bteam" class="btn ghost small">🍺 DAS B-TEAM</button>
