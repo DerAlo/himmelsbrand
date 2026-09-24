@@ -2330,7 +2330,7 @@ scene.fog = new THREE.FogExp2(0xa8c8e8, 0.000085);   // thinner + less chalky: d
 // shared typed arrays: UniformsUtils.clone() copies Vector3s but passes typed arrays by
 // reference, so the one write per frame in 4b/applyAtmosphere reaches every material.
 //   sun = world sun dir, col = in-scatter colour, p = (1/scale height, min mul, max mul, scatter)
-const ATMO = { sun:new Float32Array([0.5,0.55,0.4]), col:new Float32Array([1,0.95,0.85]), p:new Float32Array([1/800, 0.5, 1.8, 0.3]) };
+const ATMO = { sun:new Float32Array([0.5,0.55,0.4]), col:new Float32Array([1,0.95,0.85]), p:new Float32Array([1/900, 0.6, 1.35, 0.3]) };
 // density multiplier = mean of exp(-(y-camY)/H) along the view ray (closed form), clamped
 const ATMO_GLSL = `
 uniform vec3 uAtmoSun; uniform vec3 uAtmoCol; uniform vec4 uAtmoP;
@@ -3321,12 +3321,14 @@ waterMat.onBeforeCompile=function(sh){
     // wind patches (calmer and rougher water), which is what the sea looks like from altitude.
     .replace('#include <normal_fragment_maps>',
       '#include <normal_fragment_maps>\n' +
-      '  vec3 wN = vec3(0.0, 1.0, 0.0);\n' +
+      '  vec3 wN = vec3(0.0, 1.0, 0.0); float wLost = 0.0;\n' +
       '  if(uWaveN > 0.5){\n' +
       '    vec3 vd = uCamPos - vWPos; float dist = length(vd);\n' +
       '    float fp = dist*uPixAng/max(abs(vd.y)/dist, 0.05);\n' +
       '    float gust = texture2D(uNoise, vWPos.xz/2600.0 + vec2(uTime*0.003, 0.0)).g;\n' +
       '    float amp = 0.45 + 1.1*gust*gust;\n' +
+      // medium-scale phase warp: bends the crests so the trains never lock into a moire lattice
+      '    float warp = texture2D(uNoise, vWPos.xz/340.0 + 0.71).b*6.2832;\n' +
       '    vec2 g = vec2(0.0); float lost = 0.0;\n' +
       '    for(int i = 0; i < 8; i++){\n' +
       '      float fi = float(i); if(fi >= uWaveN) break;\n' +
@@ -3335,12 +3337,13 @@ waterMat.onBeforeCompile=function(sh){
       '      float L = 46.0*pow(0.62, fi), k = 6.2832/L;\n' +
       '      float s = 0.065*pow(0.93, fi)*amp;\n' +
       '      float vis = 1.0 - smoothstep(0.2*L, 0.55*L, fp);\n' +
-      '      g += d*(s*vis*cos(k*dot(d, vWPos.xz) - sqrt(9.81*k)*uTime + fi*1.7));\n' +
+      '      g += d*(s*vis*cos(k*dot(d, vWPos.xz) - sqrt(9.81*k)*uTime + fi*1.7 + warp*(0.6 + 0.35*fi)));\n' +
       '      lost += s*s*(1.0 - vis*vis);\n' +
       '    }\n' +
       '    wN = normalize(vec3(-g.x, 1.0, -g.y));\n' +
       '    normal = normalize((viewMatrix*vec4(wN, 0.0)).xyz);\n' +
       '    roughnessFactor = clamp(roughnessFactor - 0.15 + sqrt(lost)*1.1, roughnessFactor - 0.15, 0.6);\n' +
+      '    wLost = sqrt(lost);\n' +
       '  }\n')
     .replace('#include <dithering_fragment>',
       '#include <dithering_fragment>\n' +
@@ -3384,7 +3387,9 @@ waterMat.onBeforeCompile=function(sh){
       '  }\n' +
       '  vec3 halfW = normalize(uSunDir + viewDirW);\n' +
       // with real wave facets the glint can be a tight sun-disc sparkle (HDR: bloom picks it up)
-      '  float glintSpec = uWaveN > 0.5 ? pow(max(dot(waveN, halfW), 0.0), 700.0)*2.2 : pow(max(dot(waveN, halfW), 0.0), 60.0);\n' +
+      // unresolved slope widens the lobe (energy kept): far glitter becomes a soft sun path, not a lattice of sparks
+      '  float gExp = mix(700.0, 50.0, clamp(wLost*9.0, 0.0, 1.0));\n' +
+      '  float glintSpec = uWaveN > 0.5 ? pow(max(dot(waveN, halfW), 0.0), gExp)*2.2*sqrt(gExp/700.0) : pow(max(dot(waveN, halfW), 0.0), 60.0);\n' +
       '  gl_FragColor.rgb += glintSpec*uGlint*shore*uLightLevel*vec3(1.0,0.93,0.80);\n' +
       '  // dissolve into the sky gradient before the far plane cuts the sea off in a hard line\n' +
       '  #ifdef USE_FOG\n' +
@@ -4035,7 +4040,7 @@ const CLOUD_LEVEL  = { high:64, medium:42, low:22 };   // active cumulus cluster
 const CIRRUS_LEVEL = { high:16, medium:10, low:0 };    // active cirrus clusters
 
 const CLOUD_VS = `
-varying vec2 vUv; varying vec2 vR; varying float vH; varying float vDist; varying float vFade; varying float vPhase; varying vec3 vSunL; varying vec3 vRay;
+varying vec2 vUv; varying vec2 vR; varying float vH; varying float vDist; varying float vFade; varying float vPhase; varying vec3 vSunL; varying vec3 vRay; varying vec2 vSunUV;
 uniform vec3 sunDir; uniform vec2 uCenter; uniform float uHalf;
 void main(){
   vec3 center = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
@@ -4051,6 +4056,7 @@ void main(){
   vR = position.xy*2.0;
   vH = clamp(belly*0.6 + uv.y*0.4, 0.0, 1.0);
   vSunL = vec3(dot(sunDir,right), dot(sunDir,up), dot(sunDir,back));
+  vSunUV = vec2(vSunL.x*flip, vSunL.y)*0.5;                         // screen-space sun direction in atlas uv (a tile is 0.5 wide)
   vPhase = dot(normalize(center - cameraPosition), sunDir);
   float m = max(abs(center.x-uCenter.x), abs(center.z-uCenter.y));
   vFade = 1.0 - smoothstep(uHalf*0.70, uHalf*0.97, m);
@@ -4059,9 +4065,9 @@ void main(){
   gl_Position = projectionMatrix*mv;
 }`;
 const CLOUD_FS = `
-varying vec2 vUv; varying vec2 vR; varying float vH; varying float vDist; varying float vFade; varying float vPhase; varying vec3 vSunL; varying vec3 vRay;
+varying vec2 vUv; varying vec2 vR; varying float vH; varying float vDist; varying float vFade; varying float vPhase; varying vec3 vSunL; varying vec3 vRay; varying vec2 vSunUV;
 uniform sampler2D map; uniform vec3 uLitColor; uniform vec3 uShadeColor; uniform vec3 uSunColor; uniform float uOpacity;
-uniform vec3 uFogColor; uniform float uFogDensity;
+uniform vec3 uFogColor; uniform float uFogDensity; uniform float uSelf;
 ${ATMO_GLSL}
 void main(){
   float dens = texture2D(map, vUv).a;
@@ -4070,8 +4076,18 @@ void main(){
   if(a<0.004) discard;
   vec3 n = vec3(vR, sqrt(max(0.0, 1.0-dot(vR,vR))));
   float diff = clamp(dot(n, vSunL)*0.38+0.62, 0.0, 1.0);                  // wrapped lambert on a fake sphere
-  float lit = diff*mix(0.52, 1.0, vH);                                      // bellies + lower puffs sit in shade
-  vec3 col = mix(uShadeColor, uLitColor, lit);
+  float lit = diff*mix(0.42, 1.0, smoothstep(0.0, 0.75, vH));               // bellies + lower puffs sit in shade, flat dark base
+  // Self-shadowing: the density a little way TOWARDS the sun (in screen space) is cloud the
+  // light has to cross first, so the sun-facing rim stays bright and the far side and core
+  // go grey (Beer-Lambert on the atlas alpha). Front-lit puffs barely self-shadow; backlit
+  // ones are dark in the core with a bright rim, which is what cumulus looks like.
+  if(uSelf > 0.0){
+    float occ = texture2D(map, vUv + vSunUV*0.10).a;
+    if(uSelf > 0.5) occ = occ*0.6 + texture2D(map, vUv + vSunUV*0.24).a*0.4;
+    occ = mix(occ, dens, clamp(-vSunL.z, 0.0, 1.0)*0.7)*(1.0 - 0.6*clamp(vSunL.z, 0.0, 1.0));
+    lit *= mix(1.0, exp(-occ*2.2), 0.72);
+  }
+  vec3 col = mix(uShadeColor, uLitColor*1.08, lit);                          // sunlit tops sit just above white: the filmic shoulder rolls them off softly
   float fwd = pow(max(vPhase,0.0), 5.0);
   // silver lining only on the rim that faces the sun on screen: a glow on every puff edge
   // shows up as bright contour rings where upper puffs overlap lower ones
@@ -4114,7 +4130,7 @@ const cloudMat = new THREE.ShaderMaterial({
   transparent:true, depthWrite:false, fog:false, side:THREE.DoubleSide,
   uniforms:atmoUniforms({ sunDir:{value:sunDir.clone()}, map:{value:cloudTex}, uOpacity:{value:1.0},
     uLitColor:{value:new THREE.Color(0xffffff)}, uShadeColor:{value:new THREE.Color(0x9fb2c8)}, uSunColor:{value:new THREE.Color(0xfff2d8)},
-    uFogColor:{value:new THREE.Color(0xa8c8e8)}, uFogDensity:{value:0.000085},
+    uFogColor:{value:new THREE.Color(0xa8c8e8)}, uFogDensity:{value:0.000085}, uSelf:{value:({high:1, medium:0.3, low:0})[GFX.level()]},
     uCenter:{value:new THREE.Vector2()}, uHalf:{value:CLOUD_SPAN/2} }),
   vertexShader:CLOUD_VS, fragmentShader:CLOUD_FS
 });
@@ -4195,6 +4211,7 @@ function writeCirrusMatrices(){
 function applyCloudLevel(level){
   cloudActiveN=Math.min(cloudClusters.length, CLOUD_LEVEL[level]!==undefined?CLOUD_LEVEL[level]:CLOUD_CLUSTERS);
   cirrusActiveN=Math.min(cirrusClusters.length, CIRRUS_LEVEL[level]!==undefined?CIRRUS_LEVEL[level]:CIRRUS_CLUSTERS);
+  cloudMat.uniforms.uSelf.value = level==='high' ? 1 : (level==='medium' ? 0.3 : 0);   // self-shadow taps: 2 / 1 / none (clouds are the big overdraw)
   writeCloudMatrices(); writeCirrusMatrices();
 }
 GFX.onChange(applyCloudLevel);
@@ -6721,8 +6738,8 @@ const TOD={
           haze:0.72, mie:0.55, scat:0.26, moon:0, spriteOp:1.0, glare:0.55, grade:{ sat:1.08, vig:0.14, exp:1.02, lift:0x0b1220, warm:0x231708 } },
   dusk: { top:0x121f52, bot:0xff8f4a, fog:0xb07a52, fogDensity:0.000240, cloudBank:0.48, sun:1.35, sunColor:0xffb488, amb:0x5a4a6a, hemi:0.38, sunDir:[0.86,0.16,0.35], sunTint:0xff9a55, stars:0.10, cloud:0xffb27a, cloudShade:0x6a4f66, cirrusTint:0xffc79a, cirrusOp:0.26, water:0x3c4f74, ground:0xb98f74, hemiSky:0xff9e6a,
           haze:0.85, mie:1.0, scat:0.50, moon:0, spriteOp:1.0, glare:0.90, grade:{ sat:1.12, vig:0.22, exp:1.00, lift:0x1c1030, warm:0x3a1a06 } },
-  night:{ top:0x03050b, bot:0x141c33, fog:0x0e1628, fogDensity:0.000210, cloudBank:0.16, sun:0.45, sunColor:0x7a92d0, amb:0x1e2740, hemi:0.26, sunDir:[0.42,0.32,-0.6], sunTint:0xa8c4ff, stars:1.0, cloud:0x3d4a6c, cloudShade:0x0d1220, cirrusTint:0x2a3550, cirrusOp:0.14, water:0x16324e, ground:0x3d4a68, hemiSky:0x2a3a60,
-          haze:0.60, mie:0.25, scat:0.12, moon:1, spriteOp:0.30, glare:0.22, grade:{ sat:0.92, vig:0.28, exp:1.08, lift:0x0a1638, warm:0x0e1626 } },
+  night:{ top:0x03050b, bot:0x141c33, fog:0x0e1628, fogDensity:0.000210, cloudBank:0.16, sun:0.55, sunColor:0x7a92d0, amb:0x1e2740, hemi:0.32, sunDir:[0.42,0.32,-0.6], sunTint:0xa8c4ff, stars:1.0, cloud:0x3d4a6c, cloudShade:0x0d1220, cirrusTint:0x2a3550, cirrusOp:0.14, water:0x16324e, ground:0x55648c, hemiSky:0x2a3a60,
+          haze:0.60, mie:0.25, scat:0.12, moon:1, spriteOp:0.30, glare:0.22, grade:{ sat:0.92, vig:0.26, exp:1.16, lift:0x0a1638, warm:0x0e1626 } },
 };
 function applyTimeOfDay(tod){
   const c=TOD[tod]||TOD.day;
