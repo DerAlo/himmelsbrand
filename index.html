@@ -2547,6 +2547,9 @@ const skyMat = new THREE.ShaderMaterial({
       float h=clamp(d.y*1.1+0.15,0.0,1.0); vec3 c=mix(bot,top,pow(h,0.7));
       // horizon haze: optical depth grows toward the horizon; in-scatter warms the sunward side
       float hz=exp(-max(d.y,0.0)*9.0);
+      // Rayleigh phase (1+mu^2): a clear sky is deepest ~90 deg from the sun and brighter towards
+      // and opposite it. Off near the horizon (the haze owns it, and must match the fog there).
+      float mu=dot(d,sN); c*=mix(1.0, 0.84+0.30*mu*mu, (1.0-hz)*(1.0-uMoon)*0.9);
       vec3 hazeC=fogCol + sunTint*pow(s,5.0)*uMie*0.45;
       c=mix(c, hazeC, hz*uHaze);
       c += sunTint*pow(s,3.0)*hz*uMie*0.22;                                          // dusk: glowing sunward horizon
@@ -2896,7 +2899,7 @@ terrainMat.onBeforeCompile = function(sh){
       // rock on cliffs and above the pasture, horizontal strata; snow only where it can lie
       '    float rockW = max(smoothstep(380.0, 440.0, h + (macro-0.5)*60.0), 1.0 - smoothstep(0.60, 0.76, ny + (nB.g-0.5)*0.12));\n' +
       // rock: cool granite grey vs warm weathered limestone in big patches, darker lichen streaks
-      '    vec3 rockC = mix(vec3(0.285,0.280,0.272), vec3(0.330,0.292,0.240), smoothstep(0.35, 0.75, macro + (nA.g-0.5)*0.5));\n' +
+      '    vec3 rockC = mix(vec3(0.255,0.252,0.246), vec3(0.305,0.268,0.218), smoothstep(0.35, 0.75, macro + (nA.g-0.5)*0.5));\n' +
       '    rockC *= (0.93 + 0.07*sin(h*0.11 + nB.b*9.0 + nA.g*6.0)) * (0.74 + 0.48*nB.g) * (0.86 + 0.14*texture2D(uNoise, vec2(wp.x+wp.y, h*4.0)/310.0).a);\n' +
       '    albedo = mix(albedo, rockC, rockW*(1.0 - forest*0.7));\n' +
       // snow lies lower on shaded (north-west) faces and thins out on sun-facing ones
@@ -6735,7 +6738,7 @@ try{ setMusicVol(musicVol()); }catch(e){}
    --------------------------------------------------------------------------- */
 const TOD={
   day:  { top:0x1f57bd, bot:0xc3e2ff, fog:0xb2cfec, fogDensity:0.000200, cloudBank:0.32, sun:1.80, sunColor:0xfff4e0, amb:0x88aacc, hemi:0.62, sunDir:[0.5,0.55,0.4], sunTint:0xfff2d8, stars:0.0, cloud:0xffffff, cloudShade:0x9fb2c8, cirrusTint:0xffffff, cirrusOp:0.30, water:0x2f6fb0, ground:0xffffff, hemiSky:0xafd4ff,
-          haze:0.72, mie:0.55, scat:0.26, moon:0, spriteOp:1.0, glare:0.55, grade:{ sat:1.08, vig:0.14, exp:1.02, lift:0x0b1220, warm:0x231708 } },
+          haze:0.72, mie:0.55, scat:0.26, moon:0, spriteOp:1.0, glare:0.55, grade:{ sat:1.02, vig:0.14, exp:1.02, lift:0x0b1220, warm:0x231708 } },
   dusk: { top:0x121f52, bot:0xff8f4a, fog:0xb07a52, fogDensity:0.000240, cloudBank:0.48, sun:1.35, sunColor:0xffb488, amb:0x5a4a6a, hemi:0.38, sunDir:[0.86,0.16,0.35], sunTint:0xff9a55, stars:0.10, cloud:0xffb27a, cloudShade:0x6a4f66, cirrusTint:0xffc79a, cirrusOp:0.26, water:0x3c4f74, ground:0xb98f74, hemiSky:0xff9e6a,
           haze:0.85, mie:1.0, scat:0.50, moon:0, spriteOp:1.0, glare:0.90, grade:{ sat:1.12, vig:0.22, exp:1.00, lift:0x1c1030, warm:0x3a1a06 } },
   night:{ top:0x03050b, bot:0x141c33, fog:0x0e1628, fogDensity:0.000210, cloudBank:0.16, sun:0.55, sunColor:0x7a92d0, amb:0x1e2740, hemi:0.32, sunDir:[0.42,0.32,-0.6], sunTint:0xa8c4ff, stars:1.0, cloud:0x3d4a6c, cloudShade:0x0d1220, cirrusTint:0x2a3550, cirrusOp:0.14, water:0x16324e, ground:0x55648c, hemiSky:0x2a3a60,
