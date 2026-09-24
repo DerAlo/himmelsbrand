@@ -2308,25 +2308,31 @@ function applyGfxPixelRatio(level){
 GFX.onChange(applyGfxPixelRatio);
 applyGfxPixelRatio(GFX.level());   // the hardcoded cap above may differ from a persisted/auto level
 
-// Auto-quality monitor: only while GFX.quality==='auto' and actually playing, watch a rolling
-// ~6s window of real frame times; if the slow tail (p90) stays above 24ms, drop one GFX level
-// ONCE per window and keep watching (a second sustained bad window can drop again).
+// Auto-quality monitor: only while GFX.quality==='auto' and actually playing. Judges a rolling
+// ~8s window of real frame times, but skips the first 5s of every mission (loading hitches and
+// first-use shader compiles say nothing about the hardware). Drops ONE level only when the machine
+// is genuinely slow — typical frame (p50) above 22ms (<45 fps) or slow tail (p90) above 40ms — for
+// 3 consecutive evaluations. Plain vsync misses on a 60 Hz display (16.7/33.3ms mix) must never
+// trigger it: every level change recompiles all lit shaders (~2s freeze on ANGLE/D3D11).
 // Allocation-free: frame times go into a fixed ring, evaluated once per second.
 const _fwMs=new Float32Array(1024), _fwSort=new Float32Array(1024);
-let _fwN=0, _fwHead=0, _fwSpan=0, _fwEval=0;
+let _fwN=0, _fwHead=0, _fwSpan=0, _fwEval=0, _fwGrace=5, _fwBad=0;
+HOOKS.missionStart.push(()=>{ _fwGrace=5; _fwN=0; _fwSpan=0; _fwBad=0; });
 function monitorAutoQuality(rawDt){
-  if(GFX.quality!=='auto' || state!=='playing' || document.hidden){ _fwN=0; _fwSpan=0; _fwEval=0; return; }
+  if(GFX.quality!=='auto' || state!=='playing' || document.hidden){ _fwN=0; _fwSpan=0; _fwEval=0; _fwBad=0; return; }
+  if(_fwGrace>0){ _fwGrace-=rawDt; return; }
   _fwMs[_fwHead]=rawDt*1000; _fwHead=(_fwHead+1)&1023; if(_fwN<1024) _fwN++;
   _fwSpan+=rawDt; _fwEval+=rawDt;
-  if(_fwSpan<6 || _fwEval<1) return;   // need a full ~6s sample, then re-check every second
+  if(_fwSpan<8 || _fwEval<1) return;   // need a full ~8s sample, then re-check every second
   _fwEval=0;
-  const n=Math.min(_fwN, 360);   // last 360 frames = 6 s at 60 fps (a longer window when slower)
+  const n=Math.min(_fwN, 480);   // last 480 frames = 8 s at 60 fps (a longer window when slower)
   for(let k=0;k<n;k++) _fwSort[k]=_fwMs[(_fwHead-1-k+1024)&1023];
   const w=_fwSort.subarray(0,n); w.sort();
-  const p90=w[Math.floor(n*0.9)];
-  if(p90>24){
-    if(GFX.autoDowngrade()) console.info('GFX auto-downgrade: p90 frame time '+p90.toFixed(1)+'ms -> '+GFX.level());
-    _fwN=0; _fwSpan=0;   // restart the window: judge the new level on fresh frames only
+  const p50=w[Math.floor(n*0.5)], p90=w[Math.floor(n*0.9)];
+  _fwBad=(p50>22 || p90>40) ? _fwBad+1 : 0;
+  if(_fwBad>=3){
+    if(GFX.autoDowngrade()) console.info('GFX auto-downgrade: p50 '+p50.toFixed(1)+'ms, p90 '+p90.toFixed(1)+'ms -> '+GFX.level());
+    _fwN=0; _fwSpan=0; _fwBad=0; _fwGrace=3;   // judge the new level on fresh frames only (skip its recompile hitch)
   }
 }
 HOOKS.always.push((dt,rawDt)=>monitorAutoQuality(rawDt));

@@ -22,7 +22,7 @@ export default async function ({ ev, shot, sleep, log, fps, errors }) {
       const f = await fps(1500);
       st = await ev(`frameInfo().then(fi=>({ id: activeCampaign[${i}].id, state, calls: fi.calls, tris: fi.tris,
         progs: renderer.info.programs ? renderer.info.programs.length : null, geos: renderer.info.memory.geometries, tex: renderer.info.memory.textures,
-        enemies: enemies.length, boss: !!boss, weapon: player.weapon, gear: player.gearDown, onGround: player.onGround }))`);
+        enemies: enemies.length, boss: !!boss, weapon: player.weapon, gear: player.gearDown, onGround: player.onGround, lvl: GFX.level() }))`);
       st.fps = f.fps; st.p95 = f.p95;
       if (SHOTS) await shot(`sweep_${camp}_${String(i).padStart(2, '0')}_${st.id}`);
     } catch (e) { st = { err: String(e).slice(0, 300) }; }
