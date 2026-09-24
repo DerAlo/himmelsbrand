@@ -102,6 +102,10 @@
 
   /* ---- Campaign / menu / briefing ---- */
   .screen { overflow-y:auto; }
+  #cut-choices { display:grid; grid-template-columns:1fr 1fr; gap:12px; }   /* story decision: both options above the fold */
+  #cut-choices .btn { padding:14px 18px; text-align:left; font-size:17px; letter-spacing:1.5px; }
+  #cut-choices .cnote { display:block; margin-top:6px; font-family:'Segoe UI', Roboto, system-ui, sans-serif; font-size:13px; font-weight:400; letter-spacing:.2px; line-height:1.45; opacity:.85; }
+  @media (max-width:760px){ #cut-choices { grid-template-columns:1fr; } }
   #cutscene { justify-content:flex-start; } #cutscene > .brief { margin:auto 0; }   /* long cutscenes (choice) scroll from the top instead of clipping the title */
   .screen::-webkit-scrollbar{ width:8px; } .screen::-webkit-scrollbar-thumb{ background:rgba(255,255,255,.2); border-radius:4px; }
   h1.title.brand { font-size:clamp(46px,8vw,86px); letter-spacing:12px;
@@ -6298,8 +6302,8 @@ function showCutscene(key, after){
   if(cs.isChoice && cs.choices){
     contBtn.classList.add('hidden');
     for(const ch of cs.choices){
-      const b=document.createElement('button'); b.className='btn ghost'; b.style.textAlign='left';
-      b.innerHTML=`<b>${ch.label}</b><br><span style="font-size:12px;opacity:.7;font-weight:400">${ch.note}</span>`;
+      const b=document.createElement('button'); b.className='btn ghost';
+      b.innerHTML=`<b>${ch.label}</b><span class="cnote">${ch.note}</span>`;
       b.onclick=()=>{ Voice.stop(); storyChoice=ch.key; SAVE.storyChoice=ch.key; persistSave(); advance&&advance(); };
       choicesEl.appendChild(b);
     }
