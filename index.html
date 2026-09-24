@@ -318,6 +318,7 @@
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/BufferGeometryUtils.js"></script>
 <script src="voice_clips.js"></script>
 <script>
 "use strict";
@@ -2352,28 +2353,53 @@ HOOKS.always.push(()=>{
    7. PARTICLE SYSTEM (pooled Points, two blend modes)
    --------------------------------------------------------------------------- */
 const partTex = radialTexture('rgba(255,255,255,1)','rgba(255,255,255,0.4)');
+// Billowy puff sprites (fbm-noised silhouette + brightness breakup) instead of a plain dot:
+// smoke reads as volume, fire as licking flame. Each particle is rotated, so one texture suffices.
+function puffTexture(hot){
+  const N=128, c=document.createElement('canvas'); c.width=c.height=N; const g=c.getContext('2d');
+  const img=g.createImageData(N,N), d=img.data;
+  for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+    const u=(x+0.5)/N*2-1, v=(y+0.5)/N*2-1, r=Math.sqrt(u*u+v*v);
+    let n=0, a=0.55, f=2.6;
+    for(let o=0;o<4;o++){ n+=a*Noise.noise2(u*f+(hot?31.7:57.3), v*f-9.1); a*=0.5; f*=2.07; }
+    const e=r+n*0.30;                                        // noisy silhouette
+    let al= hot ? Math.pow(Math.max(0,1-e),1.25)*1.3 : Math.pow(Math.max(0,1-e*e),1.5)*(0.80+0.35*n);
+    if(r>0.97) al=0; al=Math.max(0,Math.min(1,al));
+    const sh= hot ? 255 : Math.round(255*Math.max(0.55,Math.min(1,0.84+0.30*n-0.12*r)));   // self-shadowed lumps
+    const k=(y*N+x)*4; d[k]=d[k+1]=d[k+2]=sh; d[k+3]=Math.round(al*255);
+  }
+  g.putImageData(img,0,0); return new THREE.CanvasTexture(c);
+}
+const fireTex=puffTexture(true), smokeTex=puffTexture(false);
+// Effect density vs quality level (particle counts of explosions/trails scale with it).
+function FXQ(){ const l=GFX.level(); return l==='high'?1:(l==='medium'?0.7:0.45); }
 function makeParticleSystem(max, additive){
   const geo=new THREE.BufferGeometry();
-  const pos=new Float32Array(max*3), col=new Float32Array(max*3), size=new Float32Array(max);
+  const pos=new Float32Array(max*3), col=new Float32Array(max*3), size=new Float32Array(max), misc=new Float32Array(max*2);
   geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
   // custom attribute names to avoid clashing with three.js built-ins ('color','size')
   geo.setAttribute('pcolor', new THREE.BufferAttribute(col,3));
   geo.setAttribute('psize',  new THREE.BufferAttribute(size,1));
+  geo.setAttribute('pmisc',  new THREE.BufferAttribute(misc,2));   // x = life fade alpha, y = sprite rotation
   const mat=new THREE.ShaderMaterial({
     uniforms:{
-      pointTexture:{ value: partTex },
+      pointTexture:{ value: additive?fireTex:smokeTex },
       scale:{ value: innerHeight*0.5 },
       fogColor:{ value: scene.fog.color },
-      fogDensity:{ value: scene.fog.density }
+      fogDensity:{ value: scene.fog.density },
+      tint:{ value: new THREE.Color(1,1,1) }   // smoke only: scene light level/colour (day white, dusk warm, night dim blue)
     },
     vertexShader:`
       attribute float psize;
       attribute vec3 pcolor;
+      attribute vec2 pmisc;
       uniform float scale;
       varying vec3 vColor;
       varying float vFogDepth;
+      varying float vAlpha;
+      varying vec2 vRot;
       void main(){
-        vColor=pcolor;
+        vColor=pcolor; vAlpha=pmisc.x; vRot=vec2(cos(pmisc.y),sin(pmisc.y));
         vec4 mv=modelViewMatrix*vec4(position,1.0);
         vFogDepth=-mv.z;
         gl_PointSize = min(psize * (scale / max(0.001,-mv.z)), 600.0);
@@ -2383,31 +2409,45 @@ function makeParticleSystem(max, additive){
       uniform sampler2D pointTexture;
       uniform vec3 fogColor;
       uniform float fogDensity;
+      uniform vec3 tint;
       varying vec3 vColor;
       varying float vFogDepth;
+      varying float vAlpha;
+      varying vec2 vRot;
       void main(){
-        vec4 tex=texture2D(pointTexture, gl_PointCoord);
-        if(tex.a<0.02) discard;
-        gl_FragColor=vec4(vColor, tex.a);
+        vec2 pc=gl_PointCoord-0.5;
+        pc=vec2(vRot.x*pc.x-vRot.y*pc.y, vRot.y*pc.x+vRot.x*pc.y)+0.5;
+        vec4 tex=texture2D(pointTexture, pc);
+        float a=tex.a*vAlpha;
+        if(a<0.015) discard;
+        gl_FragColor=vec4(vColor*tex.rgb${additive?"":"*tint"}, a);
         float fogFactor=1.0 - exp(-fogDensity*fogDensity*vFogDepth*vFogDepth);
-        ${additive ? '' : 'gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, clamp(fogFactor,0.0,1.0));'}
+        ${additive ? 'gl_FragColor.a *= 1.0-0.85*clamp(fogFactor,0.0,1.0);' : 'gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, clamp(fogFactor,0.0,1.0));'}
       }`,
     transparent:true, depthWrite:false, depthTest:true,
     blending: additive?THREE.AdditiveBlending:THREE.NormalBlending
   });
   particleMaterials.push(mat);
-  const points=new THREE.Points(geo,mat); points.frustumCulled=false; points.renderOrder=10; scene.add(points);
-  const P={ pos,col,size,geo,max,count:0,
+  const points=new THREE.Points(geo,mat); points.frustumCulled=false; points.renderOrder=additive?11:10; scene.add(points);   // fire glows through its own smoke
+  const P={ pos,col,size,misc,geo,max,count:0,cur:0,mat,
     p:new Float32Array(max*3), v:new Float32Array(max*3), life:new Float32Array(max), maxlife:new Float32Array(max),
     cr:new Float32Array(max), cg:new Float32Array(max), cb:new Float32Array(max),
     cr2:new Float32Array(max), cg2:new Float32Array(max), cb2:new Float32Array(max),
-    s0:new Float32Array(max), s1:new Float32Array(max), drag:new Float32Array(max), grav:new Float32Array(max) };
+    s0:new Float32Array(max), s1:new Float32Array(max), drag:new Float32Array(max), grav:new Float32Array(max),
+    spin:new Float32Array(max) };
+  const SPIN=additive?2.4:0.9;
   P.spawn=function(x,y,z,vx,vy,vz,life,s0,s1,c0,c1,drag,grav){
-    let i=P.count<max?P.count++:(Math.random()*max)|0;
+    // pool full: take the next dead slot near the ring cursor (else the one closest to dying), so a
+    // steady stream of short-lived sparks/vapour never erases long-lived explosion smoke at random.
+    let i;
+    if(P.count<max) i=P.count++;
+    else { let best=P.cur, bl=1e9; for(let k=0;k<24;k++){ const j=(P.cur+k)%max, l=P.life[j]; if(l<=0){ best=j; break; } if(l<bl){ bl=l; best=j; } }
+      i=best; P.cur=(best+1)%max; }
     P.p[i*3]=x;P.p[i*3+1]=y;P.p[i*3+2]=z; P.v[i*3]=vx;P.v[i*3+1]=vy;P.v[i*3+2]=vz;
     P.life[i]=life;P.maxlife[i]=life; P.s0[i]=s0;P.s1[i]=s1;
     P.cr[i]=c0.r;P.cg[i]=c0.g;P.cb[i]=c0.b; P.cr2[i]=c1.r;P.cg2[i]=c1.g;P.cb2[i]=c1.b;
     P.drag[i]=drag==null?0.98:drag; P.grav[i]=grav||0;
+    P.misc[i*2+1]=Math.random()*6.2832; P.spin[i]=(Math.random()-0.5)*SPIN;
   };
   P.update=function(dt){
     const n=P.count;
@@ -2420,21 +2460,34 @@ function makeParticleSystem(max, additive){
       P.pos[i*3]=P.p[i*3];P.pos[i*3+1]=P.p[i*3+1];P.pos[i*3+2]=P.p[i*3+2];
       P.col[i*3]=P.cr[i]+(P.cr2[i]-P.cr[i])*t; P.col[i*3+1]=P.cg[i]+(P.cg2[i]-P.cg[i])*t; P.col[i*3+2]=P.cb[i]+(P.cb2[i]-P.cb[i])*t;
       P.size[i]=P.s0[i]+(P.s1[i]-P.s0[i])*t;
+      // life fade: fire burns out over its last third, smoke eases in and dissolves (no end-of-life pop)
+      P.misc[i*2]= additive ? Math.min(1,(1-t)*3) : Math.min(1,t*10+0.2)*(1-t*t);
+      P.misc[i*2+1]+=P.spin[i]*dt;
       if(P.life[i]<=0) P.size[i]=0;
     }
     P.geo.attributes.position.needsUpdate=true;
     P.geo.attributes.pcolor.needsUpdate=true;
     P.geo.attributes.psize.needsUpdate=true;
+    P.geo.attributes.pmisc.needsUpdate=true;
     P.geo.setDrawRange(0,P.count);
   };
   return P;
 }
 const fireP  = makeParticleSystem(3000, true);   // fire, sparks, tracer glow, muzzle
 const smokeP = makeParticleSystem(3000, false);  // smoke, trails
+// Smoke is unlit, so it follows the scene light explicitly: sun colour x sky light level
+// (applyTimeOfDay drives both). Keeps grey smoke from glowing at night; dusk smoke goes warm.
+HOOKS.preRender.push(function(){
+  const lvl=THREE.MathUtils.clamp(hemi.intensity/0.5, 0.18, 1);
+  smokeP.mat.uniforms.tint.value.copy(sun.color).multiplyScalar(lvl*Math.min(1.1, 0.55+0.45*sun.intensity/1.7));
+});
 
 const C_ORANGE=new THREE.Color(0xff8a1e), C_YELLOW=new THREE.Color(0xffe36b), C_RED=new THREE.Color(0xd62b1a),
       C_SMOKE=new THREE.Color(0x555555), C_DARK=new THREE.Color(0x1a1a1a), C_WHITE=new THREE.Color(0xffffff),
       C_GREY=new THREE.Color(0x888888), C_SOOT=new THREE.Color(0x0b0b0c), C_FIRE=new THREE.Color(0xff8c10), C_DEEP=new THREE.Color(0x8f1a06), C_JET=new THREE.Color(0x2a5cff), C_DUST=new THREE.Color(0xa08b6a);
+const C_BALL=new THREE.Color(0xd9701c), C_EMBER=new THREE.Color(0x3a0c02), C_SMK_WARM=new THREE.Color(0x463a30),
+      C_SMK_MID=new THREE.Color(0x66686a), C_SMK_LIGHT=new THREE.Color(0x8e9092), C_VAPOR=new THREE.Color(0xe6edf4),
+      C_DIRT=new THREE.Color(0x5a4a38), C_DIRT2=new THREE.Color(0x8c7c68), C_SPRAY=new THREE.Color(0xeef6ff), C_SPRAY2=new THREE.Color(0xb8d2e2);
 
 /* ---- Juice: timescale tuning + hit markers + debris ---- */
 const SLOWMO_MIN=0.28, SLOWMO_DUR=1.1;         // boss-kill slow-mo: floor factor, real-seconds
@@ -2455,7 +2508,8 @@ function spawnDebris(x,y,z,n,scale,hot){
   scale=scale||1;
   for(let i=0;i<n;i++){
     if(debris.length>=DEBRIS_MAX){ const old=debris.shift(); scene.remove(old.mesh); }
-    const mat=(hot && Math.random()<0.4)?DEBRIS_MAT_HOT:DEBRIS_MAT_METAL;
+    const isHot=!!(hot && Math.random()<0.4);
+    const mat=isHot?DEBRIS_MAT_HOT:DEBRIS_MAT_METAL;
     const mesh=new THREE.Mesh(DEBRIS_GEO, mat);
     const s=(1.5+Math.random()*2.5)*scale;
     mesh.scale.set(s*(0.6+Math.random()*0.8), s*(0.6+Math.random()*0.8), s*(0.6+Math.random()*0.8));
@@ -2464,7 +2518,7 @@ function spawnDebris(x,y,z,n,scale,hot){
     const vel=new THREE.Vector3(Math.sin(ph)*Math.cos(th)*sp, Math.abs(Math.cos(ph)*sp)+40, Math.sin(ph)*Math.sin(th)*sp);
     const av=new THREE.Vector3((Math.random()-0.5)*24,(Math.random()-0.5)*24,(Math.random()-0.5)*24);
     scene.add(mesh);
-    debris.push({ mesh, vel, av, life:1.4+Math.random()*1.2 });
+    debris.push({ mesh, vel, av, life:1.4+Math.random()*1.2, hot:isHot, settled:false, trailCd:0 });
   }
 }
 function updateDebris(dt){
@@ -2474,33 +2528,63 @@ function updateDebris(dt){
     d.vel.y-=DEBRIS_GRAV*dt;
     d.mesh.position.addScaledVector(d.vel, dt);
     d.mesh.rotation.x+=d.av.x*dt; d.mesh.rotation.y+=d.av.y*dt; d.mesh.rotation.z+=d.av.z*dt;
+    if(d.hot && !d.settled){    // burning wreckage: a thin ember+smoke streak on the way down
+      d.trailCd-=dt;
+      if(d.trailCd<=0){ d.trailCd=0.035/FXQ();
+        smokeP.spawn(d.mesh.position.x,d.mesh.position.y,d.mesh.position.z,0,6,0, 0.5,3,14,C_SOOT,C_SMOKE,0.9,-2);
+        if(Math.random()<0.5) fireP.spawn(d.mesh.position.x,d.mesh.position.y,d.mesh.position.z,(Math.random()-0.5)*8,4,(Math.random()-0.5)*8,0.2,3,1,C_ORANGE,C_RED,0.85,0);
+       }
+     }
     const gy=Math.max(terrainHeight(d.mesh.position.x,d.mesh.position.z),CFG.waterLevel)+1;
-    if(d.mesh.position.y<=gy){ d.mesh.position.y=gy; d.vel.set(0,0,0); d.av.multiplyScalar(Math.pow(0.02,dt)); }
+    if(d.mesh.position.y<=gy){
+      if(d.hot && !d.settled){    // impact puff: the burning chunk hits the ground and flares once
+        fireP.spawn(d.mesh.position.x,gy,d.mesh.position.z,0,30,0,0.25,10,2,C_YELLOW,C_ORANGE,0.9,0);
+        smokeP.spawn(d.mesh.position.x,gy,d.mesh.position.z,0,20,0,1.2,8,50,C_SMK_WARM,C_SMK_MID,0.93,-4);
+       }
+      d.mesh.position.y=gy; d.vel.set(0,0,0); d.av.multiplyScalar(Math.pow(0.02,dt)); d.settled=true;
+    }
     if(d.life<0.5) d.mesh.scale.multiplyScalar(Math.pow(0.02,dt));
   }
 }
 
-function explode(x,y,z,scale){
-  spawnShockwave(x,y,z,scale||1); flashLight(x,y,z,0xffa040,7*(scale||1),320*(scale||1),0.5);
-  spawnFlare(x,y,z,7*(scale||1), 0xfff0c0, 0.13);       // detonation core flash (small + brief: reads as a spark, never a white dome)
-  scale=scale||1;
-  const nf=Math.floor(60*scale);
+function explode(x,y,z,scale,wet){   // wet: strike on water -> steam instead of soot
+  scale=scale||1; const q=FXQ();
+  spawnShockwave(x,y,z,scale); flashLight(x,y,z,0xffa040,7*scale,320*scale,0.5);
+  spawnFlare(x,y,z,7*scale, 0xfff0c0, 0.13);       // detonation core flash (small + brief: reads as a spark, never a white dome)
+  // fireball body: a few big, slow puffs that bloom outward, rise and cool from orange to ember
+  const nb=Math.max(3,Math.floor(12*scale*q));
+  for(let i=0;i<nb;i++){
+    const sp=(12+Math.random()*60)*scale; const th=Math.random()*Math.PI*2, ph=Math.acos(Math.random()*2-1);
+    fireP.spawn(x,y,z, Math.sin(ph)*Math.cos(th)*sp, Math.cos(ph)*sp*0.7+10, Math.sin(ph)*Math.sin(th)*sp,
+      0.65+Math.random()*0.5, (10+Math.random()*10)*scale, (34+Math.random()*22)*scale, C_BALL, C_DEEP, 0.9, -22);
+  }
+  // fast flame tongues flung outward
+  const nf=Math.floor(34*scale*q);
   for(let i=0;i<nf;i++){
     const sp=(80+Math.random()*260)*scale; const th=Math.random()*Math.PI*2, ph=Math.acos(Math.random()*2-1);
     const vx=Math.sin(ph)*Math.cos(th)*sp, vy=Math.cos(ph)*sp, vz=Math.sin(ph)*Math.sin(th)*sp;
-    fireP.spawn(x,y,z,vx,vy,vz, 0.30+Math.random()*0.34, (20+Math.random()*26)*scale, 2, C_FIRE, C_DEEP, 0.86, -30);
+    fireP.spawn(x,y,z,vx,vy,vz, 0.30+Math.random()*0.34, (16+Math.random()*18)*scale, 2, C_FIRE, C_DEEP, 0.86, -30);
   }
-  const ns=Math.floor(30*scale);
+  // smoke born inside the fire: warm-dark, cools to grey, billows up and out
+  const ns=Math.floor(26*scale*q);
   for(let i=0;i<ns;i++){
     const sp=(20+Math.random()*90)*scale;const th=Math.random()*Math.PI*2, ph=Math.acos(Math.random()*2-1);
     smokeP.spawn(x,y,z,Math.sin(ph)*Math.cos(th)*sp, Math.abs(Math.cos(ph)*sp)+30, Math.sin(ph)*Math.sin(th)*sp,
-      1.6+Math.random()*2.0, (10*scale), (105*scale), C_SOOT, C_DARK, 0.94, -8);
+      1.8+Math.random()*2.2, (12*scale), (100+Math.random()*40)*scale, wet?C_SMK_LIGHT:C_SMK_WARM, wet?C_SPRAY2:C_SMK_MID, 0.935, -8);
   }
-  // sparks
-  for(let i=0;i<20*scale;i++){
+  // lingering pall: a handful of large slow puffs that hang in the air for seconds
+  const nl=Math.max(1,Math.round(4*scale*q));
+  for(let i=0;i<nl;i++){
+    smokeP.spawn(x+(Math.random()-0.5)*20*scale, y+(Math.random()-0.5)*14*scale, z+(Math.random()-0.5)*20*scale,
+      FX_WIND.x+(Math.random()-0.5)*10, 6+Math.random()*10, FX_WIND.z+(Math.random()-0.5)*10,
+      4.5+Math.random()*2.5, 30*scale, (150+Math.random()*70)*scale, wet?C_SPRAY2:C_SMK_MID, wet?C_SPRAY:C_SMK_LIGHT, 0.9, -2);
+  }
+  // sparks: white-hot streaks that arc and fall
+  const nk=Math.floor(22*scale*q);
+  for(let i=0;i<nk;i++){
     const sp=(200+Math.random()*400)*scale;const th=Math.random()*Math.PI*2, ph=Math.acos(Math.random()*2-1);
     fireP.spawn(x,y,z,Math.sin(ph)*Math.cos(th)*sp, Math.cos(ph)*sp, Math.sin(ph)*Math.sin(th)*sp,
-      0.4+Math.random()*0.5, 5, 1, C_WHITE, C_ORANGE, 0.92, 40);
+      0.45+Math.random()*0.6, 5, 1, C_WHITE, C_ORANGE, 0.93, 140);
   }
 }
 /* ---- blob shadows: cheap contact darkening under aircraft (groundedness cue) ---- */
@@ -2583,10 +2667,77 @@ function updateFX(dt){
    }
   for(const f of flashes){ if(!f.active) continue; f.t+=dt; const k=f.t/f.life;
     if(k>=1){ f.L.intensity=0; f.active=false; } else f.L.intensity=f.peak*Math.pow(1-k,2.2); }
+  updateSmokeColumns(dt);
 }
 function muzzle(x,y,z,dx,dy,dz){
   for(let i=0;i<4;i++) fireP.spawn(x,y,z, dx*300+(Math.random()-0.5)*60, dy*300+(Math.random()-0.5)*60, dz*300+(Math.random()-0.5)*60,
     0.08, 22, 3, C_WHITE, C_YELLOW, 0.9, 0);
+}
+
+/* ---- FX: lingering smoke columns + high-G wingtip vortices ---- */
+const FX_WIND={x:7, z:3};   // gentle constant drift for long-lived smoke (u/s)
+const smokeCols=[];         // {x,y,z,scale,life,t,cd}: burning wrecks / craters that keep smoking
+function addSmokeColumn(x,y,z,scale,life){
+  if(smokeCols.length>=10) smokeCols.shift();
+  smokeCols.push({x,y,z,scale:scale||1,life:life||8,t:0,cd:0});
+}
+function updateSmokeColumns(dt){
+  const q=FXQ();
+  for(let i=smokeCols.length-1;i>=0;i--){
+    const c=smokeCols[i]; c.t+=dt; if(c.t>=c.life){ smokeCols.splice(i,1); continue; }
+    c.cd-=dt; if(c.cd>0) continue; c.cd=0.14/q;
+    const k=c.t/c.life, s=c.scale*(1-0.45*k);
+    // oily black while the fire rages, thinning to grey as it burns out
+    smokeP.spawn(c.x+(Math.random()-0.5)*8*s, c.y+2, c.z+(Math.random()-0.5)*8*s,
+      FX_WIND.x*0.5+(Math.random()-0.5)*6, 20+Math.random()*14, FX_WIND.z*0.5+(Math.random()-0.5)*6,
+      5.5+Math.random()*2.5, 16*s, (150+Math.random()*70)*s, C_SMK_WARM, k<0.4?C_SMK_MID:C_SMK_LIGHT, 0.994, -5);
+    // burning wreck at the base: a couple of licking flames per tick (reads as a fire glow at night too)
+    if(k<0.6) for(let f=0;f<2;f++) fireP.spawn(c.x+(Math.random()-0.5)*8*s, c.y+1, c.z+(Math.random()-0.5)*8*s,
+      (Math.random()-0.5)*8, 16+Math.random()*22, (Math.random()-0.5)*8, 0.4+Math.random()*0.4, (24+Math.random()*16)*s*(1-0.5*k), 6, C_FIRE, C_DEEP, 0.92, -10);
+  }
+}
+HOOKS.missionStart.push(()=>{ smokeCols.length=0; });
+HOOKS.reset.push(()=>{ smokeCols.length=0; });
+
+// Wingtip vortices: thin vapour threads off the wingtips (plus a brief vapour sheet over the wing
+// at the hardest pulls) when the player hauls the jet round fast. Interpolated along the frame's
+// travel so the threads stay continuous at any fps. Zero allocations per frame.
+const _vtxP=new THREE.Vector3(), _vtxV=new THREE.Vector3(), _vtxLast=[new THREE.Vector3(),new THREE.Vector3()]; let _vtxOn=false;
+HOOKS.update.push(function(dt){
+  if(typeof player==='undefined' || !player || !player.obj || !player.alive || player.onGround){ _vtxOn=false; return; }
+  const pull=Math.hypot(player.yawRate||0, player.pitchRate||0)*(player.speed||0);
+  const k=THREE.MathUtils.clamp((pull-250)/200,0,1);
+  if(k<=0){ _vtxOn=false; return; }
+  const q=FXQ();
+  player.obj.updateMatrixWorld();
+  _vtxV.set(0,0,-1).applyQuaternion(player.obj.quaternion).multiplyScalar(player.speed||0);
+  for(let s=0;s<2;s++){
+    player.obj.localToWorld(_vtxP.set(s?-6.45:6.45,0.05,5.3));
+    const L=_vtxLast[s]; if(!_vtxOn) L.copy(_vtxP);
+    const n=Math.min(14, Math.max(1, Math.ceil(L.distanceTo(_vtxP)*q/1.1)));
+    for(let j=1;j<=n;j++){ const f=j/n;
+      smokeP.spawn(L.x+(_vtxP.x-L.x)*f, L.y+(_vtxP.y-L.y)*f, L.z+(_vtxP.z-L.z)*f, 0,0,0,
+        0.3+0.4*k, 2.2, 3.4+3*k, C_VAPOR, C_VAPOR, 0.9, 0); }
+    L.copy(_vtxP);
+    if(k>0.55 && Math.random()<k*q){   // vapour sheet hugging the upper wing surface: rides along with the jet
+      player.obj.localToWorld(_vtxP.set((s?-1:1)*(1.6+Math.random()*3.8),0.4,1.8+Math.random()*2.6));
+      smokeP.spawn(_vtxP.x,_vtxP.y,_vtxP.z, _vtxV.x,_vtxV.y,_vtxV.z, 0.07+Math.random()*0.07, 4, 6, C_VAPOR, C_VAPOR, 1, 0);
+    }
+  }
+  _vtxOn=true;
+});
+
+// Rocket-motor smoke: puffs laid along the path travelled this frame (continuous at any fps and
+// missile speed), bright at the motor, then widening, greying and drifting off with the wind.
+function missileTrail(mi, hostile){
+  const p=mi.mesh.position;
+  if(!mi._tp) mi._tp=p.clone();
+  const t=mi._tp, dx=p.x-t.x, dy=p.y-t.y, dz=p.z-t.z, d=Math.sqrt(dx*dx+dy*dy+dz*dz);
+  const n=Math.min(4, Math.max(1, Math.round(d*FXQ()/9)));
+  for(let j=1;j<=n;j++){ const f=j/n;
+    smokeP.spawn(t.x+dx*f, t.y+dy*f, t.z+dz*f, FX_WIND.x*0.3+(Math.random()-0.5)*8, 3+(Math.random()-0.5)*8, FX_WIND.z*0.3+(Math.random()-0.5)*8,
+      (hostile?1.4:1.9)+Math.random()*0.6, 5, hostile?38:56, C_VAPOR, C_SMK_LIGHT, 0.955, -3); }
+  t.copy(p);
 }
 
 /* ---------------------------------------------------------------------------
@@ -2599,6 +2750,33 @@ function triGeo(verts){ const g=new THREE.BufferGeometry(); g.setAttribute('posi
   for(let i=0;i<verts.length/3;i++){ uv[i*2]=verts[i*3]*0.12; uv[i*2+1]=verts[i*3+2]*0.12; }
   g.setAttribute('uv', new THREE.BufferAttribute(uv,2));
   g.computeVertexNormals(); return g; }
+
+// --- static-part merging: collapses many small primitive meshes sharing one material into a
+// single draw call. Build a throwaway Object3D tree with normal position/rotation/scale (nested
+// groups are fine — a scratch root never added to the scene still resolves matrixWorld
+// correctly), hand it to collectMerge(), then flushMerge() bakes one Mesh per material into the
+// real group. Used by buildEurofighter/buildEnemy/buildGroundModel; NOT for parts that must stay
+// individually addressable at runtime (gear, afterburner flames/light, decals, sprites, lights).
+function collectMerge(root, bucket){
+  root.updateMatrixWorld(true);
+  root.traverse(o=>{
+    if(!o.isMesh) return;
+    let arr=bucket.get(o.material); if(!arr){ arr=[]; bucket.set(o.material,arr); }
+    let gc=o.geometry.clone(); gc.applyMatrix4(o.matrixWorld);
+    if(gc.index) gc=gc.toNonIndexed();   // primitives (Box/Cylinder/...) are indexed, triGeo() parts are not —
+    arr.push(gc);                        // mergeBufferGeometries refuses to mix the two, so normalize here
+  });
+}
+function flushMerge(bucket, g){
+  for(const [mat,geos] of bucket){
+    let merged=null;
+    if(geos.length>1){
+      try{ merged=THREE.BufferGeometryUtils.mergeBufferGeometries(geos,false); }catch(e){ merged=null; }
+    }
+    if(merged){ g.add(new THREE.Mesh(merged,mat)); }
+    else { for(const gg of geos) g.add(new THREE.Mesh(gg,mat)); }   // fallback: mismatched attrs, add unmerged
+  }
+}
 
 // Procedural hull skin: subtle panel lines + micro-noise. One canvas, reused by every airframe.
 function hullTexture(base, line){
@@ -2678,8 +2856,24 @@ function addRimLight(mat, color, power, strength){
    };
 }
 
+// Afterburner nozzle glow: a canvas alpha map giving the flame cones banded shock-diamond
+// rings instead of flat color, along the cone's length (v-coordinate). Shared by all jets.
+function afterburnerTexture(){
+  const w=16,h=128,c=document.createElement('canvas'); c.width=w; c.height=h; const g=c.getContext('2d');
+  for(let y=0;y<h;y++){
+    const v=y/h;
+    const band=0.55+0.45*Math.abs(Math.sin(v*Math.PI*5.2));
+    const fall=Math.pow(1-v,0.55);
+    const a=Math.min(1,band*fall*1.25);
+    g.fillStyle='rgba(255,255,255,'+a.toFixed(3)+')'; g.fillRect(0,y,w,1);
+  }
+  const t=new THREE.CanvasTexture(c); t.wrapS=THREE.RepeatWrapping; return t;
+}
+const AB_TEX=afterburnerTexture();
+
 function buildEurofighter(withLight){
   const g=new THREE.Group();
+  const mrg=new Map();   // material -> [transformed BufferGeometry]; flushed into merged draw calls below
   // --- MATERIALS -----------------------------------------------------------------
   // Two-tone air-superiority grey, the way real Eurofighters are painted: a lighter
   // upper surface and a darker nose/spine, both low-metalness paint that takes its
@@ -2692,44 +2886,49 @@ function buildEurofighter(withLight){
   const rubber=new THREE.MeshStandardMaterial({ color:0x14161a, metalness:0.05, roughness:0.85 });
   const metalRaw=new THREE.MeshStandardMaterial({ color:0x9aa1a8, metalness:0.85, roughness:0.30, envMapIntensity:1.3 });   // bare titanium: nozzles, pylons
   const glass=new THREE.MeshStandardMaterial({ color:0x14283a, metalness:1.0, roughness:0.03, envMapIntensity:2.4, transparent:true, opacity:0.55, side:THREE.DoubleSide });
+  const nozzleGlowMat=new THREE.MeshStandardMaterial({color:0x120c08, roughness:0.9, emissive:0x2a0d00, emissiveIntensity:0.4});
+  const storeMat=new THREE.MeshStandardMaterial({color:0xd4d6d8, roughness:0.45, metalness:0.25, envMapIntensity:1.0});      // missile bodies on the pylons
+  const storeTipMat=new THREE.MeshStandardMaterial({color:0x3a3f45, roughness:0.5, metalness:0.3});                        // missile seeker tips
+  const crossMat=new THREE.MeshStandardMaterial({ map:TEX_CROSS, transparent:true, roughness:0.5, metalness:0.1, side:THREE.DoubleSide, polygonOffset:true, polygonOffsetFactor:-3, polygonOffsetUnits:-4 });
+  const stencilMat=new THREE.MeshStandardMaterial({ map:TEX_STENCIL, transparent:true, roughness:0.5, metalness:0.1, side:THREE.DoubleSide, polygonOffset:true, polygonOffsetFactor:-3, polygonOffsetUnits:-4 });
 
   // --- FUSELAGE ------------------------------------------------------------------
   // Built from three sections so the silhouette tapers like an actual airframe instead
   // of being one straight tube.
-  const fusMid=new THREE.Mesh(new THREE.CylinderGeometry(1.05,1.15,7.5,16), body); fusMid.rotation.x=Math.PI/2; fusMid.position.z=0.6; g.add(fusMid);
-  const fusAft=new THREE.Mesh(new THREE.CylinderGeometry(1.15,0.95,4.6,16), body); fusAft.rotation.x=Math.PI/2; fusAft.position.z=6.4; g.add(fusAft);
-  const fusFwd=new THREE.Mesh(new THREE.CylinderGeometry(0.80,1.05,4.4,16), bodyDark); fusFwd.rotation.x=Math.PI/2; fusFwd.position.z=-5.3; g.add(fusFwd);
+  const fusMid=new THREE.Mesh(new THREE.CylinderGeometry(1.05,1.15,7.5,16), body); fusMid.rotation.x=Math.PI/2; fusMid.position.z=0.6; collectMerge(fusMid,mrg);
+  const fusAft=new THREE.Mesh(new THREE.CylinderGeometry(1.15,0.95,4.6,16), body); fusAft.rotation.x=Math.PI/2; fusAft.position.z=6.4; collectMerge(fusAft,mrg);
+  const fusFwd=new THREE.Mesh(new THREE.CylinderGeometry(0.80,1.05,4.4,16), bodyDark); fusFwd.rotation.x=Math.PI/2; fusFwd.position.z=-5.3; collectMerge(fusFwd,mrg);
   // radome: a rounded ogive, not a sharp cone
   const nose=new THREE.Mesh(new THREE.SphereGeometry(0.80,16,12), bodyDark);
-  nose.scale.set(1,0.92,3.1); nose.position.z=-9.0; g.add(nose);
+  nose.scale.set(1,0.92,3.1); nose.position.z=-9.0; collectMerge(nose,mrg);
   // dorsal spine housing (runs from behind the canopy to the fin)
   const spine=new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.30,7.0,10), body);
-  spine.rotation.x=Math.PI/2; spine.position.set(0,0.86,2.4); g.add(spine);
+  spine.rotation.x=Math.PI/2; spine.position.set(0,0.86,2.4); collectMerge(spine,mrg);
 
   // --- COCKPIT -------------------------------------------------------------------
   // Canopy in two parts (windscreen + bubble) with a visible frame, plus a seat and a
   // pilot helmet so the cockpit is not an empty glass dome up close.
   const canopy=new THREE.Mesh(new THREE.SphereGeometry(0.92,20,14,0,Math.PI*2,0,Math.PI/2), glass);
-  canopy.scale.set(1.0,0.95,2.05); canopy.position.set(0,0.62,-3.6); g.add(canopy);
+  canopy.scale.set(1.0,0.95,2.05); canopy.position.set(0,0.62,-3.6); collectMerge(canopy,mrg);
   const wsc=new THREE.Mesh(new THREE.ConeGeometry(0.84,1.5,12,1,true), glass);
-  wsc.rotation.x=-Math.PI/2; wsc.position.set(0,0.60,-5.5); g.add(wsc);
+  wsc.rotation.x=-Math.PI/2; wsc.position.set(0,0.60,-5.5); collectMerge(wsc,mrg);
   const frame=new THREE.Mesh(new THREE.TorusGeometry(0.86,0.055,6,20), dark);
-  frame.rotation.y=Math.PI/2; frame.scale.set(0.95,1,1); frame.position.set(0,0.58,-4.7); g.add(frame);
+  frame.rotation.y=Math.PI/2; frame.scale.set(0.95,1,1); frame.position.set(0,0.58,-4.7); collectMerge(frame,mrg);
   const seat=new THREE.Mesh(new THREE.BoxGeometry(0.62,0.85,0.55), new THREE.MeshStandardMaterial({color:0x1c2028, roughness:0.8, metalness:0.1}));
-  seat.position.set(0,0.42,-3.5); g.add(seat);
+  seat.position.set(0,0.42,-3.5); collectMerge(seat,mrg);
   const helm=new THREE.Mesh(new THREE.SphereGeometry(0.24,10,8), new THREE.MeshStandardMaterial({color:0xd8dade, roughness:0.35, metalness:0.2, envMapIntensity:1.1}));
-  helm.position.set(0,0.80,-3.75); g.add(helm);
+  helm.position.set(0,0.80,-3.75); collectMerge(helm,mrg);
 
   // --- AIR INTAKES ---------------------------------------------------------------
   // The chin intake with its splitter plate is the Eurofighter's most recognisable
   // feature and was missing entirely.
   const intakeLip=new THREE.Mesh(new THREE.BoxGeometry(2.5,0.95,2.2), bodyDark);
-  intakeLip.position.set(0,-0.95,-4.3); g.add(intakeLip);
+  intakeLip.position.set(0,-0.95,-4.3); collectMerge(intakeLip,mrg);
   const intakeMouth=new THREE.Mesh(new THREE.BoxGeometry(2.15,0.62,0.25), new THREE.MeshStandardMaterial({color:0x07090c, roughness:0.95, metalness:0.0}));
-  intakeMouth.position.set(0,-0.95,-5.42); g.add(intakeMouth);
+  intakeMouth.position.set(0,-0.95,-5.42); collectMerge(intakeMouth,mrg);
   for(const sx of [-1,1]){                                   // intake side walls sweeping back into the belly
     const duct=new THREE.Mesh(new THREE.BoxGeometry(0.16,0.85,3.4), bodyDark);
-    duct.position.set(sx*1.22,-0.85,-2.6); g.add(duct);
+    duct.position.set(sx*1.22,-0.85,-2.6); collectMerge(duct,mrg);
    }
 
   // --- WINGS ---------------------------------------------------------------------
@@ -2747,33 +2946,33 @@ function buildEurofighter(withLight){
     return grp;
   }
   const wingL=wingHalf(1), wingR=wingHalf(-1);
-  wingL.position.z=1; wingR.position.z=1; g.add(wingL); g.add(wingR);
+  wingL.position.z=1; wingR.position.z=1; collectMerge(wingL,mrg); collectMerge(wingR,mrg);
 
   // --- CANARDS (foreplanes) ------------------------------------------------------
   for(const sx of [-1,1]){
     const cGeo=triGeo([ 0,0,0, sx*2.6,0,1.5, sx*2.35,0,2.3,   0,0,0, sx*2.35,0,2.3, 0,0,2.1 ]);
-    const c=new THREE.Mesh(cGeo, body); c.position.set(sx*0.95,0.28,-4.6); c.rotation.z=sx*0.06; g.add(c);
-    const c2=new THREE.Mesh(cGeo, body); c2.position.set(sx*0.95,0.16,-4.6); c2.rotation.z=sx*0.06; g.add(c2);
+    const c=new THREE.Mesh(cGeo, body); c.position.set(sx*0.95,0.28,-4.6); c.rotation.z=sx*0.06; collectMerge(c,mrg);
+    const c2=new THREE.Mesh(cGeo, body); c2.position.set(sx*0.95,0.16,-4.6); c2.rotation.z=sx*0.06; collectMerge(c2,mrg);
    }
 
   // --- TAIL FIN ------------------------------------------------------------------
   const finGeo=triGeo([ 0,0,2.6, 0,3.4,5.2, 0,0,5.9,  0,0,2.6, 0,0,5.9, 0,3.4,5.2 ]);
-  const fin=new THREE.Mesh(finGeo, body); g.add(fin);
-  const fin2=new THREE.Mesh(finGeo, body); fin2.position.x=-0.10; g.add(fin2);   // thickness
+  const fin=new THREE.Mesh(finGeo, body); collectMerge(fin,mrg);
+  const fin2=new THREE.Mesh(finGeo, body); fin2.position.x=-0.10; collectMerge(fin2,mrg);   // thickness
   const rudder=new THREE.Mesh(new THREE.BoxGeometry(0.12,2.2,0.7), bodyDark);
-  rudder.position.set(-0.05,1.5,5.6); rudder.rotation.x=-0.22; g.add(rudder);
+  rudder.position.set(-0.05,1.5,5.6); rudder.rotation.x=-0.22; collectMerge(rudder,mrg);
   // fin-tip ESM pod
   const esm=new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.10,1.1,8), dark);
-  esm.rotation.x=Math.PI/2; esm.position.set(-0.05,3.35,4.9); g.add(esm);
+  esm.rotation.x=Math.PI/2; esm.position.set(-0.05,3.35,4.9); collectMerge(esm,mrg);
 
   // --- ENGINES -------------------------------------------------------------------
   for(const sx of [-1,1]){
     const can=new THREE.Mesh(new THREE.CylinderGeometry(0.60,0.68,2.4,14,1,true), metalRaw);
-    can.rotation.x=Math.PI/2; can.position.set(sx*0.58,0.10,7.4); g.add(can);
+    can.rotation.x=Math.PI/2; can.position.set(sx*0.58,0.10,7.4); collectMerge(can,mrg);
     const ring=new THREE.Mesh(new THREE.TorusGeometry(0.63,0.07,6,16), dark);   // nozzle petals
-    ring.position.set(sx*0.58,0.10,8.5); g.add(ring);
-    const inner=new THREE.Mesh(new THREE.CylinderGeometry(0.50,0.50,0.3,12), new THREE.MeshStandardMaterial({color:0x120c08, roughness:0.9, emissive:0x2a0d00, emissiveIntensity:0.4}));
-    inner.rotation.x=Math.PI/2; inner.position.set(sx*0.58,0.10,8.4); g.add(inner);
+    ring.position.set(sx*0.58,0.10,8.5); collectMerge(ring,mrg);
+    const inner=new THREE.Mesh(new THREE.CylinderGeometry(0.50,0.50,0.3,12), nozzleGlowMat);
+    inner.rotation.x=Math.PI/2; inner.position.set(sx*0.58,0.10,8.4); collectMerge(inner,mrg);
    }
 
   // --- WEAPONS + PYLONS ----------------------------------------------------------
@@ -2781,9 +2980,9 @@ function buildEurofighter(withLight){
   function missileOnPylon(sx, x, z, len){
     const p=new THREE.Group();
     const pyl=new THREE.Mesh(new THREE.BoxGeometry(0.18,0.55,1.1), bodyDark); pyl.position.y=-0.30; p.add(pyl);
-    const bodyM=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,len,10), new THREE.MeshStandardMaterial({color:0xd4d6d8, roughness:0.45, metalness:0.25, envMapIntensity:1.0}));
+    const bodyM=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,len,10), storeMat);
     bodyM.rotation.x=Math.PI/2; bodyM.position.y=-0.72; p.add(bodyM);
-    const tip=new THREE.Mesh(new THREE.ConeGeometry(0.16,0.7,10), new THREE.MeshStandardMaterial({color:0x3a3f45, roughness:0.5, metalness:0.3}));
+    const tip=new THREE.Mesh(new THREE.ConeGeometry(0.16,0.7,10), storeTipMat);
     tip.rotation.x=-Math.PI/2; tip.position.set(0,-0.72,-len/2-0.35); p.add(tip);
     for(let f=0;f<4;f++){                                   // cruciform tail fins
       const fin=new THREE.Mesh(new THREE.BoxGeometry(0.028,0.30,0.40), dark);
@@ -2793,37 +2992,37 @@ function buildEurofighter(withLight){
      }
     p.position.set(sx*x, -0.28, z); return p;
   }
-  g.add(missileOnPylon(1, 2.6, 2.4, 2.6));  g.add(missileOnPylon(-1, 2.6, 2.4, 2.6));
-  g.add(missileOnPylon(1, 4.4, 3.2, 2.2));  g.add(missileOnPylon(-1, 4.4, 3.2, 2.2));
+  collectMerge(missileOnPylon(1, 2.6, 2.4, 2.6),mrg);  collectMerge(missileOnPylon(-1, 2.6, 2.4, 2.6),mrg);
+  collectMerge(missileOnPylon(1, 4.4, 3.2, 2.2),mrg);  collectMerge(missileOnPylon(-1, 4.4, 3.2, 2.2),mrg);
   // centreline fuel tank
   const tank=new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.30,4.2,12), body);
-  tank.rotation.x=Math.PI/2; tank.position.set(0,-1.35,1.6); g.add(tank);
+  tank.rotation.x=Math.PI/2; tank.position.set(0,-1.35,1.6); collectMerge(tank,mrg);
   const tankNose=new THREE.Mesh(new THREE.SphereGeometry(0.34,10,8), body);
-  tankNose.scale.set(1,1,1.6); tankNose.position.set(0,-1.35,-0.6); g.add(tankNose);
+  tankNose.scale.set(1,1,1.6); tankNose.position.set(0,-1.35,-0.6); collectMerge(tankNose,mrg);
 
   // --- MARKINGS ------------------------------------------------------------------
   // Iron cross on both wings and both flanks, tail number, stencils, formation lights.
   for(const sx of [-1,1]){
-    const cw=decalPlane(TEX_CROSS,1.25,1.25); cw.rotation.x=-Math.PI/2; cw.position.set(sx*3.6,0.03,3.6); g.add(cw);
-    const cwU=decalPlane(TEX_CROSS,1.25,1.25); cwU.rotation.x=Math.PI/2; cwU.position.set(sx*3.6,-0.19,3.6); g.add(cwU);
-    const cf=decalPlane(TEX_CROSS,0.85,0.85); cf.rotation.y=sx*Math.PI/2; cf.position.set(sx*1.14,0.10,2.6); g.add(cf);
-    const st=decalPlane(TEX_STENCIL,1.5,0.38); st.rotation.y=sx*Math.PI/2; st.position.set(sx*1.12,0.62,-2.4); g.add(st);
+    const cw=decalPlane(TEX_CROSS,1.25,1.25,crossMat); cw.rotation.x=-Math.PI/2; cw.position.set(sx*3.6,0.03,3.6); collectMerge(cw,mrg);
+    const cwU=decalPlane(TEX_CROSS,1.25,1.25,crossMat); cwU.rotation.x=Math.PI/2; cwU.position.set(sx*3.6,-0.19,3.6); collectMerge(cwU,mrg);
+    const cf=decalPlane(TEX_CROSS,0.85,0.85,crossMat); cf.rotation.y=sx*Math.PI/2; cf.position.set(sx*1.14,0.10,2.6); collectMerge(cf,mrg);
+    const st=decalPlane(TEX_STENCIL,1.5,0.38,stencilMat); st.rotation.y=sx*Math.PI/2; st.position.set(sx*1.12,0.62,-2.4); collectMerge(st,mrg);
    }
   // The two sides need MIRRORED textures: a plane turned to face the other way shows its
   // texture reversed, which had the tail number reading backwards from port.
   const texNumFlip=TEX_TAILNUM.clone(); texNumFlip.needsUpdate=true;
   texNumFlip.wrapS=THREE.RepeatWrapping; texNumFlip.repeat.x=-1; texNumFlip.offset.x=1;
   const tailNum=decalPlane(texNumFlip,1.15,1.15); tailNum.rotation.y=-Math.PI/2;
-  tailNum.position.set(-0.13,1.55,4.75); g.add(tailNum);
+  tailNum.position.set(-0.13,1.55,4.75); collectMerge(tailNum,mrg);
   const tailNum2=decalPlane(TEX_TAILNUM,1.15,1.15); tailNum2.rotation.y=Math.PI/2;
-  tailNum2.position.set(0.03,1.55,4.75); g.add(tailNum2);
+  tailNum2.position.set(0.03,1.55,4.75); collectMerge(tailNum2,mrg);
   // German flag flash on the fin
   const stripes=[0x14140f,0xc81414,0xf0c000];
   for(let i=0;i<3;i++){
     const st=new THREE.Mesh(new THREE.PlaneGeometry(0.11,1.0), new THREE.MeshStandardMaterial({color:stripes[i], side:THREE.DoubleSide, roughness:0.6, metalness:0.05,
       polygonOffset:true, polygonOffsetFactor:-3, polygonOffsetUnits:-4}));
-    st.rotation.y=Math.PI/2; st.position.set(-0.12,2.35,3.55+i*0.32); g.add(st);
-    const st2=st.clone(); st2.position.x=0.02; g.add(st2);
+    st.rotation.y=Math.PI/2; st.position.set(-0.12,2.35,3.55+i*0.32); collectMerge(st,mrg);
+    const st2=st.clone(); st2.position.x=0.02; collectMerge(st2,mrg);
    }
   // navigation lights: red port, green starboard, white tail (unlit basic materials so
   // they read as lights at any time of day)
@@ -2833,17 +3032,25 @@ function buildEurofighter(withLight){
   navR.position.set(-6.5,0.02,5.2); g.add(navR);
   const navT=new THREE.Mesh(new THREE.SphereGeometry(0.10,8,6), new THREE.MeshBasicMaterial({color:0xffffff}));
   navT.position.set(-0.05,3.3,5.6); g.add(navT);
+  // strobe: a bright white flash sprite that blinks on both wingtips (period set in the update loop below)
+  const strobeMat=new THREE.SpriteMaterial({ map:glowTex, color:0xf0f8ff, transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending, fog:false });
+  const strobeL=new THREE.Sprite(strobeMat); strobeL.scale.set(2.6,2.6,1); strobeL.position.set(6.5,0.05,5.2); g.add(strobeL);
+  const strobeR=new THREE.Sprite(strobeMat.clone()); strobeR.scale.set(2.6,2.6,1); strobeR.position.set(-6.5,0.05,5.2); g.add(strobeR);
+  g.userData.strobes=[strobeL,strobeR]; g.userData.strobePhase=Math.random()*10;
   // pitot boom on the nose
   const pitot=new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.03,1.6,6), dark);
-  pitot.rotation.x=Math.PI/2; pitot.position.set(0,0,-11.4); g.add(pitot);
+  pitot.rotation.x=Math.PI/2; pitot.position.set(0,0,-11.4); collectMerge(pitot,mrg);
+
+  flushMerge(mrg, g);   // one draw call per material instead of ~35 individual static meshes
 
   // --- AFTERBURNER ---------------------------------------------------------------
   // Only the player's jet carries the afterburner PointLight: adding/removing lights changes the
   // scene light count, which recompiles EVERY lit shader in r128 (a visible hitch). Allies rely on
-  // the additive flame cones instead.
+  // the additive flame cones instead. Flame cones stay individual (unmerged, unmerged materials
+  // cloned so afterBurner texture can tint independently) so the flight code can keep scaling them.
   if(withLight){ const ab=new THREE.PointLight(0x66aaff,0,40); ab.position.z=7; g.add(ab); g.userData.ab=ab; }
-  const flMat=new THREE.MeshBasicMaterial({color:0x1b46e0, transparent:true, opacity:0.8, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide});
-  const flCoreMat=new THREE.MeshBasicMaterial({color:0xffa030, transparent:true, opacity:0.95, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide});
+  const flMat=new THREE.MeshBasicMaterial({map:AB_TEX, color:0x1b46e0, transparent:true, opacity:0.8, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide});
+  const flCoreMat=new THREE.MeshBasicMaterial({map:AB_TEX, color:0xffa030, transparent:true, opacity:0.95, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide});
   const flames=[];
   for(const sx of [-1,1]){
     const outer=new THREE.Mesh(new THREE.ConeGeometry(0.58,4.4,12,1,true), flMat); outer.rotation.x=-Math.PI/2; outer.position.set(sx*0.58,0.10,10.9); flames.push(outer); g.add(outer);
@@ -2878,6 +3085,19 @@ function buildEurofighter(withLight){
   g.scale.set(2.15,2.15,2.15);       // the jet is on screen the whole time: give it presence
   return g;
 }
+
+// Wingtip strobe blink: drives userData.strobes on any buildEurofighter() jet (player + ally).
+// A cheap sprite-opacity toggle, so it runs unconditionally regardless of GFX.level().
+HOOKS.always.push(function(){
+  const t=performance.now()*0.001;
+  for(let j=0;j<2;j++){   // player jet, then ally jet (no per-frame array)
+    const obj = j===0 ? ((typeof player!=='undefined'&&player)?player.obj:null) : ((typeof ally!=='undefined'&&ally)?ally.obj:null);
+    if(!obj || !obj.userData.strobes) continue;
+    const ph=(t*2 + obj.userData.strobePhase)%1;
+    const on = ph<0.06 || (ph>0.12 && ph<0.16);   // double-flash pattern like a real anti-collision strobe
+    for(const s of obj.userData.strobes) s.material.opacity = on?1:0;
+   }
+});
 
 
 // ---- Runway / airbase strip (a landing surface the player can roll on) ----
@@ -2952,6 +3172,7 @@ function rebuildTerrainAround(wx, wz){
 
 function buildEnemy(type){
   const g=new THREE.Group();
+  const mrg=new Map();
   // HELIOS drones: dark carbon hulls with a red sensor glow (rogue-AI identity)
   const colors={ f16:0x3a4048, f18:0x33383f, f22:0x24282e };
   // DoubleSide so thin wings/tailplanes/fins render from all angles
@@ -2959,33 +3180,97 @@ function buildEnemy(type){
     emissive:0x110000, emissiveIntensity:0.5 });
   addRimLight(body, 0xff5535, 4.2, 0.22);       // hostile drones get a red edge glow (tight falloff: rim only, not the whole hull)
   const dark=new THREE.MeshStandardMaterial({ color:0x15181c, metalness:0.6, roughness:0.4, side:THREE.DoubleSide });
-  const len = type==='f22'?14:(type==='f18'?11:10);
-  const fus=new THREE.Mesh(new THREE.CylinderGeometry(type==='f22'?1.3:1.0, 1.2, len, 12), body); fus.rotation.x=Math.PI/2; g.add(fus);
-  const nose=new THREE.Mesh(new THREE.ConeGeometry(1.0,4,12), body); nose.rotation.x=-Math.PI/2; nose.position.z=-len/2-1.6; g.add(nose);
-  const can=new THREE.Mesh(new THREE.SphereGeometry(0.9,10,8,0,Math.PI*2,0,Math.PI/2), new THREE.MeshStandardMaterial({color:0x222222, metalness:0.9, roughness:0.15}));
-  can.scale.set(1,0.7,1.8); can.position.set(0,0.6,-len/4); g.add(can);
-  // Swept wings (trapezoid) — distinct from delta
-  const sw = type==='f22'?7.5:6;
-  const wingGeo=triGeo([ 0,0,0, sw,0,3.5, sw,0,5,  0,0,0, sw,0,5, 0,0,4.5,
-                         0,0,0, -sw,0,3.5, -sw,0,5,  0,0,0, -sw,0,5, 0,0,4.5 ]);
-  const wings=new THREE.Mesh(wingGeo, body); wings.position.z=1; g.add(wings);
-  // twin tail fins for f18/f22, single for f16
-  if(type==='f16'){ const fin=new THREE.Mesh(triGeo([0,0,len/2-1,0,3,len/2+1,0,0,len/2+1.5]), dark); g.add(fin); }
-  else { for(const s of [-1,1]){ const fin=new THREE.Mesh(triGeo([0,0,0,0,2.6,1.4,0,0,2.0]), dark);
-    fin.position.set(s*1.4,0.3,len/2-1); fin.rotation.z=s*0.25; g.add(fin);} }
-  // tail planes
-  const tp=new THREE.Mesh(triGeo([0,0,0,2.6,0,1.4,0,0,1.8, 0,0,0,-2.6,0,1.4,0,0,1.8]), body); tp.position.z=len/2-1; g.add(tp);
-  // HELIOS sensor eye — glowing red spot on the nose (drone identity + eyecandy)
-  const eye=new THREE.Mesh(new THREE.SphereGeometry(0.45,10,8), new THREE.MeshBasicMaterial({color:0xff2b1a}));
-  eye.position.set(0,0.2,-len/2-2.4); g.add(eye);
+  // one unlit accent material for wingtip strips + nozzle cores + intake lips: all merge into a single draw call
+  const stripMat=new THREE.MeshBasicMaterial({color:0xff3a1c, side:THREE.DoubleSide});
+  // Per-type airframe: each drone type gets its own silhouette so they can be told apart at range.
+  //  f16: single-engine, cropped delta + LERX, single fin, chin intake
+  //  f18: twin-engine, straight-tapered wing, big LERX, twin canted fins, side intakes
+  //  f22: stealth: flattened body with chines, diamond wing, canted fins, caret intakes, 2D nozzles
+  const S={
+    f16:{ len:10, rF:0.95, rR:0.85, nl:4.2, flat:0.9,  wing:[0.8,-0.8, 5.4,2.9, 5.4,3.9, 0.8,3.6],
+          tail:[0.7,3.6, 3.0,5.3, 3.0,6.0, 0.7,5.6], lerx:[0.7,-4.2, 1.6,-0.8, 0.7,-0.8] },
+    f18:{ len:11, rF:1.0,  rR:1.05, nl:4.4, flat:0.85, wing:[1.1,0.2, 6.2,2.8, 6.2,3.8, 1.1,4.0],
+          tail:[0.9,4.4, 3.6,5.8, 3.6,6.6, 0.9,6.4], lerx:[0.8,-4.8, 1.35,-2.2, 1.9,0.4, 0.8,0.4] },
+    f22:{ len:14, rF:1.05, rR:1.25, nl:5.0, flat:0.72, wing:[1.2,-2.2, 7.6,3.6, 7.6,4.6, 1.2,6.0],
+          tail:[1.2,5.4, 4.2,7.4, 4.2,8.3, 1.2,8.0], lerx:[0.9,-10.2, 2.1,-2.2, 1.0,-2.2] }
+  }[type] || null;
+  const sp=S||{ len:10, rF:0.95, rR:0.85, nl:4.2, flat:0.9, wing:[0.8,-0.8,5.4,2.9,5.4,3.9,0.8,3.6], tail:[0.7,3.6,3.0,5.3,3.0,6.0,0.7,5.6], lerx:[0.7,-4.2,1.6,-0.8,0.7,-0.8] };
+  const len=sp.len, half=len/2;
+  const put=(geo,mat,x,y,z,rx,ry,rz,sx,sy,sz)=>{ const m=new THREE.Mesh(geo,mat); m.position.set(x||0,y||0,z||0); m.rotation.set(rx||0,ry||0,rz||0);
+    if(sx) m.scale.set(sx,sy,sz); collectMerge(m,mrg); return m; };
+  // planform helper: [x0,z0, x1,z1, ...] quad (4 pts) or tri (3 pts) or two tris (4 pts, lerx) in the y=yy plane, mirrored to both sides
+  const plan=(p,yy,twoTri)=>{ const v=[];
+    for(const s of [1,-1]){
+      if(p.length===6) v.push(s*p[0],yy,p[1], s*p[2],yy,p[3], s*p[4],yy,p[5]);
+      else if(twoTri) v.push(s*p[0],yy,p[1], s*p[2],yy,p[3], s*p[6],yy,p[7],  s*p[2],yy,p[3], s*p[4],yy,p[5], s*p[6],yy,p[7]);
+      else v.push(s*p[0],yy,p[1], s*p[2],yy,p[3], s*p[4],yy,p[5],  s*p[0],yy,p[1], s*p[4],yy,p[5], s*p[6],yy,p[7]);
+    }
+    return triGeo(v); };
+  // fuselage (slightly flattened) + nose cone
+  put(new THREE.CylinderGeometry(sp.rR, sp.rF, len, 14), body, 0,0,0, Math.PI/2,0,0, type==='f22'?1.25:1, 1, sp.flat);
+  put(new THREE.ConeGeometry(sp.rF, sp.nl, 14), body, 0,0,-half-sp.nl/2, -Math.PI/2,0,0, type==='f22'?1.25:1, 1, sp.flat);
+  // dark glass canopy
+  const can=new THREE.Mesh(new THREE.SphereGeometry(0.8,12,8,0,Math.PI*2,0,Math.PI/2), new THREE.MeshStandardMaterial({color:0x1c1f24, metalness:0.9, roughness:0.12}));
+  can.scale.set(type==='f22'?0.95:0.8, 0.8, 2.1); can.position.set(0,sp.rF*sp.flat*0.72,-half+(type==='f22'?0.4:1.4)); collectMerge(can,mrg);
+  // wings, strakes/chines, tailplanes
+  put(plan(sp.wing,0,false), body);
+  put(plan(sp.lerx,0.05,sp.lerx.length===8), body);
+  put(plan(sp.tail,0.1,false), body);
+  // red wingtip strips along the tip chord
+  const tipX=sp.wing[2], tipZ=(sp.wing[3]+sp.wing[5])/2, tipC=sp.wing[5]-sp.wing[3]+0.6;
+  for(const s of [-1,1]) put(new THREE.PlaneGeometry(0.34,tipC), stripMat, s*(tipX-0.2),0.07,tipZ, -Math.PI/2,0,0);
+  if(type==='f16' || !S){
+    // single swept fin on the spine + chin intake + single round nozzle
+    put(triGeo([0,0.8,half-3.2, 0,0.8,half+0.6, 0,4.3,half+1.4,  0,0.8,half-3.2, 0,4.3,half+1.4, 0,4.3,half+0.3]), dark);
+    put(new THREE.BoxGeometry(1.5,0.9,3.2), dark, 0,-sp.rF*0.95,-1.4);
+    put(new THREE.PlaneGeometry(1.3,0.6), stripMat, 0,-sp.rF*0.95,-3.02);
+    put(new THREE.CylinderGeometry(0.62,0.8,1.3,14), dark, 0,0,half+0.55, Math.PI/2,0,0);
+    put(new THREE.CircleGeometry(0.52,14), stripMat, 0,0,half+1.22);
+  } else {
+    // twin canted fins (tops lean outward)
+    const f18=type==='f18';
+    const fx=f18?1.1:1.5, z0=f18?half-3.4:half-3.2, z1=f18?half-0.6:half, zt0=f18?half-1.2:half-0.6, zt1=f18?half-0.1:half+0.6, fh=f18?3.4:3.2;
+    for(const s of [-1,1]) put(triGeo([0,0,z0, 0,0,z1, 0,fh,zt1,  0,0,z0, 0,fh,zt1, 0,fh,zt0]), dark, s*fx,0.5,0, 0,0,-s*(f18?0.38:0.45));
+    // side intakes with glowing lips
+    const ix=f18?1.25:1.55, iy=f18?-0.45:-0.2, iz=f18?-0.8:-1.2, il=f18?2.6:3.2;
+    for(const s of [-1,1]){
+      put(new THREE.BoxGeometry(0.95,1.05,il), dark, s*ix,iy,iz, 0,f22Yaw(s),0);
+      const yw=f22Yaw(s), d=il/2+0.02; put(new THREE.PlaneGeometry(0.8,0.9), stripMat, s*ix-Math.sin(yw)*d,iy,iz-Math.cos(yw)*d, 0,yw,0);
+    }
+    // twin nozzles: round (f18) or flat 2D thrust-vectoring boxes (f22)
+    for(const s of [-1,1]){
+      if(f18){ put(new THREE.CylinderGeometry(0.52,0.66,1.2,12), dark, s*0.62,0,half+0.5, Math.PI/2,0,0);
+               put(new THREE.CircleGeometry(0.44,12), stripMat, s*0.62,0,half+1.12); }
+      else   { put(new THREE.BoxGeometry(1.1,0.72,1.5), dark, s*0.72,0,half+0.55);
+               put(new THREE.PlaneGeometry(0.88,0.5), stripMat, s*0.72,0,half+1.31); }
+    }
+  }
+  function f22Yaw(s){ return type==='f22' ? s*0.12 : 0; }   // f22 caret intakes splay slightly outward
+  flushMerge(mrg, g);
+  // HELIOS sensor eye — glowing red spot on the nose (drone identity + eyecandy). Left unmerged:
+  // eye is a single per-instance MeshBasicMaterial (no dedup benefit) and eyeGlow is a Sprite.
+  const eye=new THREE.Mesh(new THREE.SphereGeometry(0.42,10,8), new THREE.MeshBasicMaterial({color:0xff2b1a}));
+  eye.position.set(0,0.12,-half-sp.nl*0.62); g.add(eye);
   const eyeGlow=new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xff3020, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending }));
   eyeGlow.scale.set(6,6,1); eyeGlow.position.copy(eye.position); g.add(eyeGlow);
-  // red wing edge strips
-  for(const s of [-1,1]){ const strip=new THREE.Mesh(new THREE.PlaneGeometry(0.4,4), new THREE.MeshBasicMaterial({color:0xff3020, side:THREE.DoubleSide, transparent:true, opacity:0.8}));
-    strip.rotation.x=-Math.PI/2; strip.position.set(s*sw*0.7,0.06,3); g.add(strip); }
+  g.userData.eye=eye; g.userData.eyeGlow=eyeGlow;
   const scale= type==='f22'?1.8:1.6;
   g.scale.set(scale,scale,scale);
   return g;
+}
+
+// Ace visual accent: called once right after an enemy is flagged as an ace (spawnAce), so elite
+// pilots read as visually distinct at a glance — a bright magenta sensor eye plus a wash of
+// magenta emissive over the hull, instead of only the HUD label revealing it.
+function tintAceVisual(obj){
+  if(obj.userData.eye){ obj.userData.eye.material=obj.userData.eye.material.clone(); obj.userData.eye.material.color.setHex(0xff30ff); }
+  if(obj.userData.eyeGlow){ obj.userData.eyeGlow.material=obj.userData.eyeGlow.material.clone(); obj.userData.eyeGlow.material.color.setHex(0xff30ff); }
+  obj.traverse(o=>{
+    if(o.isMesh && o.material && o.material.emissive){
+      o.material=o.material.clone();
+      o.material.emissive.setHex(0x2a0018); o.material.emissiveIntensity=Math.max(o.material.emissiveIntensity||0, 0.8);
+    }
+   });
 }
 
 /* ---------------------------------------------------------------------------
@@ -3185,10 +3470,28 @@ function updateBombs(dt){
   }
 }
 function groundExplode(x,y,z,scale){
-  explode(x,y,z,scale);
-  // extra ground-hugging dust ring + flash
-  for(let i=0;i<24*scale;i++){ const a=Math.random()*Math.PI*2, sp=(60+Math.random()*160)*scale;
-    smokeP.spawn(x,y,z, Math.cos(a)*sp, 10+Math.random()*40, Math.sin(a)*sp, 1.4+Math.random()*1.2, 30*scale, 130*scale, C_DARK, C_SMOKE, 0.93, -6); }
+  // a strike over open water throws up a pale spray instead of a dust ring — reads completely
+  // differently at a glance, so hits on coastal/naval targets don't look like they hit dry land.
+  const isWater = terrainHeight(x,z) < CFG.waterLevel-1;
+  explode(x,y,z,scale,isWater);
+  const q=FXQ();
+  if(isWater){
+    const wy=CFG.waterLevel+1;
+    for(let i=0;i<30*scale*q;i++){ const a=Math.random()*Math.PI*2, sp=(8+Math.random()*40)*scale;   // tall plume + falling droplets
+      smokeP.spawn(x+(Math.random()-0.5)*10*scale,wy,z+(Math.random()-0.5)*10*scale, Math.cos(a)*sp, (140+Math.random()*220)*scale, Math.sin(a)*sp,
+        1.1+Math.random()*0.8, 8*scale, (26+Math.random()*20)*scale, C_SPRAY, C_SPRAY2, 0.97, 230); }
+    for(let i=0;i<18*scale*q;i++){ const a=Math.random()*Math.PI*2, sp=(40+Math.random()*110)*scale;  // base surge of mist
+      smokeP.spawn(x,wy,z, Math.cos(a)*sp, 6+Math.random()*16, Math.sin(a)*sp, 1.6+Math.random()*1.2, 20*scale, 110*scale, C_SPRAY, C_SPRAY2, 0.92, -4); }
+  } else {
+    // ground-hugging dust surge
+    for(let i=0;i<22*scale*q;i++){ const a=Math.random()*Math.PI*2, sp=(60+Math.random()*160)*scale;
+      smokeP.spawn(x,y,z, Math.cos(a)*sp, 10+Math.random()*40, Math.sin(a)*sp, 1.6+Math.random()*1.4, 30*scale, 140*scale, C_DIRT, C_DIRT2, 0.93, -5); }
+    // thrown dirt clods arcing back down
+    for(let i=0;i<18*scale*q;i++){ const a=Math.random()*Math.PI*2, sp=(30+Math.random()*90)*scale;
+      smokeP.spawn(x,y,z, Math.cos(a)*sp, (120+Math.random()*160)*scale, Math.sin(a)*sp, 1.0+Math.random()*0.7, 7*scale, 16*scale, C_DIRT, C_SMK_WARM, 0.985, 260); }
+    // big strikes (destroyed targets, boss hits) leave a burning, smoking crater for seconds
+    if(scale>=1.6) addSmokeColumn(x,y,z, Math.min(2.2,scale*0.75), 5+scale*2.2);
+  }
   shake=Math.max(shake, Math.min(1.2, scale*0.5 * Math.max(0,1-player.obj.position.distanceTo({x,y,z})/2500)));
   Audio.explosion(scale>1.4, screenPanX(_panV.set(x,y,z)));
 }
@@ -3211,9 +3514,11 @@ function buildGroundModel(tag){
     return {g, radius:16, height:26, hp:120};
   }
   if(tag==='truck'){
-    const cab=new THREE.Mesh(new THREE.BoxGeometry(4,4,5), GROUND_MAT_DARK); cab.position.set(0,3,-4); g.add(cab);
-    const tank=new THREE.Mesh(new THREE.CylinderGeometry(3,3,10,10), GROUND_MAT_METAL); tank.rotation.z=Math.PI/2; tank.position.set(0,3.5,3); g.add(tank);
-    for(const zx of [[-2.5,-6],[2.5,-6],[-2.5,4],[2.5,4],[-2.5,0],[2.5,0]]){ const w=new THREE.Mesh(new THREE.CylinderGeometry(1.4,1.4,1,10), GROUND_MAT_DARK); w.rotation.z=Math.PI/2; w.position.set(zx[0],1.4,zx[1]); g.add(w); }
+    const mrg=new Map();
+    const cab=new THREE.Mesh(new THREE.BoxGeometry(4,4,5), GROUND_MAT_DARK); cab.position.set(0,3,-4); collectMerge(cab,mrg);
+    const tank=new THREE.Mesh(new THREE.CylinderGeometry(3,3,10,10), GROUND_MAT_METAL); tank.rotation.z=Math.PI/2; tank.position.set(0,3.5,3); collectMerge(tank,mrg);
+    for(const zx of [[-2.5,-6],[2.5,-6],[-2.5,4],[2.5,4],[-2.5,0],[2.5,0]]){ const w=new THREE.Mesh(new THREE.CylinderGeometry(1.4,1.4,1,10), GROUND_MAT_DARK); w.rotation.z=Math.PI/2; w.position.set(zx[0],1.4,zx[1]); collectMerge(w,mrg); }
+    flushMerge(mrg, g);
     return {g, radius:14, height:9, hp:90};
   }
   if(tag==='sam'){
@@ -3249,16 +3554,21 @@ function buildGroundModel(tag){
     return {g, radius:16, height:14, hp:340};
   }
   if(tag==='depot'){ // fuel/ammo depot — modest HP, but a huge secondary explosion
+    const mrg=new Map();
     const tankMat=new THREE.MeshStandardMaterial({color:0x6a5a2a, metalness:0.5, roughness:0.6});
-    for(const dx of [-6,6]){ const t=new THREE.Mesh(new THREE.CylinderGeometry(5,5,12,14), tankMat); t.position.set(dx,6,0); g.add(t);
-      const cap=new THREE.Mesh(new THREE.SphereGeometry(5,12,6,0,Math.PI*2,0,Math.PI*0.5), tankMat); cap.position.set(dx,12,0); g.add(cap); }
-    const pipe=new THREE.Mesh(new THREE.CylinderGeometry(0.8,0.8,13,8), GROUND_MAT_METAL); pipe.rotation.z=Math.PI/2; pipe.position.set(0,3,0); g.add(pipe);
+    for(const dx of [-6,6]){ const t=new THREE.Mesh(new THREE.CylinderGeometry(5,5,12,14), tankMat); t.position.set(dx,6,0); collectMerge(t,mrg);
+      const cap=new THREE.Mesh(new THREE.SphereGeometry(5,12,6,0,Math.PI*2,0,Math.PI*0.5), tankMat); cap.position.set(dx,12,0); collectMerge(cap,mrg); }
+    const pipe=new THREE.Mesh(new THREE.CylinderGeometry(0.8,0.8,13,8), GROUND_MAT_METAL); pipe.rotation.z=Math.PI/2; pipe.position.set(0,3,0); collectMerge(pipe,mrg);
+    flushMerge(mrg, g);
     return {g, radius:15, height:16, hp:150, depot:true};
   }
   if(tag==='bierkiste'){ // the legendary lost beer crate — a "reach/secure" objective, not a kill target
+    const mrg=new Map();
     const crate=new THREE.Mesh(new THREE.BoxGeometry(9,5,7), new THREE.MeshStandardMaterial({color:0x6b4a1e, metalness:0.2, roughness:0.85}));
-    crate.position.y=2.6; g.add(crate);
-    for(const bx of [-3,-1,1,3]) for(const bz of [-2,0,2]){ const bo=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,2,6), new THREE.MeshStandardMaterial({color:0x1c6b2a, emissive:0x0a2a10, metalness:0.3, roughness:0.4})); bo.position.set(bx,5.3,bz); g.add(bo); }
+    crate.position.y=2.6; collectMerge(crate,mrg);
+    const bottleMat=new THREE.MeshStandardMaterial({color:0x1c6b2a, emissive:0x0a2a10, metalness:0.3, roughness:0.4});
+    for(const bx of [-3,-1,1,3]) for(const bz of [-2,0,2]){ const bo=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,2,6), bottleMat); bo.position.set(bx,5.3,bz); collectMerge(bo,mrg); }
+    flushMerge(mrg, g);
     return {g, radius:9, height:8, hp:99999};
   }
   // default block
@@ -3840,6 +4150,7 @@ function spawnEnemyNear(type, minD, maxD, persona){
 function spawnAce(type, pos){
   const e=spawnEnemy(type, pos, 'ace');
   e.isAce=true; e.aceName=ACE_NAMES[(Math.random()*ACE_NAMES.length)|0];
+  tintAceVisual(e.obj);   // FX: visually distinct ace (magenta eye + emissive hull wash)
   e.missilesLeft=Math.max(1,e.missilesLeft);
   banner('⚠ ACE-DROHNE: '+e.aceName,'Elite-Muster erkannt');
   radio('HELIOS|'+e.aceName+' übernimmt.'); Audio.warnBeep();
@@ -4482,6 +4793,16 @@ function updateAlly(dt){
     // ALONG dir. (Do NOT negate — that flew her tail-first.)
     _lookM.lookAt(_zero, ally.dir, UP);
     ally.obj.quaternion.setFromRotationMatrix(_lookM);
+    // bank into turns: yaw rate -> smoothed roll around the fuselage's own long axis (local Z,
+    // since the nose already points along -Z above), applied on top of the pure look-at orientation
+    // so the wingman visually banks instead of flying like a rigid weather-vane.
+    const yaw=Math.atan2(ally.dir.x,-ally.dir.z);
+    if(ally._yaw===undefined) ally._yaw=yaw;
+    let dyaw=yaw-ally._yaw; while(dyaw>Math.PI) dyaw-=Math.PI*2; while(dyaw<-Math.PI) dyaw+=Math.PI*2;
+    ally._yaw=yaw;
+    const targetRoll=dt>1e-4 ? THREE.MathUtils.clamp(-(dyaw/dt)*1.6, -1.0, 1.0) : (ally.roll||0);   // ~coordinated-turn bank
+    ally.roll=(ally.roll||0)+(targetRoll-(ally.roll||0))*Math.min(1,dt*4);
+    ally.obj.rotateZ(ally.roll);
   }
   // ---- Lärche shoots at the nearest enemy in front of her ----
   ally.fireCd-=dt;
@@ -5052,8 +5373,11 @@ function updateMissiles(dt){
     mi.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), tmpV.copy(mi.vel).normalize());
     // trail + spatial voice
     mi.trailCd-=dt;
-    smokeP.spawn(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,(Math.random()-0.5)*10,(Math.random()-0.5)*10,(Math.random()-0.5)*10,0.9,10,60,C_WHITE,C_GREY,0.95,-2);
+    missileTrail(mi,false);
     fireP.spawn(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0,0,0,0.15,14,2,C_YELLOW,C_ORANGE,0.9,0);
+    if(mi.trailCd<=0){ mi.trailCd=0.05/FXQ();   // sparser glowing embers drifting off the smoke -> reads as "lit" trail, not just grey fog
+      fireP.spawn(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z, (Math.random()-0.5)*24,(Math.random()-0.5)*24,(Math.random()-0.5)*24, 0.45+Math.random()*0.35, 4,1, C_ORANGE, C_RED, 0.9, -8);
+     }
     const mdist=mi.mesh.position.distanceTo(player.obj.position);
     Audio.updateMissileSound(mi.snd, screenPanX(mi.mesh.position), dopp(mi.mesh.position,mi.vel), Math.max(0,Math.min(1,1-mdist/2500))*0.18);
     const mpan=screenPanX(mi.mesh.position);
@@ -5175,7 +5499,7 @@ function updateEnemyMissiles(dt){
     mi.vel.copy(cur).multiplyScalar(CFG.enemyMissileSpeed);
     mi.mesh.position.addScaledVector(mi.vel, dt);
     mi.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), cur);
-    smokeP.spawn(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0,0,0,0.7,8,40,C_WHITE,C_GREY,0.95,-2);
+    missileTrail(mi,true);
     fireP.spawn(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0,0,0,0.12,10,2,C_RED,C_ORANGE,0.9,0);
     let done=false;
     if(mi.arm<=0 && player.alive && dist<CFG.enemyMissileHitR+ (player.onGround?0:0)){
