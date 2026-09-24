@@ -2001,6 +2001,7 @@ const Voice = (function(){
   function isPaused(){ try{ return state==='paused'; }catch(e){ return false; } }
   function mk(line, o, kind){
     const pl=parseLine(line); const spk=String(pl.spk||''), text=String(pl.text||'');
+    if(o.prio && o.prio!=='crit' && o.prio!=='normal' && o.prio!=='bark'){ console.warn('Voice: unknown prio', o.prio); o=Object.assign({}, o, {prio:'normal'}); }
     const it={ spk, text, hint:String(pl.hint||o.hint||''), key:o.key||voiceKey(spk+'|'+text), kind:kind||o.kind||'radio',
       prio:o.prio||'normal', tag:o.tag||null, ttl:o.ttl, t0:vnow, wait:0, notBefore:vnow+(o.delay||0), pause:o.pause||0,
       gapR:Math.random(), group:o.group!=null?o.group:(++grp), seq:++seq, sub:o.sub!==false && (kind||o.kind||'radio')!=='cutscene',
@@ -2089,6 +2090,7 @@ const Voice = (function(){
       for(let i=0;i<queue.length;i++){ const q=queue[i]; if(busyWithOther(q)) q.wait+=d;
         if(q.prio==='bark' && vnow-q.t0>BARK_MAXAGE){ T('drop', q, {why:'stale'}); continue; }
         if(q.prio==='normal' && q.wait>(q.ttl!=null?q.ttl:NORMAL_MAXWAIT)){ T('drop', q, {why:'expired'}); continue; }
+        if(q.prio==='crit' && q.ttl!=null && vnow-q.t0>q.ttl){ T('drop', q, {why:'stale'}); continue; }   // urgent callouts: now or never
         queue[w++]=q; }
       queue.length=w;
     }
@@ -8601,7 +8603,7 @@ function kiebitzSay(name, line, cooldown, urgent){
   if(L.kbCd>0) return false;
   if(!urgent && radioBusy()) return false;
   if(cooldown){ if((L.cd[name]||0)>0) return false; L.cd[name]=cooldown; }
-  L.kbCd=CFG.kiebitzGap; radio(line,{prio:urgent?'high':'normal'}); return true;
+  L.kbCd=CFG.kiebitzGap; radio(line, urgent?{prio:'crit', tag:'kbUrgent', ttl:3}:{prio:'normal'}); return true;
 }
 function updateKiebitzApproach(dt){
   const L=player._land;
