@@ -7085,7 +7085,7 @@ function emitBossHpThresholds(){
         b.phase=3;
         EV.emit('bossPhase',{kind:b.kind,phase:3});   // same frame as the 0.25 bossHp, per contract
         b.quietUntil=menuTime+5;
-        b.atkQuietUntil=menuTime+1; b.p3Start=menuTime;   // final attacks start ~1 s in; hp floor holds P3 open (damageBoss)
+        b.atkQuietUntil=menuTime+1; b.p3T=0;   // final attacks start ~1 s in; hp floor holds P3 open (damageBoss)
         if(b.onPhase3) b.onPhase3();
       }
     }
@@ -7102,7 +7102,7 @@ function damageBoss(dmg){
   fireP.spawn(_bdWP.x,_bdWP.y,_bdWP.z, (Math.random()-0.5)*60,30,(Math.random()-0.5)*60,0.3,14,3,C_WHITE,C_ORANGE,0.9,0);
   emitBossHpThresholds();
   // P3 floor: the last phase always gets BOSS_P3_MIN s (final attack + story line); 5 % stays visible on the bar
-  if(boss.p3Start!=null && menuTime<boss.p3Start+BOSS_P3_MIN) boss.hp=Math.max(boss.hp, boss.maxhp*0.05);
+  if(boss.p3T!=null && boss.p3T<BOSS_P3_MIN) boss.hp=Math.max(boss.hp, boss.maxhp*0.05);
   updateBossBar();
   if(boss.hp<=0) killBoss();
 }
@@ -7262,6 +7262,7 @@ function updateBoss(dt){
   checkBossExpose();
   updateBossCallCd(boss,dt);
   if(boss.hudMsgT>0) boss.hudMsgT-=dt;
+  if(boss.p3T!=null) boss.p3T+=dt;   // flight time in P3 (pause-safe) for the hp floor
   if(boss.dead){ bossLock.live=false; if(boss.deathUpdate) boss.deathUpdate(dt); updateBossBar();
     if(menuTime-(boss.deadAt||0)>0.8) dom.bosswrap.classList.remove('show');   // 'ZERSTÖRT' reads briefly, then the bar leaves the death sequence
     return; }
