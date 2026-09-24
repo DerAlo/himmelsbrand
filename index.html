@@ -169,9 +169,10 @@
   .brief .objs .o { display:flex; align-items:center; gap:10px; font-size:15px; margin:7px 0; color:#dbe8f6; }
   .brief .objs .o .ic { width:22px; text-align:center; }
   .brief .prime { color:#fff; } .brief .sec { color:#9fb8d0; }
-  #hud-objectives { position:fixed; left:22px; top:238px; z-index:6; max-width:320px; }
-  .obj-line { font-size:14px; color:#dbe8f6; margin:4px 0; text-shadow:0 0 6px rgba(0,0,0,.9); letter-spacing:.5px; }
-  .obj-line .box { display:inline-block; width:14px; height:14px; border:1.5px solid #7dffb0; margin-right:8px; vertical-align:-2px; text-align:center; line-height:12px; font-size:11px; }
+  #hud-objectives { position:fixed; left:22px; top:238px; z-index:6; max-width:360px; }
+  .obj-line { display:flex; gap:8px; align-items:flex-start; font-size:14px; color:#dbe8f6; margin:4px 0; text-shadow:0 0 6px rgba(0,0,0,.9); letter-spacing:.5px; }
+  .obj-line .box { flex:none; margin-top:2px; width:14px; height:14px; border:1.5px solid #7dffb0; text-align:center; line-height:12px; font-size:11px; }
+  .obj-line .olbl { flex:1 1 auto; min-width:0; } .obj-line .ocnt { flex:none; white-space:nowrap; color:#fff; font-variant-numeric:tabular-nums; }
   .obj-line.done .box { background:#7dffb0; color:#04140b; }
   .obj-line.done { color:#7dffb0; opacity:.75; }
   .obj-line.fail .box { border-color:#ff5a5a; color:#ff5a5a; } .obj-line.fail { color:#ff8a8a; }
@@ -6586,8 +6587,8 @@ function renderObjectives(){
   dom.objectives.innerHTML = mission.objectives.map(o=>{
     const cls = o.done?'done':(o.failed?'fail':'');
     const mark = o.done?'✓':(o.failed?'✕':'');
-    const prog = (o.count&&!o.done)?` ${o.progress}/${o.count}`:'';
-    return `<div class="obj-line ${cls}"><span class="box">${mark}</span>${o.label}${prog}</div>`;
+    const prog = (o.count&&!o.done)?`<span class="ocnt">${o.progress}/${o.count}</span>`:'';
+    return `<div class="obj-line ${cls}"><span class="box">${mark}</span><span class="olbl">${o.label}</span>${prog}</div>`;
   }).join('');
 }
 
