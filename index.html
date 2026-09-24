@@ -6496,6 +6496,11 @@ addEventListener('keydown', e=>{
   if(settingsEl.classList.contains('hidden') || (e.code!=='Escape' && e.code!=='KeyP')) return;
   e.stopImmediatePropagation(); closeSettings();
 }, true);
+// Strg is taught as brake/tight turn next to WASD: swallow the cancellable browser shortcuts
+// (Ctrl+D/S/E/F/G/H/P...) mid-flight; Ctrl+W can't be cancelled, so ask before leaving a live mission.
+const CTRL_GUARD=['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE','KeyF','KeyG','KeyH','KeyX','KeyB','KeyP'];
+addEventListener('keydown', e=>{ if(state==='playing' && (e.ctrlKey||e.metaKey) && CTRL_GUARD.includes(e.code)) e.preventDefault(); });
+addEventListener('beforeunload', e=>{ if(state==='playing'||state==='paused'){ e.preventDefault(); e.returnValue=''; } });
 function applySubsClass(){ document.body.classList.toggle('nosubs', !subsOn()); }
 applySubsClass();
 document.getElementById('btn-settings').onclick=()=>openSettings('menu');
