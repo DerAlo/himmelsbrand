@@ -33,148 +33,152 @@ Parallel dazu läuft **Das B-Team** (`B-TEAM.md`), eine eigenständige Komödien
 Wiggerl, thematisch verzahnt („kein Rechenkern sieht so viel Blödsinn kommen"), aber ohne
 Abhängigkeit von der Haupthandlung.
 
-**Offenlegung:** die Cutscene-Texte (Prolog, Keller-Anruf, Reveal, Wahl, beide Enden, Epilog,
-bt_kiste/bt_ende) und die meisten Funk-Barks in diesem Dokument sind originale Kompositionen des
-STORY-Tracks im Sinn der bestehenden Erzähl-Bibel/`narrative_design.md`-Beatliste — keine
-wortwörtliche Abschrift eines vorgegebenen Skripts. Wo eine Zeile eine bereits vorhandene, generische
-Funkzeile textlich ersetzt (siehe §5), ist das einzeln aufgeführt.
+**Quelle der Texte:** Cutscenes, Missionstexte (`story`, `intro`, `mid`, `win` samt Varianten) und
+Barks folgen seit dem Story-Review wörtlich der Beatliste in `narrative_design.md` (§5 Missionen,
+§6 Cutscenes, §9 Barks, §10 B-Team) und den Boss-Tabellen der Story-Bibel (§3). Die Sprechhinweise
+wurden dabei nach Bibel §1.4 auf die elf erlaubten abgebildet (z. B. sachlich/ernst → `ruhig`,
+trocken → `spoettisch`, erleichtert → `froehlich`, verzerrt/abgehackt → entfällt). Wo eine Zeile eine
+vorhandene, generische Funkzeile textlich ersetzt, steht das in §6.
 
 ## 2. Speaker-Roster
 
 `WAGNER, LÄRCHE, HELIOS, STIMME, SEPP, WIGGERL, NARRATOR, ?, KELLER, KIEBITZ` — genau diese 10.
 `KELLER` und `KIEBITZ` sind neue Sprecher dieses Tracks; ihre TTS-Stimmen (`Voice.CH`) wurden
-gemeinsam mit VOICE koordiniert (siehe `contracts`/Commit-Historie) auf freie `slot`-Werte gelegt
-(`KELLER: pitch 0.92, slot 3, männlich`; `KIEBITZ: pitch 1.08, slot 1, weiblich`), um keine
-Kollision mit den bereits vergebenen Slots zu erzeugen.
+gemeinsam mit VOICE auf freie `slot`-Werte gelegt (`KELLER: pitch 0.92, slot 3, männlich`;
+`KIEBITZ: pitch 1.08, slot 1, weiblich`).
 
-Erlaubte Sprechhinweise (drittes `|`-Feld): `ruhig, dringend, wuetend, fluestern, froehlich, traurig,
-spoettisch, panisch, kalt, erschoepft, triumphierend` — keine weiteren.
+Zeilenformat `'SPRECHER|Text|Hinweis'` (Hinweis optional), **immer als reines String-Literal**
+(keine Konkatenation, kein Template), damit der TTS-Extraktor jede Zeile findet. Text ≤ 110 Zeichen.
+Erlaubte Hinweise: `ruhig, dringend, wuetend, fluestern, froehlich, traurig, spoettisch, panisch,
+kalt, erschoepft, triumphierend` — keine weiteren.
 
 ## 3. Cutscene-Flow
 
-`CUTSCENES` (HELIOS-Kampagne) + `BTEAM_CUTSCENES` (B-Team) sind zwei getrennte Objekte;
-`showCutscene(key, after)` schlägt in beiden nach.
+`CUTSCENES` (HELIOS) + `BTEAM_CUTSCENES` (B-Team) sind zwei getrennte Objekte; `showCutscene(key,
+after)` schlägt in beiden nach. Format der Sprecherzeilen im Body:
+`<span class="who">NAME:</span> „Text“` (deutsche Anführungszeichen, Doppelpunkt in der Span).
 
-- **Prolog/Epilog-Hooks:** eine Mission kann `cutsceneBefore` (läuft beim ersten `openBriefing`-Aufruf
-  vor dem eigentlichen Start, gated durch `SAVE.seenProlog` — läuft also nur einmal pro Save) und
-  `cutsceneAfter` (läuft nach dem Sieg-Debrief, vor der nächsten Mission bzw. als „EPILOG ▶"-Button
-  nach der letzten Mission einer Kampagne) tragen.
-- **Verkettung:** `cs.next` hängt automatisch eine weitere Cutscene an, bevor der reale `after`-Callback
-  läuft — genutzt für `choice` → `ending` (der Spieler trifft die Wahl, sieht sofort die passende
-  Ending-Cutscene, danach erst geht es zurück ins Debrief/Menü).
-  Kein anderer Track sollte `cs.next` ohne Rücksprache in bestehende Ketten einfügen — es ist reine
-  Ablauflogik dieses Tracks.
-- **Dynamische Varianten:** `cs.dynamic:true` + `cs.variants:{trust:{...}, human:{...}}` wählt Titel/
-  Body nach `storyChoice`; die Voice-Over-Lookup-ID ist dabei `key+'_'+storyChoice` (z. B.
-  `ending_trust`) — das ist der gemeinsame Berührungspunkt mit VOICE (`CUTSCENE_VO`-Tabelle), unverändert
-  in ihrer Zuständigkeit, aber die ID-Konvention gehört zu diesem Vertrag.
-- **Missionsvarianten (`effDef`-Overlay):** `introVariants`/`winVariants`/`midVariants`/
-  `spawnsVariants` (Key = `storyChoice`) neben den normalen Feldern einer Mission. `setupMission`
-  baut daraus zur Laufzeit ein Overlay (`mid` wird **angehängt**, nie ersetzt; `spawns` nur `.air`
-  überschrieben — `.ground/.boss/.ally` bleiben immer die des Basis-`def`) und arbeitet danach
-  ausschließlich mit `mission.def = effDef`. Aktuell nur bei `m13` genutzt. `openBriefing` zeigt
-  passend dazu `m.storyVariants[storyChoice]` statt `m.story`, wenn vorhanden.
+- **Prolog:** `m0.cutsceneBefore:'prolog'` läuft beim Start aus dem Briefing, gated durch
+  `SAVE.seenProlog` — also genau einmal pro Save.
+- **Nach dem Sieg:** `cutsceneAfter` läuft über den Debrief-Button (`WEITER ▶`) vor der nächsten
+  Mission; nach der letzten Mission einer Kampagne heißt der Button `EPILOG ▶` und führt danach ins Menü.
+- **Kette HELIOS-Finale:** `m11 → helios_bitte → m12 → choice → ending → m13 → epilog`.
+  `choice` hat `next:'ending'` (die Wahl zeigt sofort das passende Ende, erst dann läuft der
+  `after`-Callback = Start von m13).
+- **Routing:** `epilog` hat `route:{trust:'epilog_trust', human:'epilog_human'}` — ohne Wahl (Direktstart)
+  gilt `human`. Die gerouteten Cutscenes haben eigene Keys und damit eigene VO-IDs.
+- **Dynamisch:** `ending` hat `dynamic:true` + `variants:{trust,human}`; VO-ID `'ending_'+storyChoice`.
+- **Beim Öffnen einer Cutscene** wird die Funk-Warteschlange geleert und die Funkanzeige versteckt —
+  keine Restzeile aus der Mission über dem Cutscene-VO.
+- B-Team: `b0→bt_draft`, `b2→bt_groove`, `b3→bt_kiste`, `b5→bt_final`, `b6→bt_ende` (EPILOG-Button).
+- **Missionsvarianten (`effDef`-Overlay):** `introVariants`/`winVariants`/`midVariants`/`spawnsVariants`/
+  `storyVariants` (Key = `storyChoice`). `mid` wird **angehängt**, `spawns` nur `.air` überschrieben.
+  Genutzt bei `m13`; ohne Wahl gelten das Basis-`intro` (= `human`-Text) und ein neutrales Basis-`win`.
 
-## 4. Story-Trigger + Barks (Sektion „15f", vor Sektion 16 „UPDATE")
+## 4. Story-Trigger + Barks (Sektion „15f“, vor Sektion 16 „UPDATE“)
 
-Ein **einmalig registrierter** Dispatcher (kein Re-Register pro Mission — das würde `EV`-Handler
-stapeln, da der Bus kein `off()` kennt). Er liest bei jedem relevanten Event live `mission.def.mid`
-und `mission._midFired` (ein `Set`, pro Missionsstart geleert) und spricht die erste noch nicht
-gefeuerte, passende Zeile; ohne Treffer fällt er auf einen kontextabhängigen Bark zurück
-(`BARK_LANDREADY`, `BARK_DONE`; Cooldown 7 s, kein sofortiges Wiederholen, keine Wiederholung des
-zuletzt gepickten Satzes bei Pools mit mehreren Optionen).
+Ein **einmalig registrierter** Dispatcher (der Bus kennt kein `off()`), der live `mission.def.mid`
+und `mission._midFired` (Set, pro Missionsstart neu) liest.
 
-**Unterstützte `mid[]`-`on`-Typen:** `airborne, time, progress, done, allyHp, hpLow, bossSpawn,
-bossPart, bossExposed, bossPhase, bossHp, bossKilled, landReady`. `delay:N` verzögert eine Zeile um
-N Sekunden per `setTimeout`, abgesichert durch einen `missionGen`-Zähler (wird bei jedem
-Missionsstart/-reset hochgezählt), damit ein Timer aus einer bereits verlassenen Mission nicht mehr
-spricht.
+**Regeln des Runners**
+- `dispatch(on, pred)` feuert **alle** noch nicht gefeuerten passenden Zeilen eines Ereignisses —
+  so kommen Paare wie `{on:'done',obj:'depot'}` + `{…,delay:5}` oder `bossHp 0.5` + `delay:6` beide.
+- `delay:N` per `setTimeout`, abgesichert durch `missionGen` (Neustart/Reset/Menü → alte Timer sind tot)
+  und nur solange die Mission läuft und nicht gewonnen ist.
+- **Keine Zeile schneidet eine andere ab:** `sayMid` führt eine Slot-Uhr. Ist der Kanal frei, spricht
+  die Zeile sofort (`radio(line,{prio:'crit'})`); sonst wird sie 3,4 s nach der vorigen Story-Zeile
+  (bzw. nach der letzten noch wartenden Intro-Zeile) als `{t, line, mid:true}` in
+  `mission.radioQueue` gestellt.
+- **Sieg:** offene `mid:true`-Zeilen fliegen aus der Queue, `win[]` hat Vorrang. Die 2.–3. Sieg-Zeile
+  (3,2 s Abstand) läuft auch noch über dem Debrief weiter (`HOOKS.always`, solange `winLocked`), weil
+  `gameOver(true)` schon nach 2,6 s den Zustand wechselt.
+- `done` wird per Frame-Poll erkannt (alle Zieltypen außer takeoff/land/boss) — kein
+  `'<Label> — erledigt.'` mehr; ohne mid-Zeile Fallback `BARK_DONE`. Das letzte Primärziel spricht
+  keine done-Zeile, dort übernimmt `win[]`.
+- `time` zählt ab Missionsstart (Luftstart) bzw. ab dem Abheben (Pistenstart), Pausen abgezogen.
 
-**Kontext (`barkCtx()`):** `BT` (B-Team), `EN` (Endlos/Nicht-Kampagne), `H2` (HELIOS Akt II), `H1`
-(HELIOS Akt I) — steuert, welcher Bark-Pool-Eintrag gezogen wird.
+**`on`-Typen:** `airborne, time, progress, done, allyHp, hpLow, bossSpawn, bossPart, bossExposed,
+bossPhase, bossHp, bossKilled, landReady`.
 
-**EV-Vertrag für BOSSES** (Kommentar direkt im Code, Sektion 15f): damit die bereits geschriebenen
-`bossSpawn`/`bossPart`/`bossExposed`/`bossHp`-Zeilen in `m5`/`m7`/`m12`/`m13`/`b6` überhaupt sprechen,
-muss der BOSSES-Track aus `updateBoss`/`checkBossExpose` (oder wo immer die Boss-Logik jetzt sitzt)
-diese Events feuern:
+**Barks (ND §9)** — `bark(ev, list, {p, cd, must})`, gesendet mit `{prio:'bark'}`:
+globaler Abstand 7 s, pro Ereignis eigener Cooldown, kein Sofort-Repeat, verworfen (nicht gequeued)
+solange eine Funkzeile läuft, Wahrscheinlichkeit im Endlos-Modus halbiert. Jede Story-Zeile schiebt
+den Bark-Abstand nach hinten.
+- `takeoff`: mid `airborne`, sonst Kiebitz-Startruf (`must`, `prio:'crit'`, einmal pro Mission; BT-Pool im B-Team).
+- `landReady`: mid, sonst Kiebitz-Landefreigabe (`must`, `prio:'crit'`). **Keine** Aufsetz-/Anflug-Callouts —
+  die gehören dem LANDING-Track (m13 `quietLanding`).
+- `groundKill` nach Tag (radar/truck/sam/hangar/bunker/depot; Wagner- bzw. Lärche-Variante, B-Team eigene),
+  p 0,5, cd 8 s; der Abschuss, der ein Ziel vollendet, gehört `done`.
+- `hpLow` (< 35 %) und `allyHp` (< 50 % / < 25 %) je einmal pro Mission, nur ohne eigene mid-Zeile.
+
+**Kontext (`barkCtx()`):** `BT` (B-Team), `EN` (Endlos), `H2` (HELIOS Akt II), `H1` (Akt I).
+
+**EV-Vertrag für BOSSES** (Kommentar im Code, Sektion 15f):
 
 ```js
-EV.emit('bossSpawn',   {})            // einmal, wenn ein Boss erscheint
-EV.emit('bossPart',    {left:N})      // jedes Mal, wenn ein Panzerungs-/Schwachpunkt-Teil stirbt
-EV.emit('bossExposed', {open:bool})   // jedes Mal, wenn die Kernabdeckung auf-/zugeht
-EV.emit('bossPhase',   {phase:N})     // bei jedem Phasenwechsel
-EV.emit('bossHp',      {ratio:0..1})  // bei jeder Boss-HP-Änderung
-EV.emit('bossKilled',  {})            // einmal, beim Bosstod
+EV.emit('bossSpawn',   {kind, name})    // einmal, wenn ein Boss erscheint
+EV.emit('bossPart',    {kind, left})    // jedes Mal, wenn ein Turm/Pylon fällt
+EV.emit('bossExposed', {kind, open})    // Kern auf/zu — nur das erste open:true spricht
+EV.emit('bossPhase',   {kind, phase})   // Phasenwechsel
+EV.emit('bossHp',      {kind, frac})    // genau beim Unterschreiten von 0.75 / 0.5 / 0.25 (ratio wird als Fallback gelesen)
+EV.emit('bossKilled',  {kind})          // einmal, beim Bosstod
 ```
 
-**Bestätigt per `grep`:** keines dieser sechs Events wird im aktuellen Code irgendwo emittiert — das
-ist erwartete Integrations-Restarbeit für BOSSES, kein Bug. Bis dahin bleiben alle boss-bezogenen
-`mid[]`-Zeilen inert (sie werden nie gefunden, `findMid` gibt `null` zurück, kein Fallback-Bark
-springt für sie ein, weil `bossHp`/`bossPart` etc. keine Fallback-Pools haben).
+Auf diesem Branch emittiert noch niemand diese Events (BOSSES-Arbeit); die Boss-Zeilen in
+m5/m7/m12/m13/b6 sind geschrieben und per Szenario mit künstlichen Events geprüft.
 
-**Bereits genutzte, vorbestehende Events** (keine Änderung nötig): `takeoff` (aus `onTakeoff`),
-`landReady` (aus `updateMission`s landReady-Block, jetzt hier statt einer festen `radio(...)`-Zeile),
-`done` (`onGroundDestroyed`, jetzt ohne String-Konkatenation), `allyHit`/`playerHit` (bereits vorher
-vorhanden, nur konsumiert, nicht verändert).
+Weitere genutzte Events: `takeoff` (erste Zeile von `onTakeoff`, bedingungslos), `landReady`
+(`updateMission`), `groundKill`, `playerHit`, `allyHit`.
 
-## 5. `boss:`/`bossName`-Feld-Entscheidung (dokumentierte Konfliktlösung)
+## 5. `bossName`
 
-Die projektweite Design-Bibel (§4.5) weist `bossName` (den Anzeige-String am Bosslebensbalken)
-explizit STORY zu, während eine allgemeinere Harness-Anweisung nahelegt, gar keine
-Boss-bezogenen Felder anzufassen. Entschieden: **Bibel schlägt generische Anweisung.** Ich habe
-`bossName:` bei `m5`, `m7`, `m12`, `m13`, `b6` gesetzt (Anzeige-Strings wie `'KRONOS · DROHNENWERFT'`,
-`'PROMETHEUS · KERN IM SCHWARZKAR'`, `'FEUERTRÄGER · KELLERS FESTUNG'`, `'HIMMELSZELT · FLIEGENDE
-FESTUNG'`). Das `boss:`-Kind-Feld (welcher Bosstyp gebaut wird, z. B. `'kronos'`/`'auge'`) und alle
-`spawns.boss`/`spawns.air`-Felder außerhalb meiner eigenen `spawnsVariants` habe ich **nicht**
-angefasst — das bleibt vollständig BOSSES' Territorium.
+Die Bibel weist `bossName` (Anzeige am Bosslebensbalken) STORY zu: gesetzt bei `m5`, `m7`, `m12`,
+`m13`, `b6`. Ein kleiner Hook in 15f schreibt `mission.def.bossName` auf den laufenden Boss
+(idempotent — setzt BOSSES es selbst, passiert nichts doppelt). `boss:`-Kind, `spawns.boss` und die
+Boss-Ziele bleiben unangetastet.
 
-## 6. Radio-Zeilen, die als reiner Text ersetzt wurden (Lizenz „Text ja, Logik nein")
+## 6. Radio-Zeilen außerhalb der Story-Daten (nur Text)
 
-Alle folgenden Änderungen sind **nur** Text-/Konkatenations-Fixes an bestehenden Aufrufstellen, keine
-neue Logik, keine verschobenen Verantwortlichkeiten:
+- `onGroundDestroyed`: statt `'WAGNER|'+o.label+' — erledigt.'` → `EV.emit('done',{obj})`, gesprochen
+  wird die mid-Zeile oder `BARK_DONE`.
+- `updateMission` landReady-Block: feste Wagner-Zeile → `EV.emit('landReady',{})`.
+- `updateMission`, erste Zeile: `updateRadio` läuft im Sieg-Fenster weiter (sonst wäre `win[]` stumm).
+- `onTakeoff`: die alte Wagner-Abhebezeile entfällt (Kiebitz-Ruf/`airborne`-mid übernehmen).
+- `spawnAce`: `'HELIOS|'+aceName+' übernimmt.'` → `'WAGNER|Ass im Anflug. Der fliegt anders als die anderen.|dringend'`.
+- `maybeCoordinate` (Zangenangriff): kontextabhängig Sepp / Lärche / Wagner als feste Literale.
+- `KeyB` (Fahrwerk): statt einer zusammengesetzten Funkzeile nur noch ein Banner.
+- b3-Kiste: die harte `radio('WIGGERL|D\'KISTE! …')` in der reach-Logik entfällt, die Zeile kommt
+  jetzt aus der `done`-mid (mit den beiden Folgezeilen).
 
-- `onGroundDestroyed`: `radio('WAGNER|'+o.label+' — erledigt.')` → jetzt ein `EV.emit('done',{obj})`,
-  gesprochen wird die passende `mid[]`-Zeile oder ein `BARK_DONE`-Fallback (keine generische
-  Konkatenation mehr).
-- `updateMission`s landReady-Block: die feste `'WAGNER|Auftrag erfüllt — bring sie nach Hause...'`
-  wurde durch `EV.emit('landReady',{})` ersetzt (→ `mid[]`/`BARK_LANDREADY`).
-- `spawnAce`: `radio('HELIOS|'+e.aceName+' übernimmt.')` (Konkatenation, Ass-Name gehörte da nie
-  gesprochen rein) → feste Zeile `'WAGNER|Ass im Anflug. Der fliegt anders als die anderen.|dringend'`.
-  Der Ass-Name bleibt weiterhin im Banner (`banner(...)`, unverändert, nicht meine Zuständigkeit).
-- `maybeCoordinate` (Zangenangriff-Ansage): `radio('HELIOS|Zangenangriff — sie teilen sich auf.')` →
-  kontextabhängig über `barkCtx()`: `SEPP`-Zeile im B-Team, `LÄRCHE`-Zeile in Akt II, sonst `WAGNER`.
-- `KeyB`-Fahrwerk-Toggle: `radio('WAGNER|Fahrwerk '+(...)+'.')` → zwei feste Literale (ausgefahren/
-  eingefahren) statt Laufzeit-Konkatenation. **Dies ist eine generische Gameplay-Statuszeile, keine
-  STORY-Daten** — als Fremd-Edit aufgeführt, weil sie außerhalb der Sektion-0b/15f-Kerndaten liegt,
-  aber unter der Lizenz „Radio-String-Literale überall reparieren dürfen" gedeckt ist.
-
-**Bewusst UNVERÄNDERT gelassen** (Übergangsregel — gehört BOSSES): `destroyGround`s
-Boss-Teil-Zerstörungszeile `radio('WAGNER|'+(boss.kind==='auge'?'Pylon':'Turm')+' zerstört — '+left+'
-übrig.')` ist noch die alte, hartcodierte Konkatenation. Sie sollte durch
-`EV.emit('bossPart',{left})` (→ dann automatisch von Sektion 15f gesprochen, siehe §4) ersetzt
-werden — das ist BOSSES' Umbau, nicht meiner, um keine Boss-Logik-Datei fremd anzufassen.
+**Unverändert (gehört BOSSES):** `radio('WAGNER|'+(…Pylon/Turm)+' zerstört — '+left+' übrig.')` im
+Boss-Teil-Code ist noch dynamisch und würde sich mit den `bossPart`-mids doppeln — BOSSES ersetzt sie
+durch `EV.emit('bossPart',…)`.
 
 ## 7. Bekannte Lücken
 
-- Alle boss-bezogenen `mid[]`-Zeilen (m5/m7/m12/m13/b6) sind geschrieben, aber **stumm**, bis BOSSES
-  die sechs `EV.emit('boss...')`-Aufrufe ergänzt (§4).
-- `destroyGround`s alte Boss-Teil-Zeile (§6) dupliziert sich NICHT mit meinen neuen `bossPart`-Zeilen
-  (weil letztere noch nie feuern) — sobald BOSSES den Emit ergänzt, sollte die alte Zeile entfernt
-  werden, sonst spricht das Spiel den Teil-Verlust doppelt an.
+- Boss-mids bleiben auf diesem Branch stumm, bis BOSSES die Events emittiert (§4).
+- Die dynamische Boss-Teil-Zeile (§6) muss beim Merge mit BOSSES wegfallen.
+- Alle geänderten Texte brauchen neue TTS-Clips (`voice_clips.js` ist noch der alte Stand); bis zum
+  Rebake fällt VOICE für diese Zeilen auf die Laufzeit-Stimme zurück.
+- m13: die Landefreigabe ist bewusst nur die verzögerte Wagner-Zeile (`landReady`, delay 11) nach dem
+  Boss-Tod — kein Kiebitz davor, damit Boss-Tod- und HELIOS-Zeile nicht überfahren werden.
 
 ## 8. Tests
 
-- `node tools/jsgate.mjs index.html` — grün nach jeder Änderung.
-- Voller Sweep (alle Missionen + Cutscenes, HELIOS + B-Team + Endlos + Menü): 0 Exceptions/Console-
-  Errors, vor und nach dem `openBriefing`-Fix.
-- Zwei gezielte Szenarien (`story_test.mjs`, korrigiert `story_test2.mjs`): Prolog-Gate (einmalig via
-  `SAVE.seenProlog`), m13-Variantenlader unter `trust`/`human`/`null` (korrekte `win[0]`-Sprecher,
-  `mid`-Länge Basis+Variante, `spawns.air`-Zusammensetzung, `intro[0]`-Text), `choice`→`ending`
-  `cs.next`-Verkettung, Epilog-Button nach letzter Mission, choiceabhängiger Debrief-Text, sowie der
-  Mid-Runner selbst: skriptete `done`-Zeile hat Vorrang vor Fallback-Bark, Fallback-Bark respektiert
-  das globale Cooldown.
-- Screenshots (Prolog, Keller, beide Enden, beide Epiloge, m13-Briefing unter Basis und `human`) —
-  alle sauber gerendert, kein Textüberlauf.
+- `node tools/jsgate.mjs index.html` — grün nach jedem Commit.
+- Statische Prüfung (`validate.cjs` im Arbeitsordner): alle `SPK|…`-Literale (Länge, Hinweise,
+  dynamische Zeilen), alle mid-Tabellen (gültiges `on`, Ziel-IDs, `n < count`, `bossHp` ∈ .75/.5/.25,
+  `landReady` nur mit land-Ziel), Cutscene-`next`/`route`, Anführungszeichen — 0 Fehler.
+- `story_flow.mjs` (49 Checks): Prolog genau einmal; für `trust` und `human` je
+  m11 → helios_bitte → m12 → choice → ending → m13 (Varianten-Intro/-Win/-Story, 11 mids) → EPILOG → Menü;
+  Sieg-Zeilen hörbar (auch die zweite über dem Debrief); Funk beim Cutscene-Start leer; b6 → bt_ende,
+  b3 → bt_kiste.
+- `story_events.mjs` (39 Checks): bossPart-Paar mit delay, bossExposed open, bossHp frac, veraltete
+  delay-Zeile nach Neustart tot, gleichzeitige Zeilen gestaffelt statt überschrieben, mid-Zeilen beim
+  Sieg verworfen, m13-trust-midVariants, airborne vs. Kiebitz-Startruf (einmal, crit), time-Uhr,
+  done-Paare (m_asche, b3-Kiste), landReady-Paar + Fallback, groundKill-Bark (busy / 7 s / 8 s / p),
+  hpLow einmal, allyHp m9 + Sepp-Bark in b3.
+- Voller Sweep (27 Missionen + Endlos + 22 Cutscenes): 0 Exceptions, 0 Console-Errors.
 
 ## 9. Relevante Querverweise
 

@@ -129,20 +129,22 @@ Haupt-`CUTSCENES`, `showCutscene` liest beide Objekte): `bt_draft` (vor b0, Wagn
 „konfisziert"), `bt_final` (nach b5, die Nacht vorm Finale — „nicht vorher aufmachen"), `bt_ende` (nach b6,
 der Zapfhahn geht auf — Kampagnen-Epilog).
 
-Funk-Zwischentrigger laufen über dieselbe Sektion „15f. STORY TRIGGERS + BARKS" wie bei HELIOS
-(`mid:[...]` pro Mission, `EV`-gestützt). Beispiele: **b3** „Die verschollene Kiste" feuert eine
-`SEPP`-Zeile bei `{on:'done',obj:'convoy'}` und eine `STIMME`-Zeile bei `{on:'done',obj:'crate'}`
-(Bierkiste geborgen). **b6** „O'zapft is!" hat die dichteste Tabelle: `bossSpawn` (KI meldet Sieg-Prognose,
-dann Selbstzweifel), drei `bossPart`-Stufen (Turmzähler + die KI entdeckt die Bierkiste an Bord der
-Festung — Auslöser für den Running Gag im Finale), `bossExposed` und ein `bossHp`-Schwellenwert
-(`lt:0.25`, die KI kapituliert: „IHR SEID … BAYERN."). `b6` trägt außerdem `bossName:'HIMMELSZELT ·
-FLIEGENDE FESTUNG'` (Anzeige-String am Bosslebensbalken — Feld gehört laut Design-Bibel zu STORY, das
-`boss:`-Kind-Feld selbst bleibt Sache des BOSSES-Tracks).
+Funk-Zwischentrigger laufen über dieselbe Sektion „15f“ wie bei HELIOS (`mid:[...]` pro Mission,
+Texte nach `narrative_design.md` §10). Beispiele: **b3** „Die verschollene Kiste“: `{on:'done',obj:'convoy'}`
+→ Wagner gibt resigniert die Kiste frei; `{on:'done',obj:'crate'}` → Wiggerl „D'KISTE!“, 3 s später
+fragt die STIMME nach dem taktischen Wert, 7 s später Wiggerls Antwort (Festbier). Die frühere harte
+Kisten-Zeile im reach-Code ist entfallen. **b6** „O'zapft is!“: `bossSpawn` (Sieg-Prognose mit Selbstzweifel),
+`bossPart` 3/2/1 (bei 2 entdeckt die STIMME die Bierkiste, 4 s später Wiggerls „Fürs Danach!“, bei 1
+„„DANACH“ … NICHT BERECHENBAR“), `bossExposed` (Sepp) und `bossHp 0.25` (Kapitulation „IHR SEID … BAYERN.“).
+`b6` trägt `bossName:'HIMMELSZELT · FLIEGENDE FESTUNG'`.
 
-**Wichtig für BOSSES:** die `bossSpawn`/`bossPart`/`bossExposed`/`bossHp`-Zeilen in `b6.mid` sind bereits
-geschrieben, feuern aber erst, sobald `updateBoss`/`checkBossExpose` die passenden `EV.emit(...)`-Events
-auslösen (Kontrakt in `STORY.md` und `HANDOFF.md` A7 dokumentiert) — bis dahin bleiben sie stumm, das ist
-erwarteter Zwischenstand, kein Bug.
+**B-Team-Barks** (Kontext `BT`): Kiebitz-Startruf und -Landefreigabe mit eigenem, spöttischem Pool
+(„Reserve ist in der Luft …“), Bodenziel-Barks von Wiggerl/Sepp, Treffer-Barks je nach Held: fliegt Sepp,
+kommentiert Wiggerl und umgekehrt (`hpLow`, `allyHp` 50 %/25 %).
+
+**Wichtig für BOSSES:** die Boss-Zeilen in `b6.mid` feuern erst, sobald der Boss-Code die
+`EV.emit('boss…')`-Events auslöst (Kontrakt in `STORY.md` §4 und `HANDOFF.md` A7) — bis dahin bleiben
+sie stumm, das ist erwarteter Zwischenstand.
 
 ---
 
