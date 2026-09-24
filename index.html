@@ -6904,6 +6904,7 @@ const BOSS_BY_MISSION = { m12:'prometheus', m13:'feuertraeger', b6:'himmelszelt'
 // victory screen delay after a boss kill (ms): the death sequence plays out first (checkMissionComplete, 15d)
 const BOSS_WIN_MS = { auge:4800, kronos:4200, himmelszelt:4200, prometheus:3500, feuertraeger:4800 };
 const BOSS_P3_MIN = 5;  // s: phase 3 can't be skipped by burst damage
+const FT_WINDOW_CAP = 0.3;  // FEUERTRÄGER P2: share of maxhp one chamber window can take before it slams shut
 let _winWaitKey=null;   // voice key of win[0] still to be spoken; cleared by its voiceEnd
 EV.on('voiceEnd', d=>{ if(_winWaitKey && d && d.key===_winWaitKey) _winWaitKey=null; });
 
@@ -7094,7 +7095,9 @@ function emitBossHpThresholds(){
 function damageBoss(dmg){
   if(!boss || !boss.exposed || boss.dead) return;
   const mul = boss.dmgMul ? boss.dmgMul() : 1;
-  boss.hp -= dmg*mul;
+  let d=dmg*mul;
+  if(boss.kind==='feuertraeger' && boss.phase<3){ d=Math.min(d, Math.max(0, boss.maxhp*FT_WINDOW_CAP-(boss.winDmg||0))); boss.winDmg=(boss.winDmg||0)+d; }
+  boss.hp -= d;
   (boss.core||boss.eye).getWorldPosition(_bdWP);
   fireP.spawn(_bdWP.x,_bdWP.y,_bdWP.z, (Math.random()-0.5)*60,30,(Math.random()-0.5)*60,0.3,14,3,C_WHITE,C_ORANGE,0.9,0);
   emitBossHpThresholds();
@@ -7587,7 +7590,7 @@ function detonateFirewall(b){
 }
 function setChamberOpen(b,open){
   if(b.chamberOpen===open) return;
-  b.chamberOpen=open; b.exposed=open;
+  b.chamberOpen=open; b.exposed=open; if(open) b.winDmg=0;
   EV.emit('bossExposed',{kind:b.kind,open});
   if(open) bossCall(b,'kammerOffen','WAGNER|Kammer offen! Sechs Sekunden, Geier, alles rein!|dringend');
 }
@@ -7689,7 +7692,11 @@ function updateFeuertraeger(dt){
   } else if(st==='wallwait'){
     if(b.cycleT>=1.5){ detonateFirewall(b); b.cycleState='open'; b.cycleT=0; setChamberOpen(b,true); }
   } else if(st==='open'){
-    if(b.phase<3 && b.cycleT>=6){ b.cycleState='closed'; b.cycleT=0; setChamberOpen(b,false); }
+    const slam = b.phase<3 && (b.winDmg||0) >= b.maxhp*FT_WINDOW_CAP-0.5;   // P2: a window soaks at most 30 % -> >=3 windows before P3
+    if(b.phase<3 && (b.cycleT>=6 || slam)){ b.cycleState='closed'; b.cycleT=0; setChamberOpen(b,false);
+      if(slam){ b.core.getWorldPosition(_bT1); spawnFlare(_bT1.x,_bT1.y,_bT1.z,40,0xffd080,0.25);
+        for(let i=0;i<14;i++) fireP.spawn(_bT1.x,_bT1.y,_bT1.z,(Math.random()-0.5)*160,Math.random()*90,(Math.random()-0.5)*160,0.45,10,3,C_WHITE,C_ORANGE,0.9,0);
+        bossTone(160,55,0.35,'square'); shake=Math.max(shake,0.35); b.hudMsg='KAMMER VERRIEGELT'; b.hudMsgT=2; } }
   } else if(st==='closed'){
     b.fireCd-=dt;
     if(b.fireCd<=0 && player.alive){ b.fireCd=1.0; const src=new THREE.Vector3(); b.obj.localToWorld(src.set(0,10,-110));
