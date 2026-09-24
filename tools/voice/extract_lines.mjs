@@ -71,6 +71,19 @@ function scanLiterals(src) {
   }
   return out;
 }
+// 'SPK|a'+(cond?'b':'c')+'d' -> both variants (only fully literal ternaries; anything with runtime values stays unvoiced)
+function scanTernaries(src) {
+  const out = []; const q = `(?:'([^'\n]*)'|"([^"\n]*)")`;
+  const re = new RegExp(q + String.raw`\s*\+\s*\(\s*[^?()'"]+\?\s*` + q + String.raw`\s*:\s*` + q + String.raw`\s*\)(?:\s*\+\s*` + q + ')?', 'g');
+  let m;
+  while ((m = re.exec(src))) {
+    const head = m[1] ?? m[2], a = m[3] ?? m[4], b = m[5] ?? m[6], tail = m[7] ?? m[8] ?? '';
+    if (/\+\s*$/.test(src.slice(Math.max(0, m.index - 4), m.index)) || /^\s*\+/.test(src.slice(re.lastIndex))) continue;
+    const p = head.split('|'); if (p.length < 2 || !SPK_RE.test(p[0]) || p[0] === 'SPEAKER') continue;
+    for (const v of [a, b]) { const t = (p.slice(1).join('|') + v + tail).split('|'); if (/\p{L}/u.test(t[0])) out.push({ speaker: p[0], text: t[0], hint: t.slice(1).join('|'), kind: 'radio' }); }
+  }
+  return out;
+}
 
 // ---- cutscene bodies -> ordered segments, replicating the original piper-studio split ----
 // Paragraphs split at <br>. <span class="who">NAME:</span> sets the speaker for „quotes" in that paragraph;
@@ -160,7 +173,7 @@ async function main() {
   if (!STATIC) { const r = await runtimeCollect(); if (r) { collected = Array.isArray(r.collected) ? r.collected : null; csObjs = r.cs; if (r.err) console.error('collectVoiceLines threw: ' + r.err); } }
   if (!csObjs) csObjs = staticCutsceneObjects(SRC);
   const cut = cutsceneLines(csObjs);
-  const scanned = scanLiterals(SRC);
+  const scanned = [...scanLiterals(SRC), ...scanTernaries(SRC)];
   let all = [];
   if (collected) {
     for (const l of collected) {
@@ -194,8 +207,8 @@ async function main() {
     cvoMsg = `CUTSCENE_VO in index.html: ${want.size} keys, ${miss.length} not among extracted lines${miss.length ? ' (' + miss.join(',') + ')' : ''}; map ${same ? 'identical' : 'DIFFERS (update the /*CVO*/ block from ' + CVO_OUT + ')'}`;
   }
   const bySpk = {}; for (const l of lines) bySpk[l.speaker] = (bySpk[l.speaker] || 0) + 1;
-  console.log(`lines: ${lines.length} (${collected ? 'collectVoiceLines ' + collected.length + ' + ' : ''}static ${scanned.length} + cutscene ${cut.lines.length}) -> ${OUT}`);
-  console.log('speakers: ' + JSON.stringify(bySpk));
-  console.log(cvoMsg);
+  console.error(`lines: ${lines.length} (${collected ? 'collectVoiceLines ' + collected.length + ' + ' : ''}static ${scanned.length} + cutscene ${cut.lines.length}) -> ${OUT}`);
+  console.error('speakers: ' + JSON.stringify(bySpk));
+  console.error(cvoMsg);
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

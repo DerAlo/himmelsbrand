@@ -55,8 +55,11 @@ def load_casting():
 def resolve_params(speaker, hint, casting):
     sp = casting['speakers'].get(speaker)
     if sp is None:
-        sp = casting['archetypes']['officer_m']
-        print(f'WARN: no casting for speaker {speaker!r}, defaulting to officer_m', file=sys.stderr)
+        arch = casting.get('speaker_archetypes', {}).get(speaker) or casting.get('default_archetype', 'officer_m')
+        sp = {'archetype': arch}
+        print(f'WARN: no casting for speaker {speaker!r}, using archetype {arch}', file=sys.stderr)
+    if 'archetype' in sp:   # {"archetype": "boss_pilot_m", ...overrides}
+        sp = {**casting['archetypes'][sp['archetype']], **{k: v for k, v in sp.items() if k != 'archetype'}}
     p = {k: v for k, v in sp.items() if not k.startswith('_')}
     p.setdefault('speed', 1.0)
     if hint:
@@ -270,6 +273,8 @@ def main():
     ap.add_argument('--speakers', default=None)
     ap.add_argument('--force', action='store_true')
     ap.add_argument('--limit', type=int, default=None)
+    ap.add_argument('--prune', action='store_true',
+                    help='drop clips whose key is neither in the lines file nor in the game's /*CVO*/ block')
     args = ap.parse_args()
 
     casting = load_casting()
@@ -279,6 +284,18 @@ def main():
         lines = [l for l in lines if l['speaker'] in want]
 
     clips, durs = load_existing(args.out)
+    if args.prune:
+        keep = {fnv(l['speaker'] + '|' + l['text']) for l in json.load(open(args.inp, encoding='utf-8'))}
+        try:
+            m = re.search(r'/\*CVO\*/(\{.*?\})/\*/CVO\*/', open(os.path.join(ROOT, 'index.html'), encoding='utf-8').read(), re.S)
+            if m:
+                keep |= {k for seq in json.loads(m.group(1)).values() for k, _ in seq}
+        except OSError:
+            pass
+        dead = [k for k in clips if k not in keep]
+        for k in dead:
+            clips.pop(k, None); durs.pop(k, None)
+        print(f'prune: removed {len(dead)} stale clips {dead[:12]}')
     if args.only_missing:
         before = len(lines)
         lines = [l for l in lines if fnv(l['speaker'] + '|' + l['text']) not in clips]

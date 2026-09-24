@@ -11,8 +11,9 @@ Funk-FX — Rauschen/Kompression zur Laufzeit ist Sache des VOICE-Tracks.
 powershell -ExecutionPolicy Bypass -File tools/voice/setup.ps1 -Only cbx,piper
 D:/tts-bake/venvs/cbx/Scripts/python.exe tools/voice/make_refs.py     # Referenzstimmen holen/bauen
 
-# Zeilen aus index.html extrahieren (Node, kein Python-venv nötig)
-node tools/voice/extract_lines.mjs > D:/tts-bake/lines.json
+# Zeilen aus index.html extrahieren (Node, kein Python-venv nötig). Schreibt selbst nach
+# D:/tts-bake/lines.json (--out ändert das) — NICHT mit '>' umleiten, die Zusammenfassung geht auf stderr.
+node tools/voice/extract_lines.mjs
 
 # backen (Cache macht Re-Runs schnell: nur neue/geänderte Zeilen werden generiert)
 D:/tts-bake/venvs/cbx/Scripts/python.exe tools/voice/bake.py
@@ -22,8 +23,15 @@ Das war's — `voice_clips.js` im Repo-Root ist danach aktuell. Für einen schne
 Story-Merge (nur neue Zeilen, alte bleiben aus dem Cache):
 
 ```powershell
-D:/tts-bake/venvs/cbx/Scripts/python.exe tools/voice/bake.py --only-missing
+node tools/voice/extract_lines.mjs
+D:/tts-bake/venvs/cbx/Scripts/python.exe tools/voice/bake.py --only-missing --prune
 ```
+
+`--prune` wirft Clips raus, deren Key weder in `lines.json` noch im `/*CVO*/`-Block von `index.html`
+vorkommt (gestrichene/umformulierte Zeilen), damit `voice_clips.js` nach Story-Umbauten nicht mit
+toten Clips wächst. Nur mit einer vollständigen `lines.json` benutzen (nicht mit `--limit`-Testläufen).
+Die Ausgabe von `extract_lines.mjs` prüfen: meldet es `CUTSCENE_VO ... DIFFERS`, muss der `/*CVO*/`-Block
+in `index.html` aus `D:/tts-bake/lines_cvo.json` aktualisiert werden (sonst spielen Cutscenes alte Keys).
 
 Nützliche Flags: `--speakers WAGNER,SEPP` (nur bestimmte Sprecher), `--force` (Cache ignorieren,
 z. B. nach einer Casting-Änderung — der Cache-Key enthält ohnehin einen Hash der Casting-Parameter,
@@ -32,9 +40,12 @@ Pfade).
 
 ## Wie es funktioniert
 
-1. **`extract_lines.mjs`** liest `index.html` (nur lesend!) und findet jede Sprecherzeile —
-   statische String-Literale wie `SPEAK('WAGNER', "...", "hinweis")` und die Cutscene-Segmente
-   (`'SPRECHER|Text|Hinweis'`-Format, siehe `df3c318`). Schreibt eine flache Liste
+1. **`extract_lines.mjs`** liest `index.html` (nur lesend!) und findet jede Sprecherzeile — bevorzugt
+   über `window.collectVoiceLines()` im laufenden Spiel (headless via `tools/hbrun.mjs`), sonst statisch:
+   String-Literale `'SPRECHER|Text|Hinweis'` (siehe `df3c318`), rein literale Ternär-Verkettungen wie
+   `'WAGNER|Fahrwerk '+(c?'ausgefahren':'eingefahren')+'.'` (beide Varianten) und die Cutscene-Bodies
+   (`<span class="who">NAME:</span> „…"` = Sprecher, Rest = NARRATOR). Zeilen mit Laufzeitwerten
+   (Zahlen, Namen) bleiben stumm. Schreibt eine flache Liste
    `{speaker, text, say, hint, key}` nach `lines.json`. `key` ist FNV-1a(32) von
    `speaker + "|" + text` (Hinweis zählt nicht mit) — **muss** mit dem `voiceKey`, das das Spiel
    selbst berechnet, übereinstimmen, sonst findet die Laufzeit den Clip nicht.
@@ -58,7 +69,7 @@ Pfade).
 | Engine | Lizenz | Verwendet für |
 |---|---|---|
 | Chatterbox Multilingual TTS | MIT | alle menschlichen/klonbaren Sprecher (WAGNER, LÄRCHE, SEPP, WIGGERL, NARRATOR, KELLER, KIEBITZ, "?") |
-| Piper (ONNX-Voices) | MIT | HELIOS, STIMME (bewusst synthetisch/nicht-menschlich) |
+| Piper (ONNX-Voices) | Code MIT, Stimmen je nach Datensatz (s. u.) | HELIOS, STIMME (bewusst synthetisch/nicht-menschlich) |
 | XTTS-v2 | Coqui Public Model License (nicht-kommerziell) | **nicht verwendet** — siehe `report/bakeoff.md` |
 | F5-TTS + `aihpi/F5-TTS-German` | Basis-Code MIT, Fine-tune-Checkpoint CC-BY-NC-4.0 | **nicht verwendet** — siehe `report/bakeoff.md` |
 | Qwen3-TTS | Apache-2.0 | in `setup.ps1` vorbereitet, nicht mehr getestet — nicht verwendet |
@@ -73,12 +84,18 @@ Kurzfassung:
 
 - `refs/thorsten/*.wav` — echte menschliche Aufnahmen aus dem **CC0**-Datensatz
   `Thorsten-Voice/TV-44kHz-Full` (Subset `TV-2021.06-Emotional`) auf HuggingFace.
-- `refs/piper/*.wav` — selbst generiert, indem MIT-lizenzierte Piper-Stimmen
-  (`rhasspy/piper-voices`) einen kurzen Satz vorlesen. Keine zusätzliche Aufnahme einer realen
-  Person; die Ausgabe eines bereits permissiv lizenzierten Modells wird hier als Klon-Prompt
-  wiederverwendet.
-
-Beide Quellen sind damit für ein potenziell kommerzielles Spiel unbedenklich.
+- `refs/piper/*.wav` — selbst generiert, indem Piper-Stimmen (`rhasspy/piper-voices`, Code MIT)
+  einen kurzen Satz vorlesen. **Achtung, die Stimmen selbst haben die Lizenz ihres Trainingsdatensatzes**
+  (laut MODEL_CARD der jeweiligen Stimme, geprüft im Review):
+  - `kerstin` (KIEBITZ, officer_f) — Datensatz `rhasspy/dataset-voice-kerstin`, **CC0**.
+  - `thorsten-high` (HELIOS, STIMME, boss_ai) — Thorsten-Voice, **CC0**.
+  - `eva_k` (LÄRCHE, young_f), `karlsson` (WIGGERL, young_m), `ramona` (NARRATOR, narrator) —
+    **M-AILABS Speech Dataset** (MODEL_CARD: "License: See URL", caito.de). Nicht CC0: M-AILABS steht
+    unter einer eigenen, permissiven BSD-artigen Lizenz mit Namensnennung (das Audio stammt aus
+    gemeinfreien LibriVox-Lesungen). Für eine Veröffentlichung in den Credits nennen:
+    „Sprachreferenzen: M-AILABS Speech Dataset (Imdat Solak / caito.de), Thorsten-Voice (CC0), Kerstin (CC0)“ —
+    oder, falls strikt CC0 gewünscht, LÄRCHE/WIGGERL/NARRATOR auf `kerstin`/`thorsten_*`-Referenzen umcasten
+    und neu backen (`--speakers LÄRCHE,WIGGERL,NARRATOR --force`).
 
 ## Casting (`casting.json`)
 
