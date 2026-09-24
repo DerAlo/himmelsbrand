@@ -174,7 +174,6 @@
     background:linear-gradient(0deg, rgba(4,12,26,.76), rgba(4,12,26,.32)); border:1px solid rgba(140,190,255,.18); border-left:3px solid var(--brass); padding:10px 22px; }
   #radio .rspk { font-family:var(--font-display); color:var(--brass); font-weight:700; letter-spacing:.5px; }
   #radio.show { opacity:1; }
-  #radio.lift { bottom:184px; }   /* the takeoff/landing panel occupies h-170..h-74 */
   body.nosubs #radio { visibility:hidden; }   /* Untertitel aus (Einstellungen) */
   /* WAGNER — steady command-post blue-grey */
   #radio[data-spk="WAGNER"] { border-left-color:#9fc4e8; } #radio[data-spk="WAGNER"] .rspk{ color:#9fc4e8; }
@@ -5993,12 +5992,6 @@ function drawHUD(){
 
   // ---- TAKEOFF / LANDING panel (LANDING track — see drawLandingHUD in 16b) ----
   drawLandingHUD();
-  // Lift the subtitle box above the takeoff/landing panel while it is shown (class flip only on change)
-  const nearRunway = player.runway && !player.onGround &&
-    Math.hypot(player.obj.position.x-player.runway.x, player.obj.position.z-player.runway.z) < 2600 &&
-    player.obj.position.y - player.runway.y < 700;
-  const liftRadio = state==='playing' && (player.onGround || (player.gearDown && nearRunway));
-  if(dom.radio._lift!==liftRadio){ dom.radio._lift=liftRadio; dom.radio.classList.toggle('lift', liftRadio); }
 
   // Radar (bottom right — bottom centre belongs to subtitles + the takeoff/landing panel)
   const rr=68, rx=w-104, ry=h-106;
@@ -8612,7 +8605,7 @@ function drawLandingHUD(){
   if(state!=='playing' || !player.alive) return;
   const L=player._land, w=innerWidth, h=innerHeight, cx=w/2;
   const kmh=Math.round(player.speed*3.6);
-  const bw=300, bx=Math.max(16, w-bw-40), by=h-200;     // bottom right: clear of the radio subtitles and the jet
+  const bw=300, bx=Math.max(16, w-bw-40), by=player.onGround?h-232:h-278;   // bottom right, above the radar (box bottom <= h-182)
   if(player.onGround){
     const rollout = L.tdT<25;
     hctx.save();
