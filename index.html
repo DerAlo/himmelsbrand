@@ -6552,9 +6552,10 @@ function queueRadio(lines, gap){
   // ones left dead air); now the scheduler paces by actual clip/estimate duration, and gap
   // becomes the extra pause on top of that — converted from the old absolute value so
   // existing call sites (~3.2-3.6s, tuned for a ~2s line) still feel about right.
+  // The natural 0.26-0.68 s turn gap already reads as conversation; the old +0.6 s extra was dead air.
+  // ttl: a briefing waiting behind boss/story lines must not age out.
   if(!lines || !lines.length) return;
-  const extra = gap!=null ? Math.max(0, Math.min(1.2, gap-3.0)) : 0;   // 3.4 -> +0.4 s, 3.6 -> +0.6 s on top of the natural 0.26-0.68 s
-  Voice.lines(lines, {gap:extra});
+  Voice.lines(lines, {gap:0, ttl:40});
 }
 function updateRadio(dt){
   // legacy no-op: Voice paces + shows/hides subtitles itself via HOOKS.always (real time,
@@ -6728,7 +6729,7 @@ function checkMissionComplete(){
     }, 2600);
   }
 }
-function queueRadioNow(lines){ if(!lines) return; Voice.lines(lines, {prio:'crit', gap:0.4}); }   // mission-critical (win lines): never dropped
+function queueRadioNow(lines){ if(!lines) return; Voice.lines(lines, {prio:'crit', gap:0.15}); }   // mission-critical (win lines): never dropped
 // A failed PRIMARY objective (e.g. the escort dies) fails the whole mission.
 function checkMissionFailed(){
   if(!mission.active || mission.done) return;
@@ -7784,7 +7785,7 @@ function bark(ev, list, o){
   }
   const line=pickBark(ev, list); if(!line) return false;
   _barkEvT[ev]=t; if(!o.must) lastBarkT=t;
-  radio(line, {prio:o.must?'crit':'bark'});
+  radio(line, {prio:o.prio||(o.must?'crit':'bark'), ttl:o.ttl});
   return true;
 }
 function barkList(pool){ const c=barkCtx(); return pool[c] || pool[c==='BT'?'BT':(c==='EN'?'H1':(pool.H?'H':'H1'))] || pool.H || null; }
@@ -7874,7 +7875,11 @@ HOOKS.reset.push(()=>{ missionGen++; clearMidTimers(); _missionT0=null; });
 EV.on('takeoff', ()=>{
   if(_takeoffSeen) return; _takeoffSeen=true;
   _missionT0=performance.now(); _missionP0=mission.pausedMs||0;
-  if(!dispatch('airborne') && storyActive()) bark('takeoff', barkList(BARK_TAKEOFF), {must:true});
+  // briefing still running (quick takeoff): queue behind it instead of cutting into the conversation;
+  // the Kiebitz call is flavour then and may lapse
+  const busy=Voice.busy();
+  if(!dispatch('airborne', null, busy?{prio:'normal', ttl:30}:null) && storyActive())
+    bark('takeoff', barkList(BARK_TAKEOFF), busy?{must:true, prio:'normal', ttl:6}:{must:true});
 });
 EV.on('landReady', ()=>{
   if(dispatch('landReady')) return;
