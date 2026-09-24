@@ -6534,7 +6534,9 @@ function applyTimeOfDay(tod){
   for(const m of particleMaterials){ if(m.uniforms.fogColor) m.uniforms.fogColor.value.copy(scene.fog.color); }
   // the surf tint is added after lighting, so it needs the light level explicitly
   if(waterMat.userData.shader) waterMat.userData.shader.uniforms.uLightLevel.value = THREE.MathUtils.clamp(c.hemi/0.50, 0.07, 1.0);
-  buildEnvMap();      // the sky drives the reflections, so re-bake it when the sky changes
+  // the moon's direct specular on the glossy water clipped to white around the chase jet: widen + dim the path
+  waterMat.roughness = c.moon ? 0.55 : 0.30;
+  buildEnvMap();     // the sky drives the reflections, so re-bake it when the sky changes
 }
 
 /* ---------------------------------------------------------------------------
