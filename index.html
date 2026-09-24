@@ -37,6 +37,8 @@
   /* ---- DOM HUD ---- */
   .hud-el { position:fixed; z-index:6; pointer-events:none; text-shadow:0 0 6px rgba(0,0,0,.9); font-variant-numeric:tabular-nums; font-family:var(--font-display); display:none; }
   body.in-game .hud-el { display:block; }
+  /* pause / debrief overlay: hide the DOM HUD behind the translucent screen (canvas HUD stays, dimmed) */
+  body.overlay .hud-el, body.overlay #bosswrap, body.overlay #radio, body.overlay #killfeed { visibility:hidden; }
   #stat-left  { left:22px; top:20px; font-size:15px; line-height:1.7; padding:12px 18px 12px 16px; clip-path:polygon(0 0,100% 0,100% 100%,10px 100%,0 calc(100% - 10px));
                 background:linear-gradient(to right, rgba(3,10,20,.42), rgba(3,10,20,0) 82%); border-left:2px solid var(--hud-dim); }
   #stat-right { right:22px; top:20px; font-size:15px; text-align:right; line-height:1.7; padding:12px 16px 12px 18px; clip-path:polygon(0 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%);
@@ -63,7 +65,7 @@
   #wavebanner.on { transform:translateY(0) scale(1); }
   #subbanner { font-size:19px; color:#e8f0fa; margin-top:6px; opacity:0; transition:opacity .4s; letter-spacing:1.5px;}
 
-  #killfeed { position:fixed; right:22px; top:120px; z-index:6; text-align:right; }
+  #killfeed { position:fixed; right:22px; top:330px; z-index:6; text-align:right; max-width:40vw; }   /* top re-anchored under #stat-right by killMsg */
   .kill { color:var(--gold); font-family:var(--font-display); font-size:15px; font-weight:700; opacity:0; animation:killpop 2.2s ease forwards; text-shadow:0 0 8px rgba(0,0,0,.9);}
   @keyframes killpop { 0%{opacity:0; transform:translateX(20px);} 12%{opacity:1; transform:translateX(0);} 75%{opacity:1;} 100%{opacity:0;} }
 
@@ -88,10 +90,11 @@
   .btn:hover { transform:translateY(-2px); filter:brightness(1.06); box-shadow:0 12px 34px rgba(245,166,35,.55);}
   .btn:active { transform:translateY(1px); }
   .btn:focus-visible { outline:2px solid var(--hud); outline-offset:3px; }
-  .controls { margin-top:34px; max-width:640px; display:grid; grid-template-columns:1fr 1fr; gap:9px 34px; font-size:14px; color:#cfe6ff;}
-  .controls .k { display:inline-block; flex:none; min-width:74px; padding:2px 8px; margin-right:10px; border:1px solid rgba(255,255,255,.35); background:rgba(255,255,255,.06);
+  .controls { margin-top:34px; max-width:700px; display:grid; grid-template-columns:1fr 1fr; gap:9px 34px; font-size:14px; color:#cfe6ff;}
+  .controls .k { display:inline-block; flex:none; min-width:96px; padding:2px 8px; white-space:nowrap; border:1px solid rgba(255,255,255,.35); background:rgba(255,255,255,.06);
     font-family:var(--font-display); font-weight:600; text-align:center; color:#fff;}
-  .row { display:flex; flex-wrap:wrap; align-items:center; row-gap:6px; }
+  .row { display:flex; align-items:baseline; gap:10px; }
+  .row .d { flex:1; min-width:0; }
   #go-title { font-family:var(--font-display); font-size:56px; font-weight:700; letter-spacing:7px; color:#ff5a5a; text-shadow:0 0 30px rgba(255,0,0,.5); }
   #go-stats { font-size:20px; margin:18px 0 30px; color:#dfefff; text-align:center; line-height:1.7;}
   #go-stats b { color:var(--gold); font-family:var(--font-display); font-size:32px;}
@@ -101,6 +104,10 @@
 
   /* ---- Campaign / menu / briefing ---- */
   .screen { overflow-y:auto; }
+  #cut-choices { display:grid; grid-template-columns:1fr 1fr; gap:12px; }   /* story decision: both options above the fold */
+  #cut-choices .btn { padding:14px 18px; text-align:left; font-size:17px; letter-spacing:1.5px; }
+  #cut-choices .cnote { display:block; margin-top:6px; font-family:'Segoe UI', Roboto, system-ui, sans-serif; font-size:13px; font-weight:400; letter-spacing:.2px; line-height:1.45; opacity:.85; }
+  @media (max-width:760px){ #cut-choices { grid-template-columns:1fr; } }
   #cutscene { justify-content:flex-start; } #cutscene > .brief { margin:auto 0; }   /* long cutscenes (choice) scroll from the top instead of clipping the title */
   .screen::-webkit-scrollbar{ width:8px; } .screen::-webkit-scrollbar-thumb{ background:rgba(255,255,255,.2); border-radius:4px; }
   h1.title.brand { font-size:clamp(46px,8vw,86px); letter-spacing:12px;
@@ -112,6 +119,7 @@
     box-shadow:0 4px 18px rgba(30,80,160,.3), inset 0 1px 0 rgba(255,255,255,.18); border:1px solid rgba(150,200,255,.3); }
   .btn.small { padding:10px 28px; font-size:15px; letter-spacing:2px; }
   .backbtn { position:fixed; top:20px; left:22px; z-index:22; }
+  .btn.ghost.backbtn { background:linear-gradient(180deg,rgba(26,44,68,.96),rgba(10,20,36,.96)); }   /* opaque: stays readable over scrolled cards */
 
   /* mission select */
   #missionlist { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:16px; width:min(1040px,92vw); margin-top:10px; }
@@ -161,20 +169,20 @@
   .brief .objs .o { display:flex; align-items:center; gap:10px; font-size:15px; margin:7px 0; color:#dbe8f6; }
   .brief .objs .o .ic { width:22px; text-align:center; }
   .brief .prime { color:#fff; } .brief .sec { color:#9fb8d0; }
-  #hud-objectives { position:fixed; left:22px; top:238px; z-index:6; max-width:320px; }
-  .obj-line { font-size:14px; color:#dbe8f6; margin:4px 0; text-shadow:0 0 6px rgba(0,0,0,.9); letter-spacing:.5px; }
-  .obj-line .box { display:inline-block; width:14px; height:14px; border:1.5px solid #7dffb0; margin-right:8px; vertical-align:-2px; text-align:center; line-height:12px; font-size:11px; }
+  #hud-objectives { position:fixed; left:22px; top:238px; z-index:6; max-width:360px; }
+  .obj-line { display:flex; gap:8px; align-items:flex-start; font-size:14px; color:#dbe8f6; margin:4px 0; text-shadow:0 0 6px rgba(0,0,0,.9); letter-spacing:.5px; }
+  .obj-line .box { flex:none; margin-top:2px; width:14px; height:14px; border:1.5px solid #7dffb0; text-align:center; line-height:12px; font-size:11px; }
+  .obj-line .olbl { flex:1 1 auto; min-width:0; } .obj-line .ocnt { flex:none; white-space:nowrap; color:#fff; font-variant-numeric:tabular-nums; }
   .obj-line.done .box { background:#7dffb0; color:#04140b; }
   .obj-line.done { color:#7dffb0; opacity:.75; }
   .obj-line.fail .box { border-color:#ff5a5a; color:#ff5a5a; } .obj-line.fail { color:#ff8a8a; }
 
   /* ---- Radio / subtitles — per-speaker identity via [data-spk] ---- */
-  #radio { position:fixed; left:50%; bottom:64px; transform:translateX(-50%); z-index:7; width:min(700px,84vw); text-align:center;
+  #radio { position:fixed; left:50%; bottom:64px; transform:translateX(-50%); z-index:7; width:min(700px,84vw,calc(100vw - 360px)); text-align:center;
     font-size:17px; color:#cfe6ff; opacity:0; transition:opacity .3s, border-color .3s, bottom .35s; text-shadow:0 2px 10px rgba(0,0,0,.9); pointer-events:none;
     background:linear-gradient(0deg, rgba(4,12,26,.76), rgba(4,12,26,.32)); border:1px solid rgba(140,190,255,.18); border-left:3px solid var(--brass); padding:10px 22px; }
   #radio .rspk { font-family:var(--font-display); color:var(--brass); font-weight:700; letter-spacing:.5px; }
   #radio.show { opacity:1; }
-  #radio.lift { bottom:184px; }   /* the takeoff/landing panel occupies h-170..h-74 */
   body.nosubs #radio { visibility:hidden; }   /* Untertitel aus (Einstellungen) */
   /* WAGNER — steady command-post blue-grey */
   #radio[data-spk="WAGNER"] { border-left-color:#9fc4e8; } #radio[data-spk="WAGNER"] .rspk{ color:#9fc4e8; }
@@ -202,9 +210,10 @@
 
   .weapon-tab { position:fixed; left:22px; bottom:70px; z-index:6; font-size:13px; letter-spacing:1px; }
   .weapon-tab .wsel { color:var(--gold); font-weight:800; }
-  .bosswrap { position:fixed; left:50%; top:84px; transform:translateX(-50%); z-index:6; width:min(560px,80vw); display:none; }
+  .bosswrap { position:fixed; left:50%; top:84px; transform:translateX(-50%); z-index:6; width:min(560px,calc(100vw - 620px)); min-width:240px; display:none; }
   .bosswrap.show{ display:block; }
   .bosswrap .bname { font-family:var(--font-display); text-align:center; color:#ff8a8a; letter-spacing:3px; font-weight:700; font-size:15px; text-shadow:0 0 8px rgba(0,0,0,.9); }
+  .bosswrap .bsub { font-family:var(--font-display); text-align:center; color:#ffb3a8; letter-spacing:1.5px; font-weight:600; font-size:12px; margin-top:3px; text-shadow:0 0 6px rgba(0,0,0,.95); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .bossbar { height:12px; border:1px solid rgba(255,90,90,.7); background:rgba(30,0,0,.5); overflow:hidden; margin-top:3px; clip-path:polygon(6px 0,100% 0,100% 100%,0 100%,0 6px); }
   .bossbar > div { height:100%; width:100%; background:linear-gradient(90deg,#ff3020,#ff8a3d); transition:width .2s; box-shadow:0 0 18px rgba(255,60,30,.7); }
 
@@ -216,6 +225,12 @@
   .set-row + .set-row { margin-top:14px; }
   .set-label { font-family:var(--font-display); font-size:14px; letter-spacing:2px; color:#dbe8f6; }
   .set-label.sub { font-size:12px; color:#9fb8d0; letter-spacing:1.5px; }
+  .menu-mini { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+  .menu-mini .btn { font-size:12px; padding:8px 22px; opacity:.6; }
+  .touch-note { display:none; margin-top:14px; font-size:12px; letter-spacing:2px; color:#ffb86b; text-align:center; }
+  @media (pointer:coarse) { .touch-note { display:block; } }
+  .credits-list .set-group { padding:11px 0; }
+  .credits-list .cr { margin-top:6px; font-size:13px; line-height:1.6; color:#cfe0f2; letter-spacing:.2px; }
   .set-note { margin-top:8px; font-size:11px; color:#7dffb0; letter-spacing:1.5px; }
   .seg { display:flex; margin-top:10px; border:1px solid var(--hud-dim); overflow:hidden; }
   .seg-btn { flex:1; pointer-events:auto; cursor:pointer; border:none; background:transparent; color:#bcd4ee; font-family:var(--font-display);
@@ -266,7 +281,7 @@
   <div id="hud-objectives" class="hud-el"></div>
   <div id="radio"><span class="rspk"></span> <span class="rtext"></span></div>
   <div id="weapon-tab" class="hud-el weapon-tab"></div>
-  <div id="bosswrap" class="bosswrap"><div class="bname"></div><div class="bossbar"><div></div></div></div>
+  <div id="bosswrap" class="bosswrap"><div class="bname"></div><div class="bossbar"><div></div></div><div class="bsub"></div></div>
   <div class="credit" id="credit">Maus/​WASD = Lenken · Leertaste = MG · F = Rakete · H = LB-Rakete · G = Bombe · X = Waffe wechseln · Shift = Nachbrenner · V = Stimmen · P = Pause</div>
 
   <!-- Main Menu -->
@@ -274,6 +289,7 @@
     <div class="subbrand">JAGDGESCHWADER 7 · OPERATION</div>
     <h1 class="title brand">HIMMELSBRAND</h1>
     <div class="tag">DAS HELIOS-PROTOKOLL</div>
+    <div class="touch-note">⌨ TASTATUR &amp; MAUS ERFORDERLICH</div>
     <div class="menu-btns">
       <button id="btn-campaign" class="btn">▶ KAMPAGNE</button>
       <button id="btn-bteam" class="btn ghost small">🍺 DAS B-TEAM</button>
@@ -281,7 +297,10 @@
       <button id="btn-ace" class="btn ghost small hidden">ENDLOS · ASS-MODUS</button>
       <button id="btn-howto" class="btn ghost small">STEUERUNG</button>
       <button id="btn-settings" class="btn ghost small">⚙ EINSTELLUNGEN</button>
-      <button id="btn-reset" class="btn ghost small" style="font-size:12px; padding:8px 22px; opacity:.6">FORTSCHRITT ZURÜCKSETZEN</button>
+      <div class="menu-mini">
+        <button id="btn-credits" class="btn ghost small">MITWIRKENDE &amp; LIZENZEN</button>
+        <button id="btn-reset" class="btn ghost small">FORTSCHRITT ZURÜCKSETZEN</button>
+      </div>
     </div>
     <div id="menu-progress" class="subbrand" style="margin-top:20px; opacity:.85; font-size:13px"></div>
     <div class="tag" style="margin-top:16px; opacity:.6; max-width:640px; line-height:1.6; font-size:13px; letter-spacing:1px">
@@ -326,22 +345,23 @@
     <button class="btn ghost small backbtn" data-back="menu">‹ ZURÜCK</button>
     <h1 class="title" style="font-size:44px; letter-spacing:6px">STEUERUNG</h1>
     <div class="controls">
-      <div class="row"><span class="k">Maus</span> Lenken (hoch=steigen, links=links)</div>
-      <div class="row"><span class="k">W / S</span> Steigen / Sinken — voll herum = Looping</div>
-      <div class="row"><span class="k">A / D</span> Links / Rechts kurven</div>
-      <div class="row"><span class="k">Q / E</span> Feineinstellung Kurve</div>
-      <div class="row"><span class="k">Leert. / 🖱L</span> Maschinengewehr (roter Zielpunkt = Vorhalt)</div>
-      <div class="row"><span class="k">F</span> Rakete — <b style="color:var(--gold)">nur mit LOCK</b> lenkbar, sonst Geradeaus · <span class="k">🖱R</span> gewählte Sekundärwaffe</div>
-      <div class="row"><span class="k">H</span> LB-Rakete — gelenkt auf <b style="color:var(--gold)">Boden-Lock</b> (grün)</div>
-      <div class="row"><span class="k">G</span> Bombe abwerfen (Bodenziel)</div>
-      <div class="row"><span class="k">X</span> Waffe wechseln (Rakete/LB-Rakete/Bombe)</div>
-      <div class="row"><span class="k">B</span> Fahrwerk ein/aus (für die Landung)</div>
-      <div class="row"><span class="k">V</span> Funkstimmen an/aus (echte Sprachausgabe · standardmäßig AN)</div>
-      <div class="row"><span class="k">Shift</span> Nachbrenner / Vollgas am Boden</div>
-      <div class="row"><span class="k">Strg</span> Drosseln / Bremsen am Boden</div>
+      <div class="row"><span class="k">Maus</span><span class="d">Lenken (hoch=steigen, links=links)</span></div>
+      <div class="row"><span class="k">W / S</span><span class="d">Steigen / Sinken — voll herum = Looping</span></div>
+      <div class="row"><span class="k">A / D</span><span class="d">Links / Rechts kurven</span></div>
+      <div class="row"><span class="k">Q / E</span><span class="d">Feineinstellung Kurve</span></div>
+      <div class="row"><span class="k">Leert. / 🖱L</span><span class="d">Maschinengewehr (roter Zielpunkt = Vorhalt)</span></div>
+      <div class="row"><span class="k">F</span><span class="d">Rakete — <b style="color:var(--gold)">nur mit LOCK</b> lenkbar, sonst Geradeaus</span></div>
+      <div class="row"><span class="k">🖱R</span><span class="d">gewählte Sekundärwaffe</span></div>
+      <div class="row"><span class="k">H</span><span class="d">LB-Rakete — gelenkt auf <b style="color:var(--gold)">Boden-Lock</b> (grün)</span></div>
+      <div class="row"><span class="k">G</span><span class="d">Bombe abwerfen (Bodenziel)</span></div>
+      <div class="row"><span class="k">X</span><span class="d">Waffe wechseln (Rakete/LB-Rakete/Bombe)</span></div>
+      <div class="row"><span class="k">B</span><span class="d">Fahrwerk ein/aus (für die Landung)</span></div>
+      <div class="row"><span class="k">V</span><span class="d">Funkstimmen an/aus (echte Sprachausgabe · standardmäßig AN)</span></div>
+      <div class="row"><span class="k">Shift</span><span class="d">Nachbrenner / Vollgas am Boden</span></div>
+      <div class="row"><span class="k">Strg</span><span class="d">Drosseln / Bremsen am Boden</span></div>
     </div>
-    <div class="tag" style="margin-top:24px; opacity:.7; max-width:700px; line-height:1.6">
-      🎯 Halte den roten <b style="color:var(--gold)">Zielpunkt</b> aufs Ziel — „FEUER · GUNS“ heißt Treffer sicher. ·
+    <div class="tag" style="margin-top:24px; opacity:.7; max-width:700px; line-height:1.6; letter-spacing:.3px">
+      🎯 Halte den roten <b style="color:var(--gold)">Zielpunkt</b> aufs Ziel — „FEUER FREI“ heißt Treffer sicher. ·
       🚀 Raketen suchen <b style="color:var(--gold)">nur bei rotem LOCK</b>; ohne Lock fliegen sie gerade. ·
       💣 Bomben: tief & flach, den <b style="color:var(--gold)">CCIP-Kreis</b> aufs Ziel, dann <b style="color:var(--gold)">G</b>. ·
       ◈ LB-Raketen: Nase aufs Bodenziel bis <b style="color:var(--gold)">grüner LB-LOCK</b>, dann <b style="color:var(--gold)">H</b> — trifft aus Distanz. ·
@@ -382,20 +402,42 @@
       <button id="pause-menubtn" class="btn ghost small">HAUPTMENÜ</button>
     </div>
     <div class="controls" style="margin-top:26px">
-      <div class="row"><span class="k">Maus</span> Lenken (hoch=steigen, links=links)</div>
-      <div class="row"><span class="k">W / S</span> Steigen / Sinken — voll herum = Looping</div>
-      <div class="row"><span class="k">A / D</span> Links / Rechts kurven</div>
-      <div class="row"><span class="k">Q / E</span> Feineinstellung Kurve</div>
-      <div class="row"><span class="k">Leert. / 🖱L</span> Maschinengewehr (Zielpunkt = Vorhalt)</div>
-      <div class="row"><span class="k">F</span> Rakete (Luftziel) — nur mit LOCK lenkbar · <span class="k">🖱R</span> gewählte Sekundärwaffe</div>
-      <div class="row"><span class="k">H</span> LB-Rakete (Boden-Lock) · <span class="k">G</span> Bombe · <span class="k">X</span> Waffe wechseln</div>
-      <div class="row"><span class="k">Shift</span> Nachbrenner · <span class="k">Strg</span> Drosseln</div>
+      <div class="row"><span class="k">Maus</span><span class="d">Lenken (hoch=steigen, links=links)</span></div>
+      <div class="row"><span class="k">W / S</span><span class="d">Steigen / Sinken — voll herum = Looping</span></div>
+      <div class="row"><span class="k">A / D</span><span class="d">Links / Rechts kurven</span></div>
+      <div class="row"><span class="k">Q / E</span><span class="d">Feineinstellung Kurve</span></div>
+      <div class="row"><span class="k">Leert. / 🖱L</span><span class="d">Maschinengewehr (Zielpunkt = Vorhalt)</span></div>
+      <div class="row"><span class="k">F</span><span class="d">Rakete (Luftziel) — nur mit LOCK lenkbar</span></div>
+      <div class="row"><span class="k">🖱R</span><span class="d">gewählte Sekundärwaffe</span></div>
+      <div class="row"><span class="k">H</span><span class="d">LB-Rakete (Boden-Lock)</span></div>
+      <div class="row"><span class="k">G</span><span class="d">Bombe</span></div>
+      <div class="row"><span class="k">X</span><span class="d">Waffe wechseln</span></div>
+      <div class="row"><span class="k">Shift</span><span class="d">Nachbrenner</span></div>
+      <div class="row"><span class="k">Strg</span><span class="d">Drosseln</span></div>
     </div>
-    <div class="tag" style="margin-top:24px; opacity:.7; max-width:660px; line-height:1.6">
-      🎯 Roten <b style="color:var(--gold)">Zielpunkt</b> aufs Ziel halten — „FEUER · GUNS“ = sicherer Treffer ·
+    <div class="tag" style="margin-top:24px; opacity:.7; max-width:660px; line-height:1.6; letter-spacing:.3px">
+      🎯 Roten <b style="color:var(--gold)">Zielpunkt</b> aufs Ziel halten — „FEUER FREI“ = sicherer Treffer ·
       🚀 Raketen lenken <b style="color:var(--gold)">nur bei LOCK</b> ·
       👑 Boss: erst Türme/Pylonen, dann den <b style="color:var(--gold)">Kern</b> ·
       <b style="color:var(--gold)">Strg</b> = enger kurven
+    </div>
+  </div>
+
+  <!-- Credits & licences -->
+  <div id="credits" class="screen hidden">
+    <button class="btn ghost small backbtn" data-back="menu">‹ ZURÜCK</button>
+    <h1 class="title" style="font-size:40px; letter-spacing:5px">MITWIRKENDE &amp; LIZENZEN</h1>
+    <div class="settings-panel panel-cut credits-list">
+      <div class="set-group"><div class="set-label">SPIEL</div><div class="cr">Alfons Riedhammer</div></div>
+      <div class="set-group"><div class="set-label">ENGINE</div><div class="cr">three.js r128 inkl. EffectComposer &amp; UnrealBloomPass — MIT-Lizenz</div></div>
+      <div class="set-group"><div class="set-label">SCHRIFT</div><div class="cr">Space Grotesk — SIL Open Font License 1.1</div></div>
+      <div class="set-group"><div class="set-label">MUSIK &amp; KLANG</div><div class="cr">In Echtzeit im Browser synthetisiert (Web Audio)</div></div>
+      <div class="set-group"><div class="set-label">SPRACHSYNTHESE</div><div class="cr">Chatterbox Multilingual TTS (Resemble AI) — MIT-Lizenz<br>Piper (rhasspy) — MIT-Lizenz</div></div>
+      <div class="set-group"><div class="set-label">STIMMEN / REFERENZEN</div><div class="cr">
+        Thorsten-Voice (Thorsten Müller) — CC0<br>
+        Kerstin (rhasspy/dataset-voice-kerstin) — CC0<br>
+        M-AILABS Speech Dataset (Imdat Solak / caito.de) — BSD-artige Lizenz mit Namensnennung; Audio aus gemeinfreien LibriVox-Lesungen. Verwendet über die Piper-Stimmen eva_k, karlsson und ramona.
+      </div></div>
     </div>
   </div>
 
@@ -1438,7 +1480,7 @@ const Audio = (function(){
     warnGain = ctx.createGain(); warnGain.gain.value=0; warnOsc.connect(warnGain); warnGain.connect(master); warnOsc.start();
 
     // ---- Adaptive music bus + layers (all under SFX) ----
-    musicBus=ctx.createGain(); musicBus.gain.value=0.62; musicBus.connect(master);
+    musicBus=ctx.createGain(); musicBus.gain.value=hardDuck?0:musicLevel; musicBus.connect(master);
     padGain  =ctx.createGain(); padGain.gain.value=0.0;   padGain.connect(musicBus);
     bassGain =ctx.createGain(); bassGain.gain.value=0.0;  bassGain.connect(musicBus);
     arpGain  =ctx.createGain(); arpGain.gain.value=0.0;   arpGain.connect(musicBus);
@@ -1631,9 +1673,13 @@ const Audio = (function(){
   // setEngine leaves non-zero floors, so we need this when leaving gameplay/pausing.
   function silenceFlight(){ if(!enabled) return; const t=ctx.currentTime;
     for(const g of [subGain,whineGain,roarGain,airGain,warnGain]) if(g) g.gain.setTargetAtTime(0, t, 0.08); }
-  function duckMusic(on){ if(!enabled||!musicBus) return; musicBus.gain.setTargetAtTime(on?0.0:0.62, ctx.currentTime, 0.12); }
+  // Music level = 0.62 * user music volume (settings). Hard duck (pause) wins over the voice duck.
+  let musicLevel=0.62, hardDuck=false, vDuck=false;
+  const musicTarget=()=> hardDuck?0:(vDuck?musicLevel*0.35:musicLevel);
+  function setMusicLevel(v){ musicLevel=0.62*Math.max(0,Math.min(1,+v||0)); if(enabled&&musicBus) musicBus.gain.setTargetAtTime(musicTarget(), ctx.currentTime, 0.12); }
+  function duckMusic(on){ hardDuck=!!on; if(!enabled||!musicBus) return; musicBus.gain.setTargetAtTime(musicTarget(), ctx.currentTime, 0.12); }
   // Softer duck for speech (VOICE): ~35% instead of silent, so a line reads clearly without killing the score.
-  function voiceDuck(on){ if(!enabled||!musicBus) return; musicBus.gain.setTargetAtTime(on?0.62*0.35:0.62, ctx.currentTime, on?0.15:0.4); }
+  function voiceDuck(on){ vDuck=!!on; if(!enabled||!musicBus||hardDuck) return; musicBus.gain.setTargetAtTime(musicTarget(), ctx.currentTime, on?0.15:0.4); }
   function reload(){ blip(500,0.08,'sine',0.2,800); setTimeout(()=>blip(700,0.1,'sine',0.2,1000),90); }
   function bombDrop(){ noiseBurst(0.25,0.35,900); blip(300,0.2,'sine',0.18,90); }
   function samLaunch(pan){ const d=panNode(pan); noiseBurst(0.6,0.4,1200,'lowpass',d); blip(500,0.6,'sawtooth',0.2,140,d); }
@@ -1699,7 +1745,7 @@ const Audio = (function(){
     bogey:bogeyGain?bogeyGain.gain.value:0, missileVoices:missileVoiceCount }; }
 
   return { init, resume, setEngine, gun, missileLaunch, explosion, hit, hitTaken, lockTone, reload, bombDrop, samLaunch, warnBeep,
-    updateMusic, updateBogey, setStyle, silenceFlight, duckMusic, voiceDuck, startMissileSound, updateMissileSound, stopMissileSound, _debug,
+    updateMusic, updateBogey, setStyle, silenceFlight, duckMusic, voiceDuck, setMusicLevel, startMissileSound, updateMissileSound, stopMissileSound, _debug,
     // Extension points for sound code living in OTHER sections (landing, bosses, voice radio FX, ...):
     // build nodes on ctx() and connect them to out() (SFX master) or musicBus(). ctx() is null until init().
     ctx:()=> (enabled?ctx:null), out:()=>master, musicBus:()=>musicBus };
@@ -5591,7 +5637,8 @@ function toggleWeapon(){
   player.weapon=avail[(i+1)%avail.length];
   updateWeaponHUD();
 }
-function killMsg(txt){ const d=document.createElement('div'); d.className='kill'; d.textContent=txt; dom.killfeed.appendChild(d); setTimeout(()=>d.remove(),2300); }
+function killMsg(txt){ const sr=document.getElementById('stat-right').getBoundingClientRect(); if(sr.height) dom.killfeed.style.top=Math.round(sr.bottom+12)+'px';
+  const d=document.createElement('div'); d.className='kill'; d.textContent=txt; dom.killfeed.appendChild(d); setTimeout(()=>d.remove(),2300); }
 function fmtTime(s){ s=Math.max(0,Math.round(s)); const m=(s/60)|0; const r=s%60; return m+':'+(r<10?'0':'')+r; }
 function banner(main, sub){
   dom.wavebanner.textContent=main; dom.subbanner.textContent=sub||'';
@@ -5747,7 +5794,7 @@ function drawMissileThreats(cx,cy,w,h){
   hctx.fillStyle='rgba(40,4,4,0.55)'; hctx.fillRect(bx,by,bw,bh);
   hctx.strokeStyle=HUD_RED; hctx.lineWidth=1.5; hctx.strokeRect(bx+0.5,by+0.5,bw-1,bh-1);
   hctx.textAlign='center'; hctx.textBaseline='middle'; hctx.font=HF13B;
-  if(Math.sin(menuTime*20)>-0.3){ hctx.fillStyle=HUD_RED; hctx.fillText(near<1e8 ? '⚠ RAKETE  '+(near/1000).toFixed(1)+' km' : '⚠ RAKETENSTART', cx, by+bh/2+1); }
+  if(Math.sin(menuTime*20)>-0.3){ hctx.fillStyle=HUD_RED; hctx.fillText(near<1e8 ? '⚠ RAKETE  '+fmtKm(near) : '⚠ RAKETENSTART', cx, by+bh/2+1); }
   hctx.textAlign='left'; hctx.textBaseline='alphabetic';
   // edge vignette when a missile is close (<1.8 km): cheap thick translucent frame
   if(near<1800){
@@ -5795,6 +5842,7 @@ function drawHUD(){
 
   // target boxes for each enemy: corner brackets (full box only when locked), range in m / km
   const proj=_hudP;
+  let lockX=-1e4, lockTop=0, lockBot=0;   // locked box extent (label/diamond incl.) for the gun cue
   for(const e of enemies){
     proj.copy(e.obj.position).project(camera);
     const onScreen = proj.z<1 && proj.x>=-1 && proj.x<=1 && proj.y>=-1 && proj.y<=1;
@@ -5815,13 +5863,14 @@ function drawHUD(){
         hctx.strokeStyle=col; hctx.lineWidth=isLock?2.2:1.6;
       }
       hctx.font=HF11; hctx.textAlign='center';
-      hudText(dist<1000 ? Math.round(dist)+' m' : (dist/1000).toFixed(1)+' km', sx, sy-s2-6, col);
+      hudText(dist<1000 ? Math.round(dist)+' m' : fmtKm(dist), sx, sy-s2-6, col);
       if(e.isAce){ hctx.font=HF12; hudText('★ '+e.aceName, sx, sy+s2+(isLock?30:16), 'rgba(255,90,255,0.95)'); }
       if(isLock){
         hctx.strokeRect(sx-s2, sy-s2, size, size);
         hctx.font=HF12; hudText('◆ LOCK', sx, sy+s2+15, HUD_RED);
         // outer lock diamond, slowly rotating
         const b=size*0.62+10, ra=menuTime*1.6;
+        lockX=sx; lockTop=sy-Math.max(s2+18,b); lockBot=sy+Math.max(s2+22,b);
         hctx.save(); hctx.translate(sx,sy); hctx.rotate(ra); hctx.strokeStyle=HUD_RED; hctx.lineWidth=1.6;
         hctx.beginPath(); hctx.moveTo(0,-b); hctx.lineTo(b,0); hctx.lineTo(0,b); hctx.lineTo(-b,0); hctx.closePath(); hctx.stroke();
         hctx.restore();
@@ -5865,11 +5914,13 @@ function drawHUD(){
       const clo=Math.max(-2000,Math.min(2000,Math.round(gunSolution.closure*3.6)));   // closure km/h, clamped
       hctx.fillStyle='rgba(200,220,240,0.75)';
       hctx.fillText((clo>=0?'▲':'▼')+Math.abs(clo)+' km/h', px+22, py+9);
-      // big status cue under the center reticle
+      // big status cue above the center reticle, clear of the lock box/diamond of a centred target
+      let cueY=cy-100;
+      if(Math.abs(lockX-cx)<200 && cueY>lockTop-14 && cueY<lockBot+14) cueY = lockTop-14>70 ? lockTop-14 : Math.max(cy+70, lockBot+18);
       hctx.textAlign='center'; hctx.font=HF16B;
-      if(onTgt){ hctx.fillStyle='rgba(120,255,120,0.98)'; hctx.fillText('◄ FEUER · GUNS ►', cx, cy-44); }
-      else if(near){ hctx.font=HF13B; hudText('IN REICHWEITE — auf Zielpunkt halten', cx, cy-44, 'rgba(255,120,120,0.95)'); }
-      else { hctx.font=HF12; hudText('außer Reichweite ('+Math.round(gunSolution.dist)+' m)', cx, cy-44, 'rgba(255,210,110,0.9)'); }
+      if(onTgt){ hudText('◄ FEUER FREI ►', cx, cueY, 'rgba(120,255,120,0.98)'); }
+      else if(near){ hctx.font=HF13B; hudText('IN REICHWEITE — auf Zielpunkt halten', cx, cueY, 'rgba(255,120,120,0.95)'); }
+      else { hctx.font=HF12; hudText('außer Reichweite ('+Math.round(gunSolution.dist)+' m)', cx, cueY, 'rgba(255,210,110,0.9)'); }
       hctx.textAlign='left';
     }
   }
@@ -5943,7 +5994,7 @@ function drawHUD(){
     if(bp.z<1){ const bx=(bp.x*0.5+0.5)*w, by=(-bp.y*0.5+0.5)*h;
       hctx.strokeStyle=boss.exposed?'rgba(255,50,50,0.95)':'rgba(255,180,60,0.5)'; hctx.lineWidth=2.5;
       hctx.beginPath(); hctx.arc(bx,by,boss.exposed?20:14,0,Math.PI*2); hctx.stroke();
-      if(boss.exposed){ hctx.fillStyle='rgba(255,50,50,0.95)'; hctx.font='bold 12px monospace'; hctx.textAlign='center'; hctx.fillText('SCHWACHSTELLE', bx, by-26); hctx.textAlign='left'; } }
+      if(boss.exposed){ hctx.fillStyle='rgba(255,50,50,0.95)'; hctx.font=HF12; hctx.textAlign='center'; hctx.fillText('SCHWACHSTELLE', bx, by-26); hctx.textAlign='left'; } }
   }
   // CCIP: predict bomb impact point and draw a falling reticle (only with bomb selected)
   if(player.weapon==='bomb' && player.bombs>0 && state==='playing'){
@@ -5962,9 +6013,8 @@ function drawHUD(){
   }
   // SAM launch warning
   if(samWarnActive && state==='playing'){
-    hctx.fillStyle='rgba(255,60,60,'+(0.55+0.35*Math.sin(menuTime*12))+')';
     hctx.font=HF22B; hctx.textAlign='center';
-    hctx.fillText('⚠ SAM — RAKETENWARNUNG', cx, h-150); hctx.textAlign='left';
+    hudText('⚠ SAM — RAKETENWARNUNG', cx, h-150, 'rgba(255,60,60,'+(0.75+0.25*Math.sin(menuTime*12))+')'); hctx.textAlign='left';
   }
 
   // ---- B-Team pilot mechanic HUD ----
@@ -5990,12 +6040,6 @@ function drawHUD(){
 
   // ---- TAKEOFF / LANDING panel (LANDING track — see drawLandingHUD in 16b) ----
   drawLandingHUD();
-  // Lift the subtitle box above the takeoff/landing panel while it is shown (class flip only on change)
-  const nearRunway = player.runway && !player.onGround &&
-    Math.hypot(player.obj.position.x-player.runway.x, player.obj.position.z-player.runway.z) < 2600 &&
-    player.obj.position.y - player.runway.y < 700;
-  const liftRadio = state==='playing' && (player.onGround || (player.gearDown && nearRunway));
-  if(dom.radio._lift!==liftRadio){ dom.radio._lift=liftRadio; dom.radio.classList.toggle('lift', liftRadio); }
 
   // Radar (bottom right — bottom centre belongs to subtitles + the takeoff/landing panel)
   const rr=68, rx=w-104, ry=h-106;
@@ -6096,13 +6140,16 @@ function nextWaveCheck(dt){
 }
 
 /* ===== Screen navigation ===== */
-const SCREENS=['menu','missionselect','briefing','brotzeit','howto','start','gameover','pause','cutscene','settings'];
+const SCREENS=['menu','missionselect','briefing','brotzeit','howto','start','gameover','pause','cutscene','settings','credits'];
 function showScreen(id){
   for(const s of SCREENS){ const el=document.getElementById(s); if(el) el.classList.add('hidden'); }
   if(id){ const el=document.getElementById(id); if(el) el.classList.remove('hidden'); }
   // The DOM HUD readouts should only show during actual gameplay (id===null means
   // "no menu overlay" = in game or paused). Gate them with a body class.
   document.body.classList.toggle('in-game', id===null);
+  // controls hint only on the main menu (STEUERUNG/PAUSE list the controls; in game it covers terrain + radar label)
+  const cr=document.getElementById('credit'); if(cr) cr.style.display = id==='menu' ? '' : 'none';
+  document.body.classList.remove('overlay');
 }
 function gotoMenu(){
   state='menu'; gameMode='menu'; mission.active=false;
@@ -6241,7 +6288,8 @@ function gameOver(victory){
     restartBtn.textContent='↻ NOCHMAL'; restartBtn.onclick=()=>startEndless(endlessMod);
   }
   const delay = victory?400:900;
-  setTimeout(()=>document.getElementById('gameover').classList.remove('hidden'), delay);
+  setTimeout(()=>{ if(state!=='gameover') return;   // player already moved on (restart/menu)
+    document.getElementById('gameover').classList.remove('hidden'); document.body.classList.add('overlay'); }, delay);
 }
 
 // Interstitial story screen. `after` is a callback run when the player continues.
@@ -6268,8 +6316,8 @@ function showCutscene(key, after){
   if(cs.isChoice && cs.choices){
     contBtn.classList.add('hidden');
     for(const ch of cs.choices){
-      const b=document.createElement('button'); b.className='btn ghost'; b.style.textAlign='left';
-      b.innerHTML=`<b>${ch.label}</b><br><span style="font-size:12px;opacity:.7;font-weight:400">${ch.note}</span>`;
+      const b=document.createElement('button'); b.className='btn ghost';
+      b.innerHTML=`<b>${ch.label}</b><span class="cnote">${ch.note}</span>`;
       b.onclick=()=>{ Voice.stop(); storyChoice=ch.key; SAVE.storyChoice=ch.key; persistSave(); advance&&advance(); };
       choicesEl.appendChild(b);
     }
@@ -6281,7 +6329,7 @@ function showCutscene(key, after){
   // Derived live from the shown body (cutsceneSegments), so dynamic ending variants speak
   // correctly with no precomputed clip-key table to keep in sync.
   Voice.playCutscene(body);
-  showScreen('cutscene');
+  showScreen('cutscene'); document.getElementById('cutscene').scrollTop=0;
 }
 
 const pauseScreen=document.getElementById('pause');
@@ -6295,12 +6343,12 @@ function pauseGame(){
   const info = gameMode==='campaign' ? `${mission.def.name.toUpperCase()} · STRUKTUR ${struc}%`
                                      : `WELLE ${wave} · ${score} PUNKTE · STRUKTUR ${struc}%`;
   document.getElementById('pause-stats').textContent = info;
-  pauseScreen.classList.remove('hidden');
+  pauseScreen.classList.remove('hidden'); document.body.classList.add('overlay');
 }
 function resumeGame(){ if(state!=='paused') return;
   if(mission.active && mission.pauseStart){ mission.pausedMs+=performance.now()-mission.pauseStart; mission.pauseStart=0; }
   Audio.duckMusic(false);   // engine/lock re-drive themselves once playing again
-  pauseScreen.classList.add('hidden'); state='playing'; }
+  pauseScreen.classList.add('hidden'); document.body.classList.remove('overlay'); state='playing'; }
 function togglePause(){ if(state==='playing') pauseGame(); else if(state==='paused') resumeGame(); }
 
 /* ===== Menu wiring ===== */
@@ -6322,7 +6370,7 @@ function buildMissionList(){
       `<span class="mtod ${m.tod||'day'}">${TOD_NAME[m.tod]||TOD_NAME.day}</span>`+
       `<div class="mdesc">${m.objectives.filter(o=>o.primary).map(o=>o.label).join(' · ')}</div>`+
       `<div class="mstars">`+[0,1,2].map(k=>`<span class="${rec&&k<rec.stars?'on':''}">${rec&&k<rec.stars?'★':'☆'}</span>`).join('')+
-        (rec?`<span class="mbest">BEST ${rec.bestScore} · ${fmtTime(rec.bestTime)}</span>`:'')+`</div>`+
+        (rec?`<span class="mbest">REKORD ${rec.bestScore} · ${fmtTime(rec.bestTime)}</span>`:'')+`</div>`+
       (reached?'':'<div class="mlock" title="Noch nicht in der Story erreicht — trotzdem spielbar">⚑</div>');
     card.onclick=()=>openBriefing(i);
     wrap.appendChild(card);
@@ -6342,7 +6390,7 @@ function openBriefing(i){
     if(m.cutsceneBefore && !SAVE.seenProlog){ SAVE.seenProlog=true; persistSave(); showCutscene(m.cutsceneBefore, doLaunch); }
     else doLaunch();
   });
-  showScreen('briefing');
+  showScreen('briefing'); document.getElementById('briefing').scrollTop=0;
 }
 function openBrotzeit(i){
   const wrap=document.getElementById('brotzeit-opts'); wrap.innerHTML='';
@@ -6366,7 +6414,7 @@ function refreshMenu(){
 function openCampaign(id){
   campaignId=id; activeCampaign = (id==='bteam') ? BTEAM_CAMPAIGN : CAMPAIGN;
   const sub=document.getElementById('ms-subbrand'); if(sub) sub.textContent = (id==='bteam') ? 'DAS B-TEAM' : 'KAMPAGNE';
-  buildMissionList(); refreshMenu(); showScreen('missionselect');
+  buildMissionList(); refreshMenu(); showScreen('missionselect'); document.getElementById('missionselect').scrollTop=0;
 }
 document.getElementById('btn-campaign').onclick=()=>openCampaign('helios');
 document.getElementById('btn-bteam').onclick=()=>openCampaign('bteam');
@@ -6374,6 +6422,7 @@ document.getElementById('btn-endless').onclick=()=>startEndless();
 document.getElementById('btn-ace').onclick=()=>startEndless('ace');
 document.getElementById('btn-howto').onclick=()=>showScreen('howto');
 document.getElementById('btn-reset').onclick=()=>{ if(confirm('Gesamten Fortschritt wirklich löschen?')){ SAVE=DEFAULT_SAVE(); campaignUnlocked=1; bteamUnlocked=1; storyChoice=null; persistSave(); buildMissionList(); refreshMenu(); } };
+document.getElementById('btn-credits').onclick=()=>{ showScreen('credits'); document.getElementById('credits').scrollTop=0; };
 document.querySelectorAll('.backbtn').forEach(b=> b.onclick=()=>{ const t=b.getAttribute('data-back'); if(t==='missionselect'){ buildMissionList(); } showScreen(t); });
 document.getElementById('restartbtn').onclick=()=>startEndless();  // default; overwritten per-context in gameOver
 document.getElementById('resumebtn').onclick=()=>resumeGame();
@@ -6391,18 +6440,8 @@ function gfxLabel(l){ return l==='high'?'HOCH': l==='medium'?'MITTEL': l==='low'
 function subsOn(){ try{ return localStorage.getItem(SUBS_KEY)!=='0'; }catch(e){ return true; } }
 function setSubsOn(on){ try{ localStorage.setItem(SUBS_KEY, on?'1':'0'); }catch(e){} }
 function musicVol(){ try{ const v=localStorage.getItem(MUSICVOL_KEY); return v===null?1:Math.max(0,Math.min(1,parseFloat(v))); }catch(e){ return 1; } }
-// Music volume scales the music bus' un-ducked level (0.62). Audio.duckMusic(false) resets the
-// bus to 0.62 on every menu/mission/resume, so wrap the public duckMusic to re-apply the scale.
-let musicDucked=false;
-function applyMusicGain(){
-  const c=Audio.ctx&&Audio.ctx(), mb=Audio.musicBus&&Audio.musicBus();
-  if(!c||!mb||!mb.gain||musicDucked) return;
-  mb.gain.cancelScheduledValues(c.currentTime); mb.gain.setTargetAtTime(0.62*musicVol(), c.currentTime, 0.12);
-}
-if(typeof Audio.duckMusic==='function'){
-  const _duck=Audio.duckMusic;
-  Audio.duckMusic=function(on){ musicDucked=!!on; const r=_duck.apply(this, arguments); if(!on) applyMusicGain(); return r; };
-}
+// Music volume scales the music bus level inside Audio (duckMusic/voiceDuck both honour it).
+function applyMusicGain(){ if(Audio.setMusicLevel) Audio.setMusicLevel(musicVol()); }
 function setMusicVol(v){
   v=Math.max(0,Math.min(1,v));
   try{ localStorage.setItem(MUSICVOL_KEY, String(v)); }catch(e){}
@@ -6463,6 +6502,11 @@ addEventListener('keydown', e=>{
   if(settingsEl.classList.contains('hidden') || (e.code!=='Escape' && e.code!=='KeyP')) return;
   e.stopImmediatePropagation(); closeSettings();
 }, true);
+// Strg is taught as brake/tight turn next to WASD: swallow the cancellable browser shortcuts
+// (Ctrl+D/S/E/F/G/H/P...) mid-flight; Ctrl+W can't be cancelled, so ask before leaving a live mission.
+const CTRL_GUARD=['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE','KeyF','KeyG','KeyH','KeyX','KeyB','KeyP'];
+addEventListener('keydown', e=>{ if(state==='playing' && (e.ctrlKey||e.metaKey) && CTRL_GUARD.includes(e.code)) e.preventDefault(); });
+addEventListener('beforeunload', e=>{ if(state==='playing'||state==='paused'){ e.preventDefault(); e.returnValue=''; } });
 function applySubsClass(){ document.body.classList.toggle('nosubs', !subsOn()); }
 applySubsClass();
 document.getElementById('btn-settings').onclick=()=>openSettings('menu');
@@ -6554,8 +6598,8 @@ function renderObjectives(){
   dom.objectives.innerHTML = mission.objectives.map(o=>{
     const cls = o.done?'done':(o.failed?'fail':'');
     const mark = o.done?'✓':(o.failed?'✕':'');
-    const prog = (o.count&&!o.done)?` ${o.progress}/${o.count}`:'';
-    return `<div class="obj-line ${cls}"><span class="box">${mark}</span>${o.label}${prog}</div>`;
+    const prog = (o.count&&!o.done)?`<span class="ocnt">${o.progress}/${o.count}</span>`:'';
+    return `<div class="obj-line ${cls}"><span class="box">${mark}</span><span class="olbl">${o.label}</span>${prog}</div>`;
   }).join('');
 }
 
@@ -7237,10 +7281,10 @@ function bossPhaseLabel(left){
   if(b.kind==='himmelszelt') return left>0 ? `${left} × TURM BRECHEN` : '① KERN FREI — O\'ZAPFT IS';
   return '';
 }
-let _bbFill=null, _bbName=null;
+let _bbFill=null, _bbName=null, _bbSub=null;
 function updateBossBar(){
   if(!boss) return;
-  if(!_bbFill){ _bbFill=dom.bosswrap.querySelector('.bossbar>div'); _bbName=dom.bosswrap.querySelector('.bname'); }
+  if(!_bbFill){ _bbFill=dom.bosswrap.querySelector('.bossbar>div'); _bbName=dom.bosswrap.querySelector('.bname'); _bbSub=dom.bosswrap.querySelector('.bsub'); }
   let left=0; for(const p of boss.parts) if(!p.dead) left++;
   const barW = boss.dead ? 0 : (boss.exposed || boss.phase>=2)
     ? Math.max(0, boss.hp/boss.maxhp*100)
@@ -7252,8 +7296,9 @@ function updateBossBar(){
   const lk=left*64 + boss.phase*8 + (boss.lamOpen>0.5?4:0) + (boss.chamberOpen?2:0) + (boss.dead?1:0);
   if(boss._barLk!==lk || boss._barLh!==hud){
     boss._barLk=lk; boss._barLh=hud;
-    const label = boss.name + '  —  ' + (hud || bossPhaseLabel(left));
-    if(boss._barL!==label){ boss._barL=label; _bbName.textContent=label; }
+    // boss name on top, phase / event hint on a smaller line under the bar
+    const sub = hud || bossPhaseLabel(left), label = boss.name + '|' + sub;
+    if(boss._barL!==label){ boss._barL=label; _bbName.textContent=boss.name; if(_bbSub) _bbSub.textContent=sub; }
   }
 }
 
@@ -8674,13 +8719,13 @@ function drawLandingHUD(){
   if(state!=='playing' || !player.alive) return;
   const L=player._land, w=innerWidth, h=innerHeight, cx=w/2;
   const kmh=Math.round(player.speed*3.6);
-  const bw=300, bx=Math.max(16, w-bw-40), by=h-200;     // bottom right: clear of the radio subtitles and the jet
+  const bw=300, bx=Math.max(16, w-bw-40), by=player.onGround?h-232:h-278;   // bottom right, above the radar (box bottom <= h-182)
   if(player.onGround){
     const rollout = L.tdT<25;
     hctx.save();
     hctx.fillStyle='rgba(4,12,20,0.6)'; hctx.fillRect(bx-12,by-20,bw+24,70);
     hctx.strokeStyle='rgba(125,200,255,0.5)'; hctx.strokeRect(bx-12,by-20,bw+24,70);
-    hctx.font='11px monospace'; hctx.textAlign='left';
+    hctx.font=HF11; hctx.textAlign='left';
     if(rollout){
       hctx.fillStyle='#bfe0ff'; hctx.fillText('AUSROLLEN', bx, by-4);
       hctx.fillStyle='#fff'; hctx.fillText(kmh+' km/h', bx+bw-70, by-4);
@@ -8720,13 +8765,13 @@ function drawLandingHUD(){
   if(fpmOk){
     hctx.strokeStyle='#7dffb0'; hctx.beginPath(); hctx.arc(fx,fy,6,0,Math.PI*2);
     hctx.moveTo(fx-15,fy); hctx.lineTo(fx-6,fy); hctx.moveTo(fx+6,fy); hctx.lineTo(fx+15,fy); hctx.moveTo(fx,fy-6); hctx.lineTo(fx,fy-12); hctx.stroke();
-    if(L.flareK>0.15){ hctx.fillStyle='#ffe27a'; hctx.font='bold 13px monospace'; hctx.textAlign='center'; hctx.globalAlpha=Math.min(1,L.flareK*1.5);
+    if(L.flareK>0.15){ hctx.fillStyle='#ffe27a'; hctx.font=HF13B; hctx.textAlign='center'; hctx.globalAlpha=Math.min(1,L.flareK*1.5);
       hctx.fillText('ABFANGEN', fx, fy-20); hctx.globalAlpha=1; }
   }
   // panel
   hctx.fillStyle='rgba(4,12,20,0.6)'; hctx.fillRect(bx-12,by-20,bw+24,116);
   hctx.strokeStyle='rgba(125,200,255,0.5)'; hctx.strokeRect(bx-12,by-20,bw+24,116);
-  hctx.font='11px monospace'; hctx.textAlign='left';
+  hctx.font=HF11; hctx.textAlign='left';
   hctx.fillStyle='#bfe0ff'; hctx.fillText('LANDEANFLUG', bx, by-4);
   hctx.fillStyle='#fff'; hctx.fillText(info.distToThr>0?'SCHWELLE '+fmtKm(info.distToThr):'ÜBER DER BAHN', bx+110, by-4);
   const sOk = sink<=CFG.touchGood, sHard = sink<=CFG.touchHard;
@@ -8881,7 +8926,7 @@ function updateMissiles(dt){
   }
 }
 
-const COMBO_CALL=['','','DOPPELKILL!','TRIPLE KILL!','QUAD KILL!','RAMPAGE!','UNAUFHALTSAM!','LEGENDÄR!'];
+const COMBO_CALL=['','','DOPPELKILL!','DREIFACHKILL!','VIERFACHKILL!','NICHT ZU BREMSEN!','UNAUFHALTSAM!','LEGENDÄR!'];
 function killEnemy(e){
   const idx=enemies.indexOf(e); if(idx<0) return;
   if(e.wing){ e.wing.wing=null; e.wing.pinRole=null; }   // un-pair a pincer partner
@@ -8896,8 +8941,8 @@ function killEnemy(e){
   const mult=Math.min(combo,5);
   if(e.isAce){
     const gain=1500; score+=gain; dom.score.textContent=score;
-    killMsg('★ ACE ZERSTÖRT: '+e.aceName+'  +'+gain);
-    banner('ACE ABGESCHOSSEN', e.aceName);
+    killMsg('★ ASS ZERSTÖRT: '+e.aceName+'  +'+gain);
+    banner('ASS ABGESCHOSSEN', e.aceName);
     player.hp=Math.min(player.maxHp, player.hp+15);
     player.missiles=CFG.missileMax; player.missileRegen=0; updateMissileHUD();   // rearm on the marquee kill — closes the resource loop
     Audio.reload();
