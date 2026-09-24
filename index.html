@@ -1730,15 +1730,20 @@ GFX.onChange(applyShadowLevel);
 
 // The frustum rides with the player, snapped to whole shadow-map texels so the shadow
 // doesn't shimmer as the light (repositioned every frame to stay centred) glides along.
+// Snapping happens in LIGHT space (the shadow camera's own right/up axes, which three
+// derives via lookAt with up=+Y): snapping world x/z does not align with an oblique light.
+const _shR=new THREE.Vector3(), _shU=new THREE.Vector3(), _shC=new THREE.Vector3(), _shY=new THREE.Vector3(0,1,0);
 function updateSunShadow(){
   if(!sun.castShadow || !player.obj) return;
   const cfg=SHADOW_CFG[GFX.level()]; if(!cfg) return;
   const texel=(cfg.half*2)/cfg.size;
-  const px=Math.round(player.obj.position.x/texel)*texel;
-  const pz=Math.round(player.obj.position.z/texel)*texel;
-  const py=Math.round((terrainHeight(px,pz)+50)/texel)*texel;
-  sunTarget.position.set(px,py,pz);
-  sun.position.set(px,py,pz).addScaledVector(sunDir,1400);
+  const p=player.obj.position;
+  _shC.set(p.x, terrainHeight(p.x,p.z)+50, p.z);
+  _shR.crossVectors(_shY, sunDir).normalize(); _shU.crossVectors(sunDir, _shR);
+  const a=_shC.dot(_shR), b=_shC.dot(_shU), sa=Math.round(a/texel)*texel, sb=Math.round(b/texel)*texel;
+  _shC.addScaledVector(_shR, sa-a).addScaledVector(_shU, sb-b);
+  sunTarget.position.copy(_shC);
+  sun.position.copy(_shC).addScaledVector(sunDir,1400);
 }
 HOOKS.always.push(()=>updateSunShadow());
 
