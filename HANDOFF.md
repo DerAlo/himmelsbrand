@@ -1,7 +1,8 @@
 # HANDOFF — Projektübergabe (HIMMELSBRAND + alo-tower Musik-KI)
 
 > Vollständige Wissens- und Statusübergabe, damit auf anderen Geräten / mit anderen Agents nahtlos
-> weitergearbeitet werden kann. Stand: Commit `952baba` (main). Zwei getrennte Projekte:
+> weitergearbeitet werden kann. Stand: nach dem großen Overhaul (Grafik, Sprachausgabe, Landung, Story,
+> Bosse, UI) im September 2026, `main` auf GitHub. Zwei getrennte Projekte:
 > **(A) HIMMELSBRAND** — Browser-Flugsimulator (dieses Repo). **(B) alo-tower** — lokale Musik-KI
 > (ACE-Step + YuE) auf einem Windows-GPU-Tower, ferngesteuert per MCP/Web-UI.
 
@@ -16,10 +17,10 @@
   - [A6. Bosse](#a6-bosse)
   - [A7. Kampagnen-Runtime & Missionen](#a7-kampagnen-runtime--missionen)
   - [A8. Das B-Team (Komödien-Kampagne)](#a8-das-b-team)
-  - [A9. Audio (Musik + Engine + TTS)](#a9-audio)
-  - [A10. HUD, Progress/Save, Juice](#a10-hud-progresssave-juice)
+  - [A9. Audio (Musik + Engine + Sprachausgabe)](#a9-audio)
+  - [A10. HUD, Einstellungen, Grafikstufen, Save, Juice](#a10-hud-progresssave-juice)
   - [A11. Balance-Stand](#a11-balance-stand)
-  - [A12. Testen (headless Chrome via CDP)](#a12-testen)
+  - [A12. Testen (headless Chrome via CDP, `tools/`)](#a12-testen)
 - [B. alo-tower – lokale Musik-KI](#b-alo-tower--lokale-musik-ki)
   - [B1. Zugang zum Tower (Windows/SSH/PowerShell)](#b1-zugang)
   - [B2. ACE-Step + MCP + Player](#b2-ace-step)
@@ -32,8 +33,10 @@
 ---
 
 ## 0. Schnellstart
-- **Flugsim spielen:** `open /Users/riedhammer/local_llm_test/index.html` (oder lokalen Server). Braucht nur Internet fürs Three.js-CDN.
-- **Repo (privat):** `DerAlo/himmelsbrand`, Branch `main`. Lokal: `/Users/riedhammer/local_llm_test/`.
+- **Flugsim spielen:** online unter **https://deralo.github.io/himmelsbrand/** (GitHub Pages, Quelle `main` / Root).
+  Lokal: `index.html` doppelklicken oder im Repo `npx serve .`. Braucht nur Internet fürs Three.js-CDN.
+- **Repo:** `DerAlo/himmelsbrand` (öffentlich), Branch `main`. Aktuelle Arbeitskopie: Windows-Tower `D:\himmelsbrand`
+  (früher Mac `/Users/riedhammer/local_llm_test/`).
 - **Musik-KI:** Tower per `ssh alo-tower` (Windows). YuE-Web-UI: `http://192.168.178.88:7870/`. ACE-Step-Player: `http://192.168.178.88:8766/`. ACE-Step-MCP: `http://192.168.178.88:8765/mcp`.
 - **Sprache:** Nutzer ist deutschsprachig → **alle Spieltexte & Kommunikation auf Deutsch**.
 
@@ -42,44 +45,66 @@
 ## A. HIMMELSBRAND – Flugsimulator
 
 Arcade-Kampfflugsim: deutscher **Eurofighter** gegen die abtrünnige NATO-Drohnen-KI **HELIOS**.
-**Eine einzige Datei** (`index.html`, ~4230 Zeilen): Three.js r128 (CDN) + Web Audio API, prozedurale
-unendliche Welt (Simplex Noise), keine externen Assets. Repo-Dateien: `index.html`, `README.md`,
-`B-TEAM.md` (Design-Bibel der Komödien-Kampagne), `HANDOFF.md` (diese Datei).
+**Eine HTML-Datei** (`index.html`, ~9300 Zeilen): Three.js r128 (CDN) + Web Audio API, prozedurale
+unendliche Welt (Simplex Noise), keine Bild-/Modell-Assets. Dazu **`voice_clips.js`** (~6,5 MB, alle
+vorgerenderten Sprachclips als data-URIs; wird nach dem Laden asynchron nachgeschoben, fehlt sie, laufen
+stumme Untertitel). Repo-Dateien: `index.html`, `voice_clips.js`, `README.md`, `STORY.md` (Story-Referenz,
+Stand des Codes), `B-TEAM.md` (Design-Bibel der Komödien-Kampagne), `HANDOFF.md` (diese Datei),
+`tools/` (Test-Werkzeuge) und `tools/voice/` (TTS-Bake-Pipeline).
 
 ### A1. Repo, Build, Push
-- **Kein Build.** Alles in `index.html`. Ändern → im Browser neu laden.
-- **Zwei GitHub-Konten** in `gh`: `riedhammer_agenda` (Default/aktiv) und `DerAlo` (Besitzer des privaten Repos). Ein normaler `git push` scheitert („Repository not found"), weil das Default-Konto keinen Zugriff hat.
-- **Push-Rezept (bewährt):**
+- **Kein Build.** Alles in `index.html`. Ändern → im Browser neu laden. Deploy = Push auf `main`
+  (GitHub Pages baut automatisch, ~1 min; Status: `gh api repos/DerAlo/himmelsbrand/pages/builds/latest`).
+- **Push vom Windows-Tower:** `gh` ist dort als `DerAlo` angemeldet, Git nutzt `wincred` → normales
+  `git push origin main` genügt.
+- **Push vom Mac (alt, zwei Konten):** Default-Konto `riedhammer_agenda` hat keinen Zugriff →
   ```bash
   gh auth switch --user DerAlo >/dev/null 2>&1
   git push "https://x-access-token:$(gh auth token)@github.com/DerAlo/himmelsbrand.git" main
-  git update-ref refs/remotes/origin/main HEAD   # sonst zeigt git fälschlich "N commits ahead"
+  git update-ref refs/remotes/origin/main HEAD   # Token-URL-Push aktualisiert origin/main nicht
   ```
-  (Der Token-URL-Push aktualisiert die lokale `origin/main`-Tracking-Ref NICHT → daher das `update-ref`.)
-- **Pre-Commit-Gate (immer):** JS-Syntax prüfen, bevor committet wird:
-  ```bash
-  node -e "const fs=require('fs');const h=fs.readFileSync('index.html','utf8');const m=h.match(/<script>([\s\S]*)<\/script>\s*<\/body>/);new Function(m[1]);console.log('JS OK');"
-  ```
-- **Commit-Trailer** (Vorgabe der Session):
-  ```
-  Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
-  Claude-Session: https://claude.ai/code/session_01ULeW4w2zaW73aMG1uBYdzo
-  ```
+- **Pre-Commit-Gate (immer):** `node tools/jsgate.mjs index.html` → muss „JSGATE OK" melden
+  (prüft alle Inline-Skripte und `voice_clips.js`).
+- **Commit-Trailer:** laut Vorgabe der jeweiligen Session (`Co-Authored-By: …` + `Claude-Session: …`).
 
 ### A2. Architektur
-Ein `<script>` in `index.html`, grob in nummerierten Blöcken. Wichtige Einstiegspunkte / globale Objekte:
-- `CFG` — zentrale Tunables (Geschwindigkeiten, Waffen, Landung). Direkt am Anfang.
+Ein Haupt-`<script>` in `index.html`, in nummerierte Sektionen gegliedert (Kopfkommentare `N. TITEL`):
+`0` CFG · `0b` HELIOS-Kampagne · `0b2` B-Team · `0c` Save · `1` Noise · `2` Audio · `2b` Voice ·
+`3` Renderer/Kamera (+Auto-Qualität) · `4` Himmel/Licht · `4b` Schatten/Atmosphäre · `5` Terrain ·
+`5b` Szenerie (instanziert: Wälder, Dörfer, Felsen, Fernland) · `6` Wolken · `7` Partikel · `8` Flugzeugmodelle ·
+`9` Spieler · `10`–`10c` Waffen/Bodenziele · `11` Gegner · `12` Input · `13` Lock · `14` HUD ·
+`15` Spielzustand/Wellen · `15a2` Einstellungen · `15b` Tageszeit · `15c` Funk/Untertitel/Ziel-HUD ·
+`15d` Missions-Runtime · `15d2` Ally · `15e` Boss-Framework · `15e2` Boss-Modelle/-KI · `15f` Story-Trigger/Barks ·
+`16` Update · `16a` Rollen am Boden · `16b` Landung (Aufsetzen, FX, PAPI, Lande-HUD) · `17` Kamera · `18` Hauptschleife.
+Globale Infrastruktur (direkt nach `CFG`) — neue Subsysteme hängen sich hier ein, statt die Schleife zu editieren:
+- `GFX` — Grafikstufe (`quality` = Wahl `auto|high|medium|low`, `level()` = effektiv, `onChange(fn)`, `autoDowngrade()`). Siehe A10.
+- `HOOKS` — `update(dt)`, `always(dt,rawDt)`, `preRender(rawDt)`, `missionStart(def,i)`, `reset()`; werfende Hooks werden geloggt + entfernt.
+- `EV` — Event-Bus (`EV.on/emit`): `kill`, `groundKill`, `playerHit`, `missileWarn`, `lock`, `allyHit`, `missionEnd`,
+  `takeoff`, `bossSpawn/bossPart/bossPhase/bossExposed/bossHp/bossKilled`, `voiceClips` … — Barks, Voice, FX hören nur zu.
+- `parseLine('SPRECHER|Text|Hinweis')` — einheitliches Zeilenformat für Funk/Story; der Hinweis (z. B. `ruhig`, `dringend`,
+  `wuetend`) steuert nur die TTS-Aussprache und ändert den Clip-Key nicht.
+- `disposeTree(obj)` — Geometrien entfernter Objekte freigeben (Materialien/Programme bleiben geteilt).
+- `CFG` — zentrale Tunables (Geschwindigkeiten, Waffen, **Landung** ab „Ground handling"/„Landing feel").
 - `CAMPAIGN[]` (20 HELIOS-Missionen) und `BTEAM_CAMPAIGN[]` (7), `CUTSCENES{}` + `BTEAM_CUTSCENES{}`.
-- `player` (Zustandsobjekt), `enemies[]`, `missiles[]`, `enemyMissiles[]`, `bombs[]`, `bullets[]`, `groundTargets[]`, `boss`, `ally`.
-- Kernschleife `loop(now)`: teilt `rawDt` (Echtzeit; Juice/Timer/HUD-Puls) vs. `dt = rawDt*ts` (Welt/Physik; friert bei hitStop/slowmo). `menuTime += rawDt` jeden Frame (HUD-Blinken).
+- `player`, `enemies[]`, `missiles[]`, `enemyMissiles[]`, `bombs[]`, `bullets[]`, `groundTargets[]`, `boss`, `ally`.
+- Kernschleife `loop(now)`: `rawDt` (Echtzeit; Juice/Timer/HUD/Voice) vs. `dt = rawDt*ts` (Welt/Physik; friert bei hitStop/slowmo).
 - `state`: `'menu' | 'playing' | 'paused' | 'gameover' | 'cutscene'`. `gameMode`: `'menu' | 'campaign' | 'endless'`.
-- Zwei-Kampagnen-Umschaltung: `activeCampaign` (Zeiger auf `CAMPAIGN` oder `BTEAM_CAMPAIGN`) + `campaignId` (`'helios' | 'bteam'`). `unlockedCount()`/`bumpUnlocked()` wählen den richtigen Zähler.
+- Zwei Kampagnen: `activeCampaign` (Zeiger auf `CAMPAIGN` oder `BTEAM_CAMPAIGN`) + `campaignId` (`'helios' | 'bteam'`).
 
 ### A3. Flugmodell & Kamera
 - **Stabilisiertes Arcade-Modell:** absolute `heading` (Gier) + `pitch` werden **jedes Frame neu** aus Eulerwinkeln aufgebaut → kann nie invertieren; `roll` ist rein kosmetisch. Pitch ungeklammert/gewrappt → volle Loopings.
 - **Energie-Kampf:** Wenderate hängt von Airspeed ab. `playerTurnMultFor(sp)` lerpt **2.0→0.95** (min→boost); `TURN_RATE=1.5*mult` → 3.0 rad/s bei min, ~1.43 bei boost. Gegner: `turnMultFor` lerpt 1.5→0.5 (klar unterlegen). **Fairness-Cap:** Ass `baseTurn*turnMul ≤ 1.85` < Spieler-Langsam-Turn 3.0. Skill = bremsen (Strg) und in den Rücken ziehen.
 - **Kamera:** roll-frei (Horizont bleibt waagerecht), folgt Pitch durch Loopings. Früherer Bug: Kamera-Hochachse sprang am senkrechten Scheitel → gefixt mit `leanFade` (blendet Neigung nahe senkrecht aus) + Lerp-Glättung. Yaw-Vorzeichen mit Hysterese (`player.yawSign`).
-- **Start/Landung:** Missionen mit `start:'runway'` setzen das Flugzeug still auf eine `buildRunway()`-Piste. Vr (`CFG.rotateSpeed`), Abheben `CFG.liftoffSpeed`. Landung in `updatePlayer` nach Sinkrate (`player.vy`) + Ausrichtung + Fahrwerk (`gearDown`, Taste **B**) benotet → sauber/hart/Crash. Auto-Flare nah an der Piste.
+- **Start:** `start:'runway'` setzt das Flugzeug still auf eine `buildRunway()`-Piste (Ressourcen einmal gebaut, pro
+  Mission wiederverwendet). Vr `CFG.rotateSpeed`, Abheben `CFG.liftoffSpeed`, danach blendet der Steigpfad über
+  `liftBlend` ein. **Luftstart:** Fahrwerk eingefahren. **Jeder Missionsstart:** Lenkrakete vorausgewählt.
+- **Landung (Sektion 16b):** 3°-Gleitpfad (`glideDeg`) zum Aufsetzpunkt `aimDist` hinter der Schwelle, PAPI-Lichter +
+  Tower-Callouts von **KIEBITZ** (zu hoch/zu tief/zu schnell, Fahrwerk), Lande-HUD mit Gleitpfad-Anzeige.
+  Auto-Flare erst unter `flareHeight` und mit begrenzter Rate (`flareRate`) → ein schlechter Anflug bleibt schlecht.
+  Kosmetischer Anstellwinkel (`aoaApproach/aoaFlare`), lageabhängige Radhöhe (Hauptfahrwerk setzt zuerst auf),
+  Federbein (`gearK/gearC`), Bugrad nach `noseHold` mit `derotRate` abgesenkt, Autobrake, Reifenrauch/Quietschen/
+  Rumpeln. Benotung in `landingTouchdown`: butterweich / sauber / hart / Crash nach Sinkrate (`touchGood`,
+  `touchHard`, `touchSoftFrac`) + Ausrichtung (`touchAlignGood`). Fahrwerk: Taste **B** (`player.gearDown`).
 
 ### A4. Waffen
 Drei Sekundärwaffen; **X** wechselt, **F/Rechtsklick** feuert selektierte, dedizierte Tasten daneben:
@@ -98,11 +123,24 @@ Drei Sekundärwaffen; **X** wechselt, **F/Rechtsklick** feuert selektierte, dedi
 - `maybeCoordinate` = Zangenangriff; `spawnAce`/`ACE_NAMES`. Leash: `LEASH_SOFT=2200, LEASH_HARD=3600` (Modul-Scope!).
 
 ### A6. Bosse
-- `boss` + `spawnBoss(kind, finale)`, `buildKronos`/`buildAuge`. Teile (Türme/Pylonen = `bossPart`) zerstören → `checkBossExpose()` legt Kern frei → `damageBoss`.
-- **KRONOS** (schwimmende Werft, Türme) — m5, m13, b6. **Das Auge** (Pylonen) — m7, m12. Pylonen **feuern jetzt** (`sam:true`).
-- Kern nimmt nur **halben Gun-Schaden** (`damageBoss(b.dmg*0.5)`) → Raketen/AGM-Job. Freigelegt: **telegrafiertes 3-Schuss-Sperrfeuer** (~6 dmg, 0.8 s). Finale/choicePoint-Bosse: +25 % Kern-HP + größere Explosionskette (`boss.finale`).
-- HP-Balken zeigt **Teil-Fortschritt** (0→40 %) während der Schildphase, dann echte Kern-HP.
-- `killBoss` re-entry-guard: `if(boss.dead) return; boss.dead=true; boss.exposed=false;`.
+Gemeinsames Framework in **15e**, Modelle + KI pro Art in **15e2**. `spawnBoss(kind, finale)`; die Art kommt aus
+`def.spawns.boss`, `BOSS_BY_MISSION = { m12:'prometheus', m13:'feuertraeger', b6:'himmelszelt' }` überschreibt.
+Teile (`bossPart`-Bodenziele) zerstören → `checkBossExpose()` legt den Kern frei → `damageBoss` → `killBoss`.
+Jede Phase/HP-Schwelle feuert ein EV-Event (`bossSpawn/bossPart/bossPhase/bossExposed/bossHp/bossKilled`), die
+Story-`mid[]`-Tabellen und Boss-Funksprüche hängen daran. `bossGen` wird bei jedem `clearBoss` erhöht → alte
+`setTimeout`s eines vorherigen Kampfes werden zu No-ops. Telegrafie-Sounds werden auf `Audio.ctx()/out()` gebaut.
+- **KRONOS · Drohnenwerft** (m5): schwebende Werft, Türme = Teile, Drohnenstart mit 1,5 s Bernstein-Blink-Telegraph.
+- **DAS AUGE · HELIOS-Kern** (m7): Pylonen mit SAM, „Suchblick"-Strahl (1,8 s Telegraph, dann Puls entlang der
+  eingefrorenen Linie), Blende öffnet sich beim Freilegen; in Phase 3 stellt HELIOS das Feuer ein.
+- **PROMETHEUS · Kern im Schwarzkar** (m12, Wahl-Mission): P1 „Der Käfig" (Kern unverwundbar), danach Zyklus aus
+  Schwarmsalven (3 Raketen, `ENEMY_MSL_CAP` gilt) und „Vorausberechnung"-Markern (zielt auf die vorhergesagte Position).
+- **FEUERTRÄGER · Kellers Festung** (m13, Finale): Panzerplatten fallen mit eigener Physik ab (`fallingPlates`),
+  Kammer-Glüh-Telegraph, Todessequenz mit Rettungskapsel (`escapePod`).
+- **HIMMELSZELT · Fliegende Festung** (b6, B-Team-Finale): Bierzelt-Dach mit weiß-blauen Rauten, nutzt ebenfalls die
+  Vorausberechnung.
+- Kern nimmt nur halben Gun-Schaden → Raketen-/AGM-Job. `finale`-Bonus (+25 % Kern-HP) nur für kronos/auge, die neuen
+  Arten haben ihre Final-HP schon eingebaut. HP-Balken zeigt während der Schildphase den Teil-Fortschritt.
+- `killBoss` hat einen Re-Entry-Guard (`boss.dead`); nicht entfernen.
 
 ### A7. Kampagnen-Runtime & Missionen
 - Laufzeit: `mission` + `setupMission(i)` / `updateMission(dt)` / `checkMissionComplete` / `checkMissionFailed`. `launchMission(i)`, `startEndless(mod)`, `gotoMenu()`, `resetWorld()`.
@@ -128,25 +166,62 @@ Alles prozedural (Web Audio), im `Audio`-IIFE. **Wichtig:** headless braucht Chr
 - **Adaptive Musik:** taktgenauer Lookahead-`scheduler()` (130 BPM), 8-Takt-Akkordform, Layer-Busse pad/bass/arp/lead/perc/brass/menace (+`musicDelay`-Echo), wiederkehrendes Lead-Thema, echtes Drum-Kit, Boss-Bläser-Stabs. `updateMusic(rawDt,mode,I)` blendet Layer nach Intensität (menu→cruise→combat→boss).
 - **`musicStyle`** (`'score'|'bteam'`): B-Team = **Blasmusik-Oom-pah** in C-Dur via `mnoteMaj` (Tuba/Bläser/Marsch). `Audio.setStyle()` in launchMission/gotoMenu/startEndless. **Fix:** mPad/mBrass nehmen eine Note-Fn (sonst Dissonanz Dur vs. Moll).
 - **Engine/Lock:** `setEngine`/`lockTone`. `Audio.silenceFlight()` rampt Motor+Lock auf 0 (in gotoMenu/gameover/pause). `Audio.duckMusic(on)` für Pause.
-- **TTS-Stimmen** (`Voice`-IIFE, Web Speech API, offline): sprechen Funkzeilen, **Warteschlange** (jeder Satz zu Ende, dann nächster; onend-getrieben; Backlog-Cap ~5; stop bei Pause/Menü). Pro-Sprecher-Stimme + Pitch/Rate; männliche Stimmen für Sepp/Wagner/Wiggerl, weiblich für Lärche. **Standard AUS**, Toggle **V**. Kein echter Dialekt möglich → deutsche Stimme liest bairisch-geschriebenen Text = gewollter Möchtegern-Bairisch-Gag.
+- **Sprachausgabe (`Voice`, Sektion 2b):** jede gesprochene Zeile (Funk + Cutscene-VO) läuft durch **einen**
+  sequenziellen Scheduler: Untertitel und Clip starten gemeinsam, der Untertitel bleibt so lange wie der Clip
+  (sonst Lesezeit-Schätzung), dazwischen eine kurze natürliche Pause. Prioritäten `crit` (nie verworfen, darf einen
+  Bark unterbrechen) / `normal` (verfällt, wenn veraltet; `ttl`) / `bark` (nur in Stille, Cooldown pro Sprecher).
+  Pro Sprecher eine FX-Kette (Funk-Bandpass + Squelch, kalter Synth-Chirp für HELIOS, Hall für STIMME, trocken für
+  NARRATOR) + Musik-Ducking. API: `Voice.line(l, {prio, ttl, tag, delay})`, `lines([...])`, `playCutscene(body)`,
+  `drop(pred)`, `stop()`, `busy()`, `setVolume()`. Standard **AN**, Toggle **V**, Lautstärke/Untertitel in den
+  Einstellungen. Fehler werfen nie: ohne Clip läuft ein korrekt getimter stummer Untertitel.
+- **Clips:** vorgerendert mit **Chatterbox TTS** (Resemble AI, MIT) bzw. Piper auf der RTX 3090, Pipeline in
+  `tools/voice/` (README dort). Key = FNV-1a von `'SPRECHER|Text'` → **jede Textänderung braucht einen Re-Bake**
+  dieser Zeile: `node tools/voice/extract_lines.mjs` (schreibt `D:/tts-bake/lines.json` selbst, nicht umleiten;
+  bei `CUTSCENE_VO … DIFFERS` den `/*CVO*/`-Block aus `lines_cvo.json` übernehmen), dann
+  `D:/tts-bake/venvs/cbx/Scripts/python.exe tools/voice/bake.py --only-missing --prune`. Abdeckung prüfen:
+  `missingVoiceLines()` im laufenden Spiel muss leer sein. Casting (Referenzstimme, Parameter, Stimmungs-Deltas) in
+  `tools/voice/casting.json`; Referenz-WAVs unter `D:/tts-bake/refs/`. Zeilen mit Laufzeitwerten (Zahlen) bleiben stumm.
 
 ### A10. HUD, Progress/Save, Juice
-- HUD: DOM-Readouts (gated via `body.in-game`) + Canvas-Overlay (`drawHUD`): Reticle, Ziel-Boxen, LOCK/Boden-LOCK, CCIP, Radar, Boss-Balken, Ally-Marker, Warnungen. WELLE-Stat (`#wavestat`) nur im Endlos sichtbar.
-- **Save:** `localStorage` Key `himmelsbrand_save` (`SAVE`, id-gekeyt). `rateMission` (1–3 Sterne: Struktur `hp/maxHp≥0.65`, Zeit `≤par` via `DEFAULT_PAR`, Finesse `hp/maxHp≥0.92` bzw. saubere Landung — **ratio-basiert**, damit Weißwurst nicht cheatet). Unlocks: `ace` (Endlos, nach Akt I) + `goldWings` (**≥48/60 Sterne**).
+- HUD: DOM-Readouts (gated via `body.in-game`) + Canvas-Overlay (`drawHUD`): vorgerendertes Heading-Band,
+  Pitch-Leiter an der echten Kamera, Reticle, Ziel-Boxen, LOCK/Boden-LOCK, CCIP, Radar, RWR-Raketenwarnung,
+  Boss-Balken, Ally-Marker, Lande-Panel (`drawLandingHUD`, 16b). Typografie/Farben über CSS-Design-Tokens.
+- **Einstellungen (15a2):** Grafikqualität (Auto/Hoch/Mittel/Niedrig), Stimme an/aus + Lautstärke, Untertitel, Musik.
+  Alles in `localStorage` (`himmelsbrand_gfx`, `himmelsbrand_voice`, `himmelsbrand_voice_vol`, `himmelsbrand_subs`, …).
+- **Grafikstufen (`GFX`):** Subsysteme lesen `GFX.level()` beim Bauen ihrer GPU-Ressourcen und bauen über
+  `GFX.onChange` live um. Jeder Stufenwechsel kompiliert alle beleuchteten Shader neu (**~2 s Standbild** auf
+  ANGLE/D3D11). **Auto-Monitor** (Sektion 3, `monitorAutoQuality`): nur bei `quality==='auto'` und `state==='playing'`,
+  ignoriert die ersten 5 s jeder Mission, bewertet ein rollendes ~8-s-Fenster und schaltet erst nach 3 schlechten
+  Bewertungen in Folge (p50 > 22 ms oder p90 > 40 ms) **eine** Stufe herunter. VSync-Aussetzer und Lade-Hänger dürfen
+  ihn nie auslösen (siehe E).
+- **Save:** `localStorage` Key `himmelsbrand_save` (`SAVE`, id-gekeyt). `rateMission` (1–3 Sterne: Struktur `hp/maxHp≥0.65`,
+  Zeit `≤par` via `DEFAULT_PAR`, Finesse `hp/maxHp≥0.92` bzw. saubere Landung — ratio-basiert). Unlocks: `ace`
+  (Endlos, nach Akt I) + `goldWings` (≥48/60 Sterne). `SAVE.storyChoice`, `SAVE.seenProlog`.
 - **Juice:** hitStop/slowmo (via `rawDt` vs `dt`), `markHit`, `spawnDebris`/`updateDebris`, damageFlash, Kill-Combo (×2..×5).
 
 ### A11. Balance-Stand
 Letzter Pass = „klare Fixes + moderate Schärfe" (Commit `952baba`). Leitidee: Überlegenheit soll sich **verdient** anfühlen → Bedrohung oben drauf (Elites/Bosse/SAMs beißen), Grunt-Sofortkills bleiben. Details siehe A4–A6 + Commit-Message. **Bewusst NICHT angefasst** (fühlt sich richtig an): Gun-TTK, aimAssist, Grunt-Kurvenvorteil. Balance ist iterativ — Nutzer wollte selbst spielen und Feinjustierung zurückmelden (mögliche Stellschrauben: Elite-`accuracy`, Boss-Kern-HP, SAM-Burst-Schaden/Kadenz, Endlos-Heal-Kurve, `playerTurnMultFor`).
 
 ### A12. Testen
-Kein Playwright. **Headless Chrome direkt via CDP** mit Node 22 (eingebautes `WebSocket`/`fetch`). Muster:
-1. `python3 -m http.server <port>` im Repo starten (Hintergrund).
-2. Chrome headless starten mit Flags: `--headless=new --enable-unsafe-swiftshader --use-gl=angle --use-angle=swiftshader --autoplay-policy=no-user-gesture-required --remote-debugging-port=<p> --remote-allow-origins=*`.
-3. Per WebSocket an DevTools; `Runtime.evaluate` auf Spiel-Globals: `state`, `player`, `enemies`, `groundTargets`, `boss`, `mission`, `campaignId`, `activeCampaign`, `CAMPAIGN`, `BTEAM_CAMPAIGN`, `Audio._debug()`.
-4. Testfunktionen direkt aufrufen: `launchMission(i)`, `startEndless()`, `openCampaign('bteam')`, `fireMissile()`, `fireAGM()`, `updatePlayer(dt)`, `updateEnemyMissiles(dt)`, `damageBoss(n)`, `killEnemy(e)`, `onAirDestroyed()`, `destroyGround(gt)`, `onLanded(false)`, `onTakeoff()`.
-- **Regel:** Kamera-/Gegner-/State-Fixes im **echten rAF-Loop mit Gegnern** verifizieren, nicht nur isolierte Funktionsaufrufe (Lektion aus dem LEASH_SOFT-Crash).
-- Headless: SwiftShader ~20 fps (real 60+), Shader kompilieren/validieren aber. Scratchpad-Skripte lagen unter dem Session-Scratchpad (`.mjs`-CDP-Harnische).
-- **Review-Prozess:** größere Änderungen wurden über **Multi-Agent-Workflows** (parallele Prüf-Perspektiven → verifizierende Synthese) adversarisch reviewt; bestätigte Funde gefixt + per CDP nachgetestet. Diese Session lief mit „Ultracode" (Workflows als Default für substanzielle Aufgaben).
+Kein Playwright. Headless Chrome direkt via CDP (Node ≥ 22, eingebautes `WebSocket`/`fetch`) — fertig im Repo:
+- `node tools/jsgate.mjs index.html` — Syntax-Gate (vor jedem Commit).
+- `node tools/hbrun.mjs --root . --scenario <datei.mjs> --out <ordner> [--timeout s]` — startet einen statischen
+  Server + Chrome headless mit **echter GPU** und `--mute-audio` (Ton läuft intern, ist aber nie hörbar), führt ein
+  Szenario aus und gibt JSON aus (Exceptions, Konsolenfehler, Logs, Screenshots). Szenario-API im Dateikopf
+  (`ev`, `shot`, `sleep`, `log`, `fps`, `errors`). **Achtung:** `ev(code)` läuft im globalen Scope → eigene
+  Variablen in eine IIFE packen, sonst „Identifier … has already been declared" beim zweiten Aufruf.
+- `SWEEP_MS=2500 SWEEP_SHOTS=1 node tools/hbrun.mjs --root . --scenario tools/sweep.mjs --out <ordner> --timeout 600`
+  — Regressions-Sweep über alle 27 Missionen, Endlos, alle Cutscenes, Menü: Fehler, fps/p95, Draw-Calls, Dreiecke,
+  Shader-Programme, Geometrien, Texturen, effektive Grafikstufe. `SWEEP_ONLY="helios:5,bteam:6,endless"` für Teilmengen.
+  Referenz (RTX 3090, Stand Overhaul): 0 Fehler, 44–53 fps headless, ≤ ~1000 Draw-Calls, Programme stabil bei ~57,
+  Stufe bleibt „high".
+- `node tools/hbrun.mjs --root . --scenario tools/smoke.mjs` — schneller Rauchtest.
+- Nützliche Globals: `state`, `player`, `enemies`, `groundTargets`, `boss`, `mission`, `GFX`, `Voice._debug()`,
+  `Voice._trace()`, `missingVoiceLines()`, `collectVoiceLines()`, `launchMission(i)`, `startEndless()`,
+  `showCutscene(k, cb)`, `damageBoss(n)`, `killEnemy(e)`, `onLanded(false)`, `onTakeoff()`.
+- **Regel:** Kamera-/Gegner-/State-Fixes im **echten rAF-Loop mit Gegnern** verifizieren, nicht nur isolierte Funktionsaufrufe.
+- **Review-Prozess:** größere Änderungen laufen als Multi-Agent-Workflow: Tracks in eigenen Worktrees/Branches
+  (`ov/*`, `ov2/*`, `ov3/*`) → Integrationsbranch → Sweep → adversariales Review pro Track → Fixes → Sweep → `main`.
 
 ---
 
@@ -190,6 +265,8 @@ YuE (7B) und ACE-Step passen **nicht gleichzeitig** in die 24 GB. Für YuE wurde
 - Nutzer-Stil: entscheidungsfreudig, mag Tiefe („alles vollgas", „mach das"), will bei echten Design-Weichen aber gefragt werden (AskUserQuestion für Balance-Richtung, Musik-Ansatz etc.).
 - Vor jedem Commit: JS-Syntax-Gate. Nach substanziellen Änderungen: CDP-Tests. Größere Sachen: Multi-Agent-Review-Workflow → Funde fixen → nachtesten → committen → pushen (Token-URL) → `update-ref`.
 - Nichts liegt auf dem Mac fürs Tower-Projekt — alles auf `alo-tower` (D:). Generierte Songs zum Anhören temporär in den Scratchpad holen (scp) + als m4a schicken.
+- Seit dem Overhaul wird direkt auf dem Tower gearbeitet (`D:\himmelsbrand`, Git Bash/PowerShell). Hat der Nutzer „freie Hand" gegeben (z. B. über Nacht): selbst entscheiden, nicht fragen, am Ende deployen und einen deutschen Bericht schreiben.
+- Test-Audio **nie hörbar** abspielen (hbrun nutzt `--mute-audio`).
 
 ## D. Offene Ideen / mögliche nächste Schritte
 - Flugsim: Balance-Feinschliff nach echtem Spieltest (Nutzer-Feedback abwarten). Evtl. Silber-Prestige-Stufe (~30 Sterne) mit CSS. B-Team-Cutscenes im „Bierdeckel-Look".
@@ -204,6 +281,17 @@ YuE (7B) und ACE-Step passen **nicht gleichzeitig** in die 24 GB. Für YuE wurde
 - **PowerShell/SSH:** base64-`EncodedCommand`; Dateien per `WriteAllBytes` (kein BOM); Hintergrund nur via Scheduled Task; UTF-16-Ausgaben mit `LC_ALL=C tr` säubern.
 - **Sieg-Fenster:** `winLocked` schützt den Sieg in den 2,6 s danach — nicht versehentlich entfernen.
 - **maxHp:** alle STRUKTUR%-Anzeigen und Heals müssen `player.maxHp` (nicht 100) nutzen, sonst Weißwurst-Anzeigebug/Heal-Cap.
+- **Shader-Neukompilierung = Standbild:** Alles, was die Zahl/Art der Lichter, Schatten oder Shader-Defines mitten in
+  der Mission ändert (neue PointLights, `GFX`-Stufenwechsel, neue Material-Varianten), kompiliert alle beleuchteten
+  Programme neu → ~2 s Freeze auf ANGLE/D3D11. Deshalb hält `prewarmFX()` die Flash-Lichter dauerhaft in der Szene, und
+  neue Effekte nehmen Sprites/Partikel statt Lichter. Im Sweep an `progs` erkennbar (muss plateauen).
+- **Auto-Qualität:** Der erste Monitor wertete Einzel-Frames und schaltete durch VSync-Aussetzer (16,7/33,3 ms-Mix) und
+  Lade-Hänger mitten in der Mission herunter → genau die Freezes, die er verhindern sollte. Nur Perzentile über ein
+  Fenster, Karenzzeit nach Missionsstart und mehrere Bewertungen in Folge.
+- **Voice-Keys:** Clip-Key = Hash aus `SPRECHER|Text`. Tippfehler-Fix im Text = Clip weg (stummer Untertitel), bis neu
+  gebacken wird. Der Sprechhinweis (3. Feld) ändert den Key nicht.
+- **Zeilen mit Laufzeitwerten** (`'… '+n+' übrig'`) können nicht vorgebacken werden → bleiben stumm oder als feste
+  Varianten schreiben.
 
 ---
-*Erstellt von Claude (Opus 4.8) als Übergabe. Aktuellster Stand immer im Git-Log von `DerAlo/himmelsbrand` und in den Memory-Dateien unter `~/.claude/projects/-Users-riedhammer-local-llm-test/memory/`.*
+*Erstellt von Claude (Opus 4.8), nach dem Overhaul aktualisiert von Claude (Opus 5.5). Aktuellster Stand immer im Git-Log von `DerAlo/himmelsbrand`.*
