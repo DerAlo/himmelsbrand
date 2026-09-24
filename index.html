@@ -2478,7 +2478,7 @@ const MAT_NF_BROAD = makeInstancedMat(0xffffff, true, true);
 // ~30 px tall, where the tiers no longer read, and it keeps the ring at ~1/3 of the triangles.
 function _nfSpruceFarGeo(){ return _mergeColored([[_fanCone(2.5,12.8,6,1.4),0x224a27]]); }
 function _nfBroadFarGeo(){ const o=new THREE.OctahedronGeometry(3.5,0); o.scale(1,0.95,1); o.translate(0,6.8,0); return _mergeColored([[o,0x2c4d1e]]); }
-const NF = { tile:200, n:0, cell:13, lodR:3, budget:3, tiles:[], order:[], pools:null, air:'', gtN:0 };
+const NF = { tile:200, n:0, cell:13, lodR:3, budget:3, tiles:[], order:[], pools:null, ax:1e9, az:1e9, gtN:0 };
 NF.pools = [ makePool(_nfSpruceGeo(), MAT_NF_SPRUCE, 5000), makePool(_nfBroadGeo(), MAT_NF_BROAD, 4000),
              makePool(_nfSpruceFarGeo(), MAT_NF_SPRUCE, 9000), makePool(_nfBroadFarGeo(), MAT_NF_BROAD, 7000) ];
 function _nfFree(t){
@@ -2531,8 +2531,8 @@ function _nfInvalidateAt(x, z, r){     // refill tiles touching a circle (new gr
 function nearForestTick(){
   if(!NF.n) return;
   // runway plateau appeared / moved: every tile must be re-checked against the clearance
-  const A=AIRFIELD, ak = A ? A.x+','+A.z : '';
-  if(ak!==NF.air){ NF.air=ak; for(let i=0;i<NF.tiles.length;i++){ _nfFree(NF.tiles[i]); NF.tiles[i].tx=NaN; } }
+  const A=AIRFIELD, ax = A ? A.x : 1e9, az = A ? A.z : 1e9;      // numbers, not a string key: no per-frame garbage
+  if(ax!==NF.ax || az!==NF.az){ NF.ax=ax; NF.az=az; for(let i=0;i<NF.tiles.length;i++){ _nfFree(NF.tiles[i]); NF.tiles[i].tx=NaN; } }
   if(groundTargets.length < NF.gtN) NF.gtN = groundTargets.length;
   while(NF.gtN < groundTargets.length){ const g=groundTargets[NF.gtN++]; if(g && g.obj) _nfInvalidateAt(g.obj.position.x, g.obj.position.z, (g.radius||8)+SCN.clearTarget); }
   const T=NF.tile, n=NF.n, ctx=Math.floor(camera.position.x/T), ctz=Math.floor(camera.position.z/T);
@@ -2564,7 +2564,7 @@ function buildFarLand(){
   if(FAR.mesh){ scene.remove(FAR.mesh); FAR.mesh.geometry.dispose(); FAR.mesh=null; }
   const L = GFX.level();
   const inner = (CFG.viewRadius+0.5)*CFG.chunkSize;                       // chunk-ring half extent
-  const want = L==='high' ? 250 : (L==='medium' ? 375 : 525);
+  const want = L==='high' ? 300 : (L==='medium' ? 375 : 525);          // >5 km out and in haze: 300 m cells are plenty
   const ki = Math.max(1, Math.round(inner/want)), cell = inner/ki;        // grid lines land exactly on the ring edge
   const K = Math.ceil(Math.max(camera.far, 9000)/cell), N = 2*K+1;
   const pos = new Float32Array(N*N*3), nrm = new Float32Array(N*N*3), col = new Float32Array(N*N*3);
