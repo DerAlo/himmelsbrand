@@ -2136,7 +2136,8 @@ const Voice = (function(){
   function playKeys(list){ if(!Array.isArray(list)) return; const g=++grp;
     for(const x of list){ const it=mk((x[1]||'NARRATOR')+'|…', {kind:'cutscene', prio:'crit', group:g, key:x[0]}); enqueue(it); } tick(0); }
   // drop queued (not yet playing) lines matching pred — e.g. story mid lines once the mission is won
-  function drop(pred){ if(queue.some(pred)) queue=queue.filter(q=>{ if(pred(q)){ T('drop', q, {why:'drop'}); return false; } return true; }); }
+  function drop(pred, cutCur){ if(queue.some(pred)) queue=queue.filter(q=>{ if(pred(q)){ T('drop', q, {why:'drop'}); return false; } return true; });
+    if(cutCur && cur && pred(cur)){ const it=cur; if(it.h) killWA(it.h, 0.18); finish(it, 'cut'); lastEnd=vnow-0.2; if(subShown) subHideAt=vnow+0.15; } }   // cutCur: also fade out the playing line (boss kill)
   function stop(){
     if(isPaused()){   // pause: park the current line (restarts on resume), keep the queue
       if(cur){ const it=cur; if(it.h) killWA(it.h, 0.04); if(it.html){ try{ it.html.pause(); }catch(e){} it.html=null; }
@@ -6711,9 +6712,18 @@ function checkMissionComplete(){
     clearVictoryTimer();
     // Only fire if we're still in the SAME won campaign mission (guards against
     // leaving to menu / starting another game during the win cutscene).
-    victoryTimer=setTimeout(()=>{ victoryTimer=null;
-      if(state==='playing' && gameMode==='campaign' && mission.done && mission.index===wonIndex) gameOver(true);
-    }, 2600);
+    // BOSSES: a boss kill waits for its death sequence (per kind), then for win[0] to finish; cap 8 s.
+    const bk=(boss && boss.dead && menuTime-(boss.deadAt||0)<1) ? boss.kind : null, w0=mission.def.win && mission.def.win[0];
+    const pw=w0 ? parseLine(w0) : null; _winWaitKey = (bk && pw) ? voiceKey((pw.spk||'')+'|'+pw.text) : null;
+    let waited=0;
+    const poll=()=>{ victoryTimer=null;
+      if(!(gameMode==='campaign' && mission.done && mission.index===wonIndex)) return;
+      if(state==='paused'){ victoryTimer=setTimeout(poll,250); return; }   // paused over the win: resume the wait, don't lose it
+      if(state!=='playing') return;
+      if(bk && _winWaitKey && waited<8000-BOSS_WIN_MS[bk]){ waited+=250; victoryTimer=setTimeout(poll,250); return; }
+      gameOver(true);
+    };
+    victoryTimer=setTimeout(poll, bk ? (BOSS_WIN_MS[bk]||4200) : 2600);
   }
 }
 function queueRadioNow(lines){ if(!lines) return; Voice.lines(lines, {prio:'crit', gap:0.4}); }   // mission-critical (win lines): never dropped
@@ -6891,6 +6901,10 @@ const BOSS_FALLBACK_NAME = {
   himmelszelt:'HIMMELSZELT · FLIEGENDE FESTUNG'
 };
 const BOSS_BY_MISSION = { m12:'prometheus', m13:'feuertraeger', b6:'himmelszelt' };
+// victory screen delay after a boss kill (ms): the death sequence plays out first (checkMissionComplete, 15d)
+const BOSS_WIN_MS = { auge:4800, kronos:4200, himmelszelt:4200, prometheus:3500, feuertraeger:4800 };
+let _winWaitKey=null;   // voice key of win[0] still to be spoken; cleared by its voiceEnd
+EV.on('voiceEnd', d=>{ if(_winWaitKey && d && d.key===_winWaitKey) _winWaitKey=null; });
 
 // scratch vectors (kept private to this section to avoid touching other tracks' scratch vars)
 const _blcWP=new THREE.Vector3(), _blcFwd=new THREE.Vector3(), _blcRel=new THREE.Vector3();
@@ -7168,7 +7182,10 @@ function killFeuertraeger(){
 }
 function killBoss(){
   if(!boss || boss.dead) return;
-  boss.dead=true; boss.exposed=false;
+  boss.dead=true; boss.exposed=false; boss.deadAt=menuTime;
+  // pre-kill fight chatter (story mid lines, normal/bark callouts) is stale now: fade it out so the
+  // bossKilled / win[] lines come next instead of 2-5 s later
+  Voice.drop(q=>q.mid || q.prio!=='crit', true);
   EV.emit('bossKilled', {kind:boss.kind});   // emitted at the START of the death sequence so STORY can speak over it
   onBossDestroyed();
   if(boss.kind==='prometheus') killPrometheus();
