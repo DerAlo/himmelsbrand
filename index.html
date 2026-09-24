@@ -2705,7 +2705,7 @@ const SCN = {
   cell: 92,                 // candidate grid spacing, metres (measured: keeps a full 49-chunk ring at ~60% of the +500k triangle budget)
   clearAirfield: 140,       // clearance from the runway plateau
   clearTarget: 60,          // clearance from ground targets
-  villageChance: 0.014,     // per-chunk roll for a small village cluster
+  villageChance: 0.42,      // per-chunk roll for a village (needs a flat, open lowland spot; about half find one)
 };
 function scnDensity(){                          // extra per-candidate thinning, on top of the family odds below
   const L = GFX.level();
@@ -2729,18 +2729,47 @@ function nearGroundTarget(x,z,margin){
 
 // --- instanced pools -------------------------------------------------------
 function _mkTrunkGeo(rTop,rBot,h,seg){ const g=new THREE.CylinderGeometry(rTop,rBot,h,seg,1,true); g.translate(0,h/2,0); return g; }
-function _mkConeGeo(r,h,seg){ const g=new THREE.ConeGeometry(r,h,seg,1,false); g.translate(0,h/2,0); return g; }
+// Bare triangle-fan cone (seg triangles, no base cap): THREE.ConeGeometry spends 2*seg side
+// triangles (half degenerate at the tip) plus a cap nobody sees on thousands of instances.
+function _fanCone(r,h,seg,y0){
+  const pos=new Float32Array(seg*9), nrm=new Float32Array(seg*9), k=r/h;
+  for(let i=0;i<seg;i++){
+    const a0=i/seg*6.2832, a1=(i+1)/seg*6.2832, am=(a0+a1)/2, o=i*9;
+    pos.set([0,y0+h,0, Math.sin(a1)*r,y0,Math.cos(a1)*r, Math.sin(a0)*r,y0,Math.cos(a0)*r], o);
+    const n=(a)=>{ const l=Math.sqrt(1+k*k); return [Math.sin(a)/l, k/l, Math.cos(a)/l]; };
+    nrm.set([...n(am), ...n(a1), ...n(a0)], o);
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nrm,3));
+  return g;
+}
+function _mkConeGeo(r,h,seg){ return _fanCone(r,h,seg,0); }
 function _mkBallGeo(r){ return new THREE.IcosahedronGeometry(r,0); }
 function _mkHayGeo(r,len,seg){ const g=new THREE.CylinderGeometry(r,r,len,seg,1,false); g.rotateZ(Math.PI/2); g.translate(0,r,0); return g; }
-function _mkWallGeo(w,h,d){ const g=new THREE.BoxGeometry(w,h,d); g.translate(0,h/2,0); return g; }
+// Unit house body: 1x1x1 above ground plus 0.35 buried, so a house on a gentle slope never floats.
+function _mkWallGeo(){ const g=new THREE.BoxGeometry(1,1.35,1); g.translate(0,1.35/2-0.35,0); return g; }
+// Unit gable roof (ridge along z, eaves at y=0, ridge at y=1): 2 slopes + 2 gable ends = 6 triangles.
+function _mkGableGeo(){
+  const A=[-0.5,0,-0.5], B=[0.5,0,-0.5], C=[0.5,0,0.5], D=[-0.5,0,0.5], E=[0,1,-0.5], F=[0,1,0.5];
+  const tri=[A,D,F, A,F,E, B,E,F, B,F,C, A,E,B, D,C,F];
+  const pos=new Float32Array(tri.length*3); tri.forEach((v,i)=>pos.set(v,i*3));
+  const g=new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos,3)); g.computeVertexNormals();
+  return g;
+}
+// Bavarian onion dome with a short spike, base radius 1, height ~3.7 (8 segments).
+function _mkOnionGeo(){
+  const P=[[0.001,0],[1.0,0],[1.32,0.7],[1.22,1.45],[0.72,2.1],[0.22,2.55],[0.14,3.0],[0.05,3.7]].map(q=>new THREE.Vector2(q[0],q[1]));
+  return new THREE.LatheGeometry(P, 8);
+}
 
 let _windMats = [];
 // Shared instancing material factory: adds a per-instance tint (instTint, so pools are not
 // flat poster-paint colour) and, when sway is true, a cheap vertex-shader wind wobble driven
 // by a shared uTime and gated by GFX level (uWindAmp). Only ever multiplies colour / offsets
 // the visual mesh — no gameplay state (collision, targeting) reads any of this.
-function makeInstancedMat(colorHex, sway){
-  const mat = new THREE.MeshLambertMaterial({ color: colorHex });
+function makeInstancedMat(colorHex, sway, vcol){
+  const mat = new THREE.MeshLambertMaterial({ color: colorHex, vertexColors: !!vcol });
   mat.onBeforeCompile = function(sh){
     sh.uniforms.uTime = { value: 0 };
     if(sway) sh.uniforms.uWindAmp = { value: (GFX.level()==='high') ? 1.0 : 0.0 };
@@ -2764,15 +2793,16 @@ function makeInstancedMat(colorHex, sway){
 const MAT_TRUNK_CONIFER = makeInstancedMat(0x4a3420, false);
 const MAT_CONIFER_CANOPY = makeInstancedMat(0x1d3a20, true);
 const MAT_TRUNK_DECID = makeInstancedMat(0x6b5a3c, false);
-const MAT_DECID_CANOPY = makeInstancedMat(0x4c7a30, true);
+const MAT_DECID_CANOPY = makeInstancedMat(0x31521f, true);
 const MAT_ROCK = makeInstancedMat(0x6e6c64, false);
 const MAT_HAY = makeInstancedMat(0xc9a23c, false);
-const MAT_WALL = makeInstancedMat(0xd6cab0, false);
-const MAT_ROOF = makeInstancedMat(0x7a3a2c, false);
+const MAT_WALL = makeInstancedMat(0xeee6d6, false);
+const MAT_ROOF = makeInstancedMat(0x8e4030, false);
+const MAT_DOME = makeInstancedMat(0x5a8a6c, false);
 
 const GEO_CONIFER_TRUNK_H=7.2, GEO_CONIFER_CANOPY_H=9.5, GEO_CONIFER_CANOPY_R=3.0;
 const GEO_DECID_TRUNK_H=5.6, GEO_DECID_CANOPY_R=3.6;
-const GEO_ROCK_R=2.0, GEO_HAY_R=1.5, GEO_HOUSE_WALL_H=6.4;
+const GEO_ROCK_R=2.0, GEO_HAY_R=1.5;
 
 // A pool is one InstancedMesh with a fixed capacity: 8 pools total = 8 extra draw calls,
 // regardless of how many trees/rocks/houses are ever placed (well inside the +60 draw call
@@ -2795,10 +2825,11 @@ function makePool(geo, mat, cap){
   scene.add(im);
   return { im, free, cap, hi:0 };
 }
-function placeInPool(pool, x, y, z, ry, scale, tr, tg, tb){
+function placeInPool(pool, x, y, z, ry, scale, tr, tg, tb){ return placeInPoolS(pool, x, y, z, ry, scale, scale, scale, tr, tg, tb); }
+function placeInPoolS(pool, x, y, z, ry, sx, sy, sz, tr, tg, tb){
   if(pool.free.length===0) return -1;              // pool exhausted: skip silently, no crash, no allocation
   const slot = pool.free.pop();
-  _pPos.set(x,y,z); _pEul.set(0,ry,0); _pQuat.setFromEuler(_pEul); _pScale.set(scale,scale,scale);
+  _pPos.set(x,y,z); _pEul.set(0,ry,0); _pQuat.setFromEuler(_pEul); _pScale.set(sx,sy,sz);
   _pMat.compose(_pPos,_pQuat,_pScale);
   pool.im.setMatrixAt(slot, _pMat);
   pool.im.geometry.attributes.instTint.setXYZ(slot, tr,tg,tb);
@@ -2830,14 +2861,15 @@ function resetPool(pool){
   pool.im.count = 0;
 }
 const SPOOL = {
-  coniferTrunk: makePool(_mkTrunkGeo(0.34,0.48,GEO_CONIFER_TRUNK_H,5), MAT_TRUNK_CONIFER, 4500),
+  coniferTrunk: makePool(_mkTrunkGeo(0.34,0.48,GEO_CONIFER_TRUNK_H,3), MAT_TRUNK_CONIFER, 4500),
   coniferCanopy: makePool(_mkConeGeo(GEO_CONIFER_CANOPY_R,GEO_CONIFER_CANOPY_H,6), MAT_CONIFER_CANOPY, 4500),
-  decidTrunk: makePool(_mkTrunkGeo(0.30,0.42,GEO_DECID_TRUNK_H,5), MAT_TRUNK_DECID, 1800),
+  decidTrunk: makePool(_mkTrunkGeo(0.30,0.42,GEO_DECID_TRUNK_H,3), MAT_TRUNK_DECID, 1800),
   decidCanopy: makePool(_mkBallGeo(GEO_DECID_CANOPY_R), MAT_DECID_CANOPY, 1800),
   rock: makePool(_mkBallGeo(GEO_ROCK_R), MAT_ROCK, 1400),
   haybale: makePool(_mkHayGeo(GEO_HAY_R,3.4,7), MAT_HAY, 350),
-  houseWall: makePool(_mkWallGeo(7,GEO_HOUSE_WALL_H,8), MAT_WALL, 250),
-  houseRoof: makePool(_mkConeGeo(6.2,4.6,4), MAT_ROOF, 250),
+  houseWall: makePool(_mkWallGeo(), MAT_WALL, 1100),
+  houseRoof: makePool(_mkGableGeo(), MAT_ROOF, 1100),
+  dome: makePool(_mkOnionGeo(), MAT_DOME, 80),
 };
 
 // --- scattering --------------------------------------------------------------
@@ -2855,53 +2887,89 @@ function placeDecid(wx,h,wz,ry,tintJ,rec){
   const s2 = placeInPool(SPOOL.decidCanopy, wx, h+GEO_DECID_TRUNK_H*scl*0.92, wz, ry, scl, tintJ,tintJ,tintJ);
   if(s2>=0) rec.slots.push({pool:SPOOL.decidCanopy, slot:s2});
 }
-function buildChurch(x,y,z,ry){
-  const g = new THREE.Group();
-  const towerH=14, towerR=3.2;
-  const tower = new THREE.Mesh(new THREE.CylinderGeometry(towerR,towerR*1.05,towerH,8,1,true), MAT_WALL);
-  tower.position.y = towerH/2; tower.receiveShadow=true;
-  const spireH=8;
-  const spire = new THREE.Mesh(new THREE.ConeGeometry(towerR*1.05,spireH,6), MAT_ROOF);
-  spire.position.y = towerH+spireH/2; spire.receiveShadow=true;
-  const nave = new THREE.Mesh(new THREE.BoxGeometry(9,7,16), MAT_WALL);
-  nave.position.set(0,3.5,-11); nave.receiveShadow=true;
-  const naveRoof = new THREE.Mesh(new THREE.ConeGeometry(7.4,4.2,4), MAT_ROOF);
-  naveRoof.position.set(0,7+2.1,-11); naveRoof.rotation.y=Math.PI/4; naveRoof.receiveShadow=true;
-  g.add(tower,spire,nave,naveRoof);
-  g.position.set(x,y,z); g.rotation.y=ry;
-  scene.add(g);
-  return g;
+// --- villages: all-instanced (house bodies, gable roofs, church tower + onion dome) -----------
+const _WALL_TINT=[[1,1,1],[1,0.96,0.86],[1,0.93,0.78],[0.97,0.95,0.92],[1,0.9,0.84]];
+const _ROOF_TINT=[[1,1,1],[0.86,0.8,0.78],[0.62,0.64,0.7],[1.08,0.9,0.8]];
+function _vPut(rec, pool, ax, az, ry, lx, lz, y, lry, sx, sy, sz, t){   // local (street) frame -> world
+  const c=Math.cos(ry), sn=Math.sin(ry);
+  const k=placeInPoolS(pool, ax+lx*c+lz*sn, y, az-lx*sn+lz*c, ry+lry, sx, sy, sz, t[0], t[1], t[2]);
+  if(k>=0) rec.slots.push({pool, slot:k});
+}
+function _vHouse(rec, ax, az, ry, lx, lz, lry, w, d, hWall, hRoof, seed, hut){
+  const c=Math.cos(ry), sn=Math.sin(ry), wx=ax+lx*c+lz*sn, wz=az-lx*sn+lz*c;
+  const s=surfaceAt(wx,wz); let y=s.h;
+  if(y < CFG.waterLevel+4 || s.ny < 0.84) return false;
+  const e=Math.max(w,d)*0.5;                                  // stand on the lowest footprint corner: never floats
+  y=Math.min(y, surfaceAt(wx+e,wz+e).h, surfaceAt(wx-e,wz+e).h, surfaceAt(wx+e,wz-e).h, surfaceAt(wx-e,wz-e).h);
+  if(y < CFG.waterLevel+2) return false;
+  if(nearAirfield(wx,wz,SCN.clearAirfield) || nearGroundTarget(wx,wz,SCN.clearTarget)) return false;
+  const wt = hut ? [0.52,0.4,0.3] : _WALL_TINT[Math.floor(seed*_WALL_TINT.length*0.999)];
+  const rt = hut ? [0.6,0.62,0.68] : _ROOF_TINT[Math.floor(hash2(seed*91.3,7.1)*_ROOF_TINT.length*0.999)];
+  _vPut(rec, SPOOL.houseWall, ax, az, ry, lx, lz, y-0.2, lry, w, hWall, d, wt);
+  _vPut(rec, SPOOL.houseRoof, ax, az, ry, lx, lz, y-0.2+hWall, lry, w+1.6, hRoof, d+1.4, rt);   // eaves overhang
+  return true;
+}
+// Village sites are a pure function of the chunk (cached), so trees in ANY chunk can keep clear
+// of a village whose own chunk has not been streamed yet.
+const _vSites = new Map();
+function villageSite(cx,cz){
+  const key=(cx+32768)*65536+(cz+32768);
+  let v=_vSites.get(key);
+  if(v!==undefined) return v;
+  v=null;
+  if(_vSites.size>4000) _vSites.clear();
+  const size=CFG.chunkSize, ox=cx*size, oz=cz*size;
+  if(hash2(cx*17.3+41.1, cz*17.3+59.7) < SCN.villageChance){
+    for(let tries=0; tries<8 && !v; tries++){               // look for a flat, open lowland spot
+      const ax = ox + (hash2(cx*3.3+tries*7.7, cz*7.1+tries*1.3)-0.5)*size*0.7;
+      const az = oz + (hash2(cx*7.1+tries*2.9, cz*3.3+tries*5.1)-0.5)*size*0.7;
+      const s = surfaceAt(ax,az), ah=s.h;
+      if(ah < CFG.waterLevel+8 || ah > 380 || s.ny < 0.93) continue;
+      if(landForest(ax,az,ah,s.ny) > 0.15) continue;
+      v={ x:ax, z:az, h:ah };
+    }
+  }
+  _vSites.set(key, v);
+  return v;
+}
+function nearVillage(x,z){
+  const size=CFG.chunkSize, cx=Math.round(x/size), cz=Math.round(z/size);
+  for(let dz=-1;dz<=1;dz++) for(let dx=-1;dx<=1;dx++){
+    const v=villageSite(cx+dx,cz+dz);
+    if(v){ const ex=x-v.x, ez=z-v.z; if(ex*ex+ez*ez < 190*190) return true; }
+  }
+  return false;
 }
 function buildVillage(cx,cz,ox,oz,rec){
-  const size=CFG.chunkSize;
-  const ax = ox + (hash2(cx*3.3,cz*7.1)-0.5)*size*0.6;
-  const az = oz + (hash2(cx*7.1,cz*3.3)-0.5)*size*0.6;
-  const ah = terrainHeight(ax,az);
-  if(ah < CFG.waterLevel+8 || ah > 260) return;               // villages sit in the lowlands
-  if(nearAirfield(ax,az,SCN.clearAirfield+200)) return;
-  if(nearGroundTarget(ax,az,SCN.clearTarget+120)) return;
-  const baseRy = hash2(cx*11.1,cz*13.3)*Math.PI*2;
-  const houses = 3+Math.floor(hash2(cx*19.1,cz*23.3)*4);
-  for(let i=0;i<houses;i++){
-    const a = baseRy + i*(Math.PI*2/houses) + (hash2(cx+i*3.1,cz+i*1.7)-0.5)*0.6;
-    const rr = 30+hash2(cx+i*5.3,cz+i*2.9)*45;
-    const hx = ax+Math.cos(a)*rr, hz = az+Math.sin(a)*rr;
-    const hh = terrainHeight(hx,hz);
-    if(hh < CFG.waterLevel+6 || hh>260) continue;
-    const hry = hash2(hx*0.9,hz*0.9)*Math.PI*2;
-    const s1 = placeInPool(SPOOL.houseWall, hx, hh, hz, hry, 1.0, 1,1,1);
-    if(s1>=0) rec.slots.push({pool:SPOOL.houseWall, slot:s1});
-    const s2 = placeInPool(SPOOL.houseRoof, hx, hh+GEO_HOUSE_WALL_H, hz, hry+Math.PI/4, 1.0, 1,1,1);
-    if(s2>=0) rec.slots.push({pool:SPOOL.houseRoof, slot:s2});
+  const v=villageSite(cx,cz); if(!v) return;
+  const ax=v.x, az=v.z;
+  if(nearAirfield(ax,az,SCN.clearAirfield+260) || nearGroundTarget(ax,az,SCN.clearTarget+160)) return;
+  const ry = hash2(cx*11.1,cz*13.3)*Math.PI*2, big = hash2(cx*5.9,cz*8.3);
+  // church base = lowest ground under nave + tower corners (walls reach 35% below base: never floats)
+  const c0=Math.cos(ry), s0=Math.sin(ry); let ah=v.h;
+  for(let i=0;i<6;i++){ const lx=(i&1)?6:-6, lz=i<2?-17:(i<4?0:12); ah=Math.min(ah, surfaceAt(ax+lx*c0+lz*s0, az-lx*s0+lz*c0).h); }
+  // church: white nave + red roof, square tower with a copper onion dome at the west end
+  _vPut(rec, SPOOL.houseWall, ax, az, ry, 0, 0, ah-0.3, 0, 10, 9, 22, [1,1,1]);
+  _vPut(rec, SPOOL.houseRoof, ax, az, ry, 0, 0, ah-0.3+9, 0, 11.4, 5.5, 23, [1,1,1]);
+  _vPut(rec, SPOOL.houseWall, ax, az, ry, 0, -13.5, ah-0.3, 0, 5.4, 24, 5.4, [1,0.98,0.94]);
+  _vPut(rec, SPOOL.dome, ax, az, ry, 0, -13.5, ah-0.3+24, 0, 2.5, 2.3, 2.5, [1,1,1]);
+  // farmhouses along a main street through the church square, a few scattered further out
+  const n = 6 + Math.floor(big*10);
+  for(let i=0, built=0; i<n*2 && built<n; i++){                // slope/water rejects get a second chance
+    const r1=hash2(cx*13.7+i*3.1, cz*9.1+i*1.7), r2=hash2(cx*4.3+i*7.9, cz*17.3+i*2.3), r3=hash2(cx*21.1+i*1.3, cz*2.9+i*4.1);
+    let lx, lz, lry;
+    if(i < n*1.4){ const side = (i&1) ? 1 : -1; lz = (r1-0.5)*170; if(Math.abs(lz) < 22) lz += lz<0 ? -26 : 26; lx = side*(17+r2*9); lry = (r3-0.5)*0.25; }
+    else { const a=r1*6.283, rr=70+r2*80; lx=Math.cos(a)*rr; lz=Math.sin(a)*rr; lry=r3*1.2; }
+    const w=8+r2*4, d=10+r3*5, hw=5+r1*2.2;
+    if(_vHouse(rec, ax, az, ry, lx, lz, lry + ((i%3===2)?Math.PI/2:0), w, d, hw, 3.6+r3*1.4, r1, false)) built++;
   }
-  const ch = terrainHeight(ax,az);
-  if(ch >= CFG.waterLevel+6 && ch<=260) rec.group = buildChurch(ax,ch,az,baseRy);
 }
 const sceneryChunks = new Map();    // key "cx,cz" -> { slots:[{pool,slot}], group:THREE.Group|null }
 function scatterChunkScenery(cx,cz){
   const size=CFG.chunkSize, ox=cx*size, oz=cz*size;
   const rec = { slots:[], group:null };
   const density = scnDensity();
+  buildVillage(cx,cz,ox,oz,rec);                            // villages first: they claim their pool slots before the trees
   if(density>0){
     const cell = SCN.cell, n = Math.floor(size/cell);
     for(let gz=0; gz<n; gz++){
@@ -2910,9 +2978,10 @@ function scatterChunkScenery(cx,cz){
         const wx = ox-size/2+(gx+0.15+jx*0.7)*cell, wz = oz-size/2+(gz+0.15+jz*0.7)*cell;
         const roll = hash2(wx*0.31+11.1, wz*0.31+7.7);
         if(roll > density) continue;
-        if(nearAirfield(wx,wz,SCN.clearAirfield) || nearGroundTarget(wx,wz,SCN.clearTarget)) continue;
-        const h = terrainHeight(wx,wz);
+        if(nearAirfield(wx,wz,SCN.clearAirfield) || nearGroundTarget(wx,wz,SCN.clearTarget) || nearVillage(wx,wz)) continue;
+        const sf = surfaceAt(wx,wz), h = sf.h;                   // exact rendered ground (no floating on ridges)
         if(h < CFG.waterLevel+2 || h > 540) continue;          // never in water; nothing grows above the snowline
+        const woods = landForest(wx,wz,h,sf.ny) > 0.3;          // woods: the near-forest ring plants those trees
         const famRoll = hash2(wx*0.07+3.3, wz*0.07+9.9);
         const tintJ = 0.85+hash2(wx*1.7+1.1, wz*1.7+2.2)*0.3;
         const ry = hash2(wx*2.3+5.5, wz*2.3+6.6)*Math.PI*2;
@@ -2923,20 +2992,21 @@ function scatterChunkScenery(cx,cz){
             if(s>=0) rec.slots.push({pool:SPOOL.rock, slot:s});
           }
         } else if(h > 190){                                     // treeline: sparser conifers + occasional boulder
-          if(famRoll < 0.34) placeConifer(wx,h,wz,ry,tintJ,rec);
+          if(famRoll < 0.34){ if(!woods) placeConifer(wx,h,wz,ry,tintJ,rec); }
+          else if(famRoll < 0.36 && !woods && h < 420){ _vHouse(rec, wx, wz, ry, 0, 0, 0, 6.5, 8, 3.6, 2.6, famRoll, true); }   // Almhütte
           else if(famRoll < 0.40){
             const scl=0.7+hash2(wx*4.1,wz*4.1)*0.8;
             const s=placeInPool(SPOOL.rock, wx, h+GEO_ROCK_R*0.25, wz, ry, scl, tintJ,tintJ,tintJ);
             if(s>=0) rec.slots.push({pool:SPOOL.rock, slot:s});
           }
         } else if(h > 15){                                      // meadow/forest band
-          if(famRoll < 0.30) placeConifer(wx,h,wz,ry,tintJ,rec);
-          else if(famRoll < 0.44) placeDecid(wx,h,wz,ry,tintJ,rec);
+          if(famRoll < 0.30){ if(!woods) placeConifer(wx,h,wz,ry,tintJ,rec); }
+          else if(famRoll < 0.44){ if(!woods) placeDecid(wx,h,wz,ry,tintJ,rec); }
           else if(famRoll < 0.50){
             const scl=0.6+hash2(wx*5.3,wz*5.3)*0.6;
             const s=placeInPool(SPOOL.rock, wx, h+GEO_ROCK_R*0.2, wz, ry, scl, tintJ,tintJ,tintJ);
             if(s>=0) rec.slots.push({pool:SPOOL.rock, slot:s});
-          } else if(famRoll < 0.52){
+          } else if(famRoll < 0.52 && !woods){
             const s=placeInPool(SPOOL.haybale, wx, h, wz, ry, 0.85+hash2(wx*6.1,wz*6.1)*0.4, tintJ,tintJ*0.95,tintJ*0.7);
             if(s>=0) rec.slots.push({pool:SPOOL.haybale, slot:s});
           }
@@ -2944,8 +3014,6 @@ function scatterChunkScenery(cx,cz){
         // h<=15 (beach/wetland): left clear on purpose
       }
     }
-    const vRoll = hash2(cx*17.3+41.1, cz*17.3+59.7);
-    if(density>0.3 && vRoll < SCN.villageChance) buildVillage(cx,cz,ox,oz,rec);
   }
   sceneryChunks.set(cx+','+cz, rec);
 }
@@ -2972,7 +3040,117 @@ GFX.onChange(function(level){
   for(let i=0;i<keys.length;i++) freeScenery(keys[i]);
   Object.values(SPOOL).forEach(resetPool);
   for(let i=0;i<keys.length;i++){ const p=keys[i].split(','); scatterChunkScenery(+p[0],+p[1]); }
+  nearForestSetup();
 });
+
+// --- near forest: dense instanced woods on the forest mask, in a camera-centred tile ring ------
+// The chunk scatter above is far too coarse for woods (one candidate per 92 m). Forest cover is
+// painted by the terrain shader everywhere; within ~1.2 km (where single trees are resolvable)
+// real trees stand on exactly those pixels: a toroidal ring of 200 m tiles around the camera,
+// each tile filled from landForest() on a jittered 13 m lattice. Tiles are refilled nearest-
+// first, up to three per frame (~0.15 ms each), so streaming never hitches; one draw call per tree type.
+function _mergeColored(parts){        // [[geometry, hexColor], ...] -> one non-indexed geometry with vertex colours
+  let n=0; const gs=parts.map(p=>{ const g=p[0].index?p[0].toNonIndexed():p[0]; n+=g.attributes.position.count; return g; });
+  const pos=new Float32Array(n*3), nrm=new Float32Array(n*3), col=new Float32Array(n*3), c=new THREE.Color();
+  let o=0;
+  gs.forEach((g,k)=>{ c.setHex(parts[k][1]); const m=g.attributes.position.count;
+    pos.set(g.attributes.position.array, o*3); nrm.set(g.attributes.normal.array, o*3);
+    for(let i=0;i<m;i++){ col[(o+i)*3]=c.r; col[(o+i)*3+1]=c.g; col[(o+i)*3+2]=c.b; }
+    o+=m; g.dispose(); if(g!==parts[k][0]) parts[k][0].dispose(); });
+  const out=new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nrm,3));
+  out.setAttribute('color', new THREE.BufferAttribute(col,3));
+  return out;
+}
+function _nfSpruceGeo(){
+  const t=_mkTrunkGeo(0.28,0.4,3.2,3);
+  const c1=_fanCone(2.7,7.5,7,2.2), c2=_fanCone(1.9,6.5,7,6.4), c3=_fanCone(1.1,4.2,6,10.4);   // 26 triangles
+  return _mergeColored([[t,0x4a3422],[c1,0x1f4524],[c2,0x25502b],[c3,0x2b5a31]]);
+}
+function _nfBroadGeo(){
+  const t=_mkTrunkGeo(0.3,0.45,4.4,3);
+  const b1=new THREE.IcosahedronGeometry(3.4,0); b1.scale(1,0.85,1); b1.translate(0,6.6,0);
+  const b2=new THREE.OctahedronGeometry(2.6,0); b2.rotateY(0.6); b2.translate(1.3,8.5,-0.7);          // 34 triangles
+  return _mergeColored([[t,0x4f3f2a],[b1,0x233c19],[b2,0x2b4520]]);
+}
+const MAT_NF_SPRUCE = makeInstancedMat(0xffffff, true, true);
+const MAT_NF_BROAD = makeInstancedMat(0xffffff, true, true);
+// Tiles beyond NF.lodR (Chebyshev, in tiles) use 6/8-triangle stand-ins: a spruce 700 m away is
+// ~30 px tall, where the tiers no longer read, and it keeps the ring at ~1/3 of the triangles.
+function _nfSpruceFarGeo(){ return _mergeColored([[_fanCone(2.5,12.8,6,1.4),0x224a27]]); }
+function _nfBroadFarGeo(){ const o=new THREE.OctahedronGeometry(3.5,0); o.scale(1,0.95,1); o.translate(0,6.8,0); return _mergeColored([[o,0x243f19]]); }
+const NF = { tile:200, n:0, cell:13, lodR:3, budget:3, tiles:[], order:[], pools:null, ax:1e9, az:1e9, gtN:0 };
+NF.pools = [ makePool(_nfSpruceGeo(), MAT_NF_SPRUCE, 5000), makePool(_nfBroadGeo(), MAT_NF_BROAD, 4000),
+             makePool(_nfSpruceFarGeo(), MAT_NF_SPRUCE, 9000), makePool(_nfBroadFarGeo(), MAT_NF_BROAD, 7000) ];
+function _nfFree(t){
+  const ps=NF.pools[t.lod*2], pb=NF.pools[t.lod*2+1];
+  for(let i=0;i<t.s.length;i++) freeSlot(ps, t.s[i]);
+  for(let i=0;i<t.b.length;i++) freeSlot(pb, t.b[i]);
+  t.s.length=0; t.b.length=0;
+}
+function _nfFill(t, tx, tz, lod){
+  _nfFree(t); t.tx=tx; t.tz=tz; t.lod=lod;
+  const ps=NF.pools[lod*2], pb=NF.pools[lod*2+1];
+  const T=NF.tile, cell=NF.cell, m=Math.floor(T/cell), x0=tx*T, z0=tz*T;
+  for(let gz=0; gz<m; gz++) for(let gx=0; gx<m; gx++){
+    const wx=x0+(gx+0.1+hash2(x0+gx*3.1, z0+gz*7.3)*0.8)*cell, wz=z0+(gz+0.1+hash2(x0+gx*5.7, z0+gz*2.9)*0.8)*cell;
+    const s=surfaceAt(wx,wz), h=s.h, ny=s.ny;
+    if(h < CFG.waterLevel+3 || ny < 0.6) continue;
+    const f=landForest(wx,wz,h,ny);
+    if(f < 0.25 || hash2(wx*0.73+1.3, wz*0.73+4.1) > f*1.15) continue;   // soft, ragged forest edge
+    if(nearAirfield(wx,wz,SCN.clearAirfield) || nearGroundTarget(wx,wz,SCN.clearTarget) || nearVillage(wx,wz)) continue;
+    const r=hash2(wx*1.9+7.7, wz*1.9+3.1), ry=r*6.283;
+    const pBroad = 0.55 - 0.55*smoothBand(60,240,h);                  // mixed lowland woods, pure spruce higher up
+    const scl = 0.9 + hash2(wx*2.7, wz*2.7)*0.6;
+    const tj = 0.82 + hash2(wx*4.3+2.2, wz*4.3+9.1)*0.3;
+    if(hash2(wx*3.3+5.1, wz*3.3+0.7) < pBroad){
+      const k=placeInPool(pb, wx, h-0.3, wz, ry, scl, tj*1.02, tj, tj*0.9); if(k>=0) t.b.push(k);
+    } else {
+      const k=placeInPool(ps, wx, h-0.3, wz, ry, scl, tj, tj, tj); if(k>=0) t.s.push(k);
+    }
+  }
+}
+function nearForestSetup(){
+  for(let i=0;i<NF.tiles.length;i++) _nfFree(NF.tiles[i]);
+  NF.pools.forEach(resetPool);
+  const L=GFX.level();
+  NF.n = L==='high' ? 12 : (L==='medium' ? 8 : 0);
+  NF.cell = L==="high" ? 13 : 19;
+  NF.tiles.length=0; NF.order.length=0;
+  for(let i=0;i<NF.n*NF.n;i++) NF.tiles.push({ tx:NaN, tz:NaN, lod:0, s:[], b:[] });
+  const h=NF.n>>1;
+  NF.lodR = L==='high' ? 3 : 2;
+  for(let dz=-h; dz<NF.n-h; dz++) for(let dx=-h; dx<NF.n-h; dx++) NF.order.push([dx,dz,dx*dx+dz*dz, Math.max(Math.abs(dx),Math.abs(dz))>NF.lodR ? 1 : 0]);
+  NF.order.sort((a,b)=>a[2]-b[2]);
+  for(let i=0;i<4;i++) NF.pools[i].im.visible = NF.n>0;
+}
+function _nfInvalidateAt(x, z, r){     // refill tiles touching a circle (new ground target)
+  const T=NF.tile;
+  for(let i=0;i<NF.tiles.length;i++){ const t=NF.tiles[i];
+    if(x+r>t.tx*T && x-r<(t.tx+1)*T && z+r>t.tz*T && z-r<(t.tz+1)*T){ _nfFree(t); t.tx=NaN; } }
+}
+function nearForestTick(){
+  if(!NF.n) return;
+  // runway plateau appeared / moved: every tile must be re-checked against the clearance
+  const A=AIRFIELD, ax = A ? A.x : 1e9, az = A ? A.z : 1e9;      // numbers, not a string key: no per-frame garbage
+  if(ax!==NF.ax || az!==NF.az){ NF.ax=ax; NF.az=az; for(let i=0;i<NF.tiles.length;i++){ _nfFree(NF.tiles[i]); NF.tiles[i].tx=NaN; } }
+  if(groundTargets.length < NF.gtN) NF.gtN = groundTargets.length;
+  while(NF.gtN < groundTargets.length){ const g=groundTargets[NF.gtN++]; if(g && g.obj) _nfInvalidateAt(g.obj.position.x, g.obj.position.z, (g.radius||8)+SCN.clearTarget); }
+  const T=NF.tile, n=NF.n, ctx=Math.floor(camera.position.x/T), ctz=Math.floor(camera.position.z/T);
+  let done=0;
+  for(let i=0;i<NF.order.length && done<NF.budget;i++){
+    const tx=ctx+NF.order[i][0], tz=ctz+NF.order[i][1];
+    const t=NF.tiles[((tx%n)+n)%n + (((tz%n)+n)%n)*n];
+    const lod=NF.order[i][3];
+    if(t.tx!==tx || t.tz!==tz || t.lod!==lod){ _nfFill(t, tx, tz, lod); done++; }
+  }
+  // single trees are sub-pixel from high up: skip the vertex work entirely
+  const vis = camera.position.y < 3200;
+  for(let i=0;i<4;i++) NF.pools[i].im.visible = vis;
+}
+nearForestSetup();
+HOOKS.reset.push(function(){ NF.gtN=0; for(let i=0;i<NF.tiles.length;i++){ _nfFree(NF.tiles[i]); NF.tiles[i].tx=NaN; } NF.pools.forEach(resetPool); });
 
 // --- far land: coarse terrain from the chunk-ring edge out to the far plane ---------------
 // The 7x7 chunk ring ends 5.25 km out, and beyond it the world used to stop in a hard square
@@ -2988,7 +3166,7 @@ function buildFarLand(){
   if(FAR.mesh){ scene.remove(FAR.mesh); FAR.mesh.geometry.dispose(); FAR.mesh=null; }
   const L = GFX.level();
   const inner = (CFG.viewRadius+0.5)*CFG.chunkSize;                       // chunk-ring half extent
-  const want = L==='high' ? 250 : (L==='medium' ? 375 : 525);
+  const want = L==='high' ? 300 : (L==='medium' ? 375 : 525);          // >5 km out and in haze: 300 m cells are plenty
   const ki = Math.max(1, Math.round(inner/want)), cell = inner/ki;        // grid lines land exactly on the ring edge
   const K = Math.ceil(Math.max(camera.far, 9000)/cell), N = 2*K+1;
   const pos = new Float32Array(N*N*3), nrm = new Float32Array(N*N*3), col = new Float32Array(N*N*3);
@@ -3064,6 +3242,7 @@ HOOKS.always.push(function(dt){
   if(terrainMat.userData.shader){ const u=terrainMat.userData.shader.uniforms, A=AIRFIELD;
     if(A){ u.uAir.value.set(A.x, A.z, A.cos, A.sin); u.uAirExt.value.set(A.halfW+40, A.halfL+40, 1); } else u.uAirExt.value.z=0; }
   farLandTick();
+  nearForestTick();
 });
 
 /* ---------------------------------------------------------------------------
