@@ -4803,7 +4803,7 @@ function efAssets(){
   const navM=new THREE.MeshBasicMaterial({ vertexColors:true });   // unlit: reads as a light at any time of day
   // canopy: smoky tint with a Fresnel opacity ramp, clear looking down into the cockpit,
   // mirror-like at grazing angles where it picks up the sky from the environment map
-  const glass=new THREE.MeshStandardMaterial({ color:0x2a3541, metalness:0.3, roughness:0.05, envMapIntensity:2.0, transparent:true, opacity:0.28, side:THREE.DoubleSide, depthWrite:false });
+  const glass=new THREE.MeshStandardMaterial({ color:0x1c232b, metalness:0.3, roughness:0.05, envMapIntensity:1.6, transparent:true, opacity:0.2, side:THREE.DoubleSide, depthWrite:false });
   glass.customProgramCacheKey=()=>'efglass';
   glass.onBeforeCompile=sh=>{ sh.fragmentShader=sh.fragmentShader.replace('#include <dithering_fragment>',
     '#include <dithering_fragment>\n  float efFr=pow(1.0-abs(dot(normal,normalize(vViewPosition))),3.0);\n  gl_FragColor.a=clamp(gl_FragColor.a+efFr*0.65,0.0,0.94);'); };
@@ -4877,14 +4877,14 @@ function efAssets(){
     for(const T of st){ const q=P(T.s), xs=base.map(x=>({x}));
       for(const h of H){ const hx=MU.clamp((h.z(T.s)-q.zl)/q.c,0.03,0.97), d=0.016/q.c; xs.push({x:hx-d},{x:hx,line:T.s>=h.s0&&T.s<=h.s1},{x:hx+d}); }
       xs.sort((p,q)=>p.x-q.x);
-      const pt=(X,sg)=>{ const z=q.zl+X.x*q.c, p=map(T.s,sg*naca(X.x,q.tc)*q.c,z); p.push((X.line||(T.b&&T.b[1](z,T.s)))?0.6:1,0); return p; }, ring=[];
+      const pt=(X,sg)=>{ const z=q.zl+X.x*q.c, p=map(T.s,sg*naca(X.x,q.tc)*q.c,z); p.push((X.line||(T.b&&T.b[1](z,T.s)))?0.5:1,0); return p; }, ring=[];
       for(let k=xs.length-1;k>=0;k--) ring.push(pt(xs[k],1));
       for(let k=1;k<xs.length;k++) ring.push(pt(xs[k],-1));
       rings.push(ring); }
     return loft(rings,{uv:o.uv||'xz', cap1:true}); }
   // Paint pass: two-tone Typhoon grey (darker upper, lighter under surfaces) from the surface normal,
   // soot behind the engines, radome batch shade, then the baked seams (shade) and dark interiors.
-  const C_UP=new THREE.Color(0x6a7179), C_LO=new THREE.Color(0x959ba2), C_DK=new THREE.Color(0x0b0d10), C_SOOT=new THREE.Color(0x2b2825);
+  const C_UP=new THREE.Color(0x565b61), C_LO=new THREE.Color(0x82878d), C_DK=new THREE.Color(0x0b0d10), C_SOOT=new THREE.Color(0x2b2825);
   function painted(g){ const P=g.attributes.position, N=g.attributes.normal, C=g.attributes.color, S=g.userData.sh, D=g.userData.dk, c=new THREE.Color();
     for(let i=0;i<P.count;i++){ const x=P.getX(i), y=P.getY(i), z=P.getZ(i);
       c.copy(C_LO).lerp(C_UP, Math.max(MU.smoothstep(N.getY(i),-0.45,0.35), MU.smoothstep(y,0.75,1.3)));
@@ -4900,14 +4900,16 @@ function efAssets(){
   // Keyframes [z, y0, halfWidth, hUpper, hLower, nUpper, nLower, peanut]: superellipse halves
   // (n>2 boxier: the flat-bottomed intake trunk, n<2 ridged: the dorsal spine), sill-low under the
   // canopy, blending at the tail into the twin-engine "peanut" around both nozzles.
-  const FK=[[-9.2,0.00,0.70,0.64,0.60,2.0,2.1,0],[-8.3,0.03,0.78,0.70,0.66,2.1,2.2,0],[-7.3,0.06,0.85,0.74,0.72,2.3,2.5,0],
-    [-6.4,0.08,0.91,0.66,0.77,2.6,2.7,0],[-5.4,0.10,0.97,0.62,0.80,2.8,2.9,0],[-4.4,0.08,1.05,0.64,0.92,2.8,3.1,0],
-    [-3.4,0.04,1.15,0.76,1.04,2.5,3.5,0],[-2.4,0.00,1.23,0.90,1.07,2.0,4.0,0],[-1.2,0.00,1.28,0.97,1.08,1.75,4.2,0],
-    [1.0,0.00,1.31,0.94,1.08,1.7,4.2,0],[3.0,0.00,1.30,0.89,1.05,1.75,4.0,0],[4.8,0.03,1.27,0.81,0.95,1.85,3.4,0.08],
+  // Behind the intake lip the lower half becomes the slab-sided, flat-bottomed intake trunk (nl 5),
+  // as deep as the cowl, so intake and fuselage read as one body; the belly then climbs to the tail.
+  const FK=[[-9.2,0.00,0.56,0.52,0.50,2.0,2.1,0],[-8.3,0.03,0.65,0.60,0.58,2.1,2.2,0],[-7.3,0.06,0.75,0.68,0.66,2.3,2.4,0],
+    [-6.4,0.08,0.85,0.64,0.73,2.6,2.6,0],[-5.5,0.10,0.93,0.62,0.78,2.8,2.9,0],[-4.6,0.08,1.09,0.64,1.55,2.8,5.0,0],
+    [-3.4,0.04,1.18,0.78,1.50,2.5,5.0,0],[-2.2,0.00,1.24,0.95,1.40,2.0,5.0,0],[-1.0,0.00,1.28,1.02,1.24,1.75,4.8,0],
+    [0.8,0.00,1.31,0.98,1.08,1.7,4.4,0],[3.0,0.00,1.30,0.90,1.02,1.75,4.0,0],[4.8,0.03,1.27,0.81,0.95,1.85,3.4,0.08],
     [6.2,0.07,1.24,0.72,0.80,2.0,2.7,0.35],[7.7,0.10,1.22,0.62,0.64,2.0,2.2,0.75]];
   const ZT=-11.2, ZN=-9.2;
   function fsec(z){ const q=spl(FK,Math.max(z,ZN));
-    if(z<ZN){ const t=(z-ZT)/(ZN-ZT), og=Math.pow(Math.max(0,1-(1-t)*(1-t)),0.62);   // tangent-ogive radome
+    if(z<ZN){ const t=(z-ZT)/(ZN-ZT), L=ZN-ZT, R0=0.56, rho=(R0*R0+L*L)/(2*R0), og=Math.max(0,(Math.sqrt(rho*rho-L*L*(1-t)*(1-t))+R0-rho)/R0);   // tangent-ogive radome
       q[1]=Math.max(0.004,q[1]*og); q[2]=Math.max(0.004,q[2]*og); q[3]=Math.max(0.004,q[3]*og); q[0]+=(-0.08-q[0])*Math.pow(1-t,1.5); }
     return q; }
   function fpt(z,a,S){ const y0=S[0], w=S[1], c=Math.cos(a), s=Math.sin(a), n=s>=0?S[4]:S[5], h=s>=0?S[2]:S[3], pk=S[6];
@@ -4918,7 +4920,7 @@ function efAssets(){
   const fusYAt=(z,x)=>{ const S=fsec(z); return S[0]+S[2]*Math.pow(Math.max(0,1-Math.pow(Math.abs(x)/S[1],S[4])),1/S[4]); };
   const fusXAt=(z,y)=>{ const S=fsec(z), up=y>=S[0], h=up?S[2]:S[3], n=up?S[4]:S[5]; return S[1]*Math.pow(Math.max(0,1-Math.pow(Math.abs(y-S[0])/h,n)),1/n); };
   // canopy keyframes [z, top, base half-width]
-  const CK=[[-7.15,0.80,0.30],[-6.6,0.99,0.52],[-6.0,1.21,0.60],[-5.2,1.36,0.64],[-4.5,1.40,0.645],[-3.7,1.36,0.62],[-2.9,1.24,0.56],[-2.2,1.09,0.44],[-1.6,0.965,0.26]];
+  const CK=[[-7.15,0.82,0.30],[-6.6,1.05,0.52],[-6.0,1.32,0.60],[-5.2,1.50,0.64],[-4.5,1.56,0.645],[-3.7,1.52,0.62],[-2.9,1.39,0.56],[-2.2,1.21,0.46],[-1.6,1.045,0.28]];
   const cwAt=z=>(z<CK[0][0]||z>CK[CK.length-1][0])?0:spl(CK,z)[1];
   // panel seams: ring lines [z, aMin, aMax] and longitudinal lines [angle, zMin, zMax] (angles from +x, -pi/2 = keel)
   const HP=Math.PI/2;
@@ -4933,21 +4935,24 @@ function efAssets(){
       return angs.map(A=>{ const p=fpt(Z.z,A.a,S);
         const seam=(Z.L&&A.a>=Z.L[1]&&A.a<=Z.L[2])||(A.L&&Z.z>=A.L[1]&&Z.z<=A.L[2]);
         const tub=(Z.z>-6.75&&Z.z<-2.3&&p[1]>0.35&&Math.abs(p[0])<cw-0.03)?0.92:0;   // cockpit tub, seen through the glass
-        return [p[0],p[1],p[2],seam?0.62:1,tub]; }); });
+        return [p[0],p[1],p[2],seam?0.5:1,tub]; }); });
     putP(loft(rings,{closed:true,cap1:true})); }
 
   // ---- CHIN INTAKE ------------------------------------------------------------------------
   // One continuous surface: dark duct -> rounded lip -> outer cowl running back under the trunk.
   // "Smile" section: flat top under the splitter, lower lip curving up toward the corners.
-  { const smile=(z,yc,w,hu,hl,k,dk,sh)=>{ const r=[]; for(let j=0;j<=48;j++){ const a=-HP+2*Math.PI*j/48, c=Math.cos(a), s=Math.sin(a);
-        const x=w*Math.sign(c)*Math.pow(Math.abs(c),2/3), y=s>=0?yc+hu*Math.pow(s,2/3):yc-(hl-k*(x/w)*(x/w))*Math.pow(-s,2/3); r.push([x,y,z,sh||1,dk]); } return r; };
-    const R=[smile(-3.2,-1.05,0.78,0.20,0.26,0.10,1), smile(-4.3,-1.04,0.98,0.23,0.34,0.18,1), smile(-5.25,-1.03,1.04,0.23,0.37,0.21,0.85),
-      smile(-5.44,-1.02,1.08,0.25,0.41,0.22,0.3), smile(-5.50,-1.02,1.11,0.28,0.44,0.22,0), smile(-5.42,-1.02,1.14,0.42,0.47,0.22,0),
-      smile(-5.14,-1.01,1.155,0.60,0.465,0.22,0), smile(-5.12,-1.01,1.156,0.61,0.464,0.22,0,0.62), smile(-5.10,-1.01,1.157,0.62,0.463,0.22,0),
-      smile(-4.0,-0.98,1.17,0.70,0.38,0.16,0), smile(-2.8,-0.95,1.16,0.70,0.18,0.08,0), smile(-1.7,-0.92,1.02,0.60,0.12,0.04,0)];
-    putP(loft(R,{closed:true,cap0:true,ori:[5,11]}));
+  // Outer cowl rings use a boxier top half (nt): their slab sides run straight up and meet the
+  // fuselage in a shoulder under the canard root, instead of hanging below it like a pod.
+  { const smile=(z,yc,w,hu,hl,k,dk,sh,nt)=>{ const r=[]; nt=nt||3; for(let j=0;j<=48;j++){ const a=-HP+2*Math.PI*j/48, c=Math.cos(a), s=Math.sin(a), n=s>=0?nt:3;
+        const x=w*Math.sign(c)*Math.pow(Math.abs(c),2/n), y=s>=0?yc+hu*Math.pow(s,2/n):yc-(hl-k*(x/w)*(x/w))*Math.pow(-s,2/3); r.push([x,y,z,sh||1,dk]); } return r; };
+    // duct + lip: flat top under the splitter (nt 8), curved lower lip -> the "smile" mouth
+    const R=[smile(-3.2,-1.05,0.78,0.20,0.30,0.10,1,1,8), smile(-4.3,-1.04,0.98,0.23,0.40,0.18,1,1,8), smile(-5.25,-1.03,1.04,0.24,0.45,0.21,0.85,1,8),
+      smile(-5.44,-1.02,1.08,0.26,0.49,0.22,0.3,1,8), smile(-5.50,-1.02,1.11,0.285,0.52,0.22,0,1,8), smile(-5.42,-1.02,1.14,0.42,0.55,0.22,0,1,4),
+      smile(-5.14,-1.01,1.155,0.90,0.545,0.22,0,1,4.5), smile(-5.12,-1.01,1.156,0.91,0.544,0.22,0,0.62,4.5), smile(-5.10,-1.01,1.157,0.92,0.543,0.22,0,1,4.5),
+      smile(-4.75,-1.00,1.13,0.95,0.49,0.20,0,1,5), smile(-4.2,-1.00,1.02,0.85,0.40,0.16,0,1,5)];   // last ring tucked inside the trunk
+    putP(loft(R,{closed:true,cap0:true,ori:[5,10]}));
     // boundary-layer splitter plate over the mouth + centre divider between the two ducts
-    put(paint, prim(new THREE.BoxGeometry(2.0,0.025,0.66),0x8c9299,M4(0,-0.735,-5.29)));
+    put(paint, prim(new THREE.BoxGeometry(2.0,0.025,0.66),0x6e7379,M4(0,-0.735,-5.29)));
     put(paint, prim(new THREE.BoxGeometry(0.05,0.62,1.9),0x16181b,M4(0,-1.08,-4.40))); }
 
   // ---- WINGS: 53 deg cranked delta, NACA 5%->3.5%, flaperon + slat seams --------------------
@@ -4992,12 +4997,12 @@ function efAssets(){
     arch(b=>-2.3-0.08*Math.sin(b),0.014,0.026);    // canopy aft frame
     for(const b of [0.04,Math.PI-0.04]){ const pts=[]; for(let z=-6.9; z<=-1.75; z+=0.3) pts.push(cpt(z,b,0.02)); put(trim,tube(pts,0.03,6,F)); } }
   // Martin-Baker seat (pan, back, headbox + yellow firing handle), pilot, glareshield and HUD
-  put(trim, prim(new THREE.BoxGeometry(0.50,0.70,0.14),0x2c3035,M4(0,0.86,-4.02,-0.26)));
-  put(trim, prim(new THREE.BoxGeometry(0.44,0.32,0.26),0x25282c,M4(0,1.20,-3.93,-0.26)));
-  put(trim, prim(new THREE.BoxGeometry(0.12,0.035,0.08),0xc8a012,M4(0,1.37,-3.97,-0.26)));
-  put(trim, prim(new THREE.BoxGeometry(0.44,0.30,0.30),0x3b3f33,M4(0,0.88,-4.28,-0.2)));      // torso in flight suit
-  put(trim, prim(new THREE.SphereGeometry(0.155,12,10),0xb9bdc1,M4(0,1.13,-4.30)));            // helmet
-  put(trim, prim(new THREE.SphereGeometry(0.16,12,8),0x16181c,new THREE.Matrix4().compose(new V3(0,1.10,-4.37),new THREE.Quaternion(),new V3(0.95,0.55,0.8))));   // visor
+  put(trim, prim(new THREE.BoxGeometry(0.40,0.66,0.12),0x2a2d31,M4(0,0.96,-4.00,-0.26)));
+  put(trim, prim(new THREE.BoxGeometry(0.30,0.24,0.20),0x222529,M4(0,1.28,-3.92,-0.26)));
+  put(trim, prim(new THREE.BoxGeometry(0.10,0.03,0.07),0xa8860e,M4(0,1.42,-3.96,-0.26)));
+  put(trim, prim(new THREE.BoxGeometry(0.38,0.28,0.26),0x33372d,M4(0,0.98,-4.24,-0.2)));      // torso in flight suit
+  put(trim, prim(new THREE.SphereGeometry(0.135,12,10),0x6f7478,M4(0,1.20,-4.25)));            // helmet
+  put(trim, prim(new THREE.SphereGeometry(0.14,12,8),0x101215,new THREE.Matrix4().compose(new V3(0,1.18,-4.31),new THREE.Quaternion(),new V3(0.95,0.55,0.8))));   // visor
   put(trim, prim(new THREE.BoxGeometry(0.70,0.10,0.45),0x15171a,M4(0,0.82,-5.45)));
   put(trim, prim(new THREE.BoxGeometry(0.26,0.18,0.02),0x1d2024,M4(0,0.98,-5.62,-0.35)));
 
@@ -5011,18 +5016,18 @@ function efAssets(){
 
   // ---- STORES: pylons, AMRAAM-type (inboard) + IRIS-T-type (outboard), centreline tank ------------
   function pylon(x,z,chord,yTop,yBot){ return aero([yBot,yTop], ()=>({zl:z-chord/2,c:chord,tc:0.13}), (s,t,zz)=>[x+t,s,zz], [], [], {nc:8,uv:'yz'}); }
-  function missile(x,z,len,r,ir){ const h=len/2, W=0xd9dbdc, T=ir?0x2c3036:0xc4c7ca, y=-1.0;
+  function missile(x,z,len,r,ir){ const h=len/2, W=0x9ea2a5, T=ir?0x25292e:0x80858a, y=-1.0;
     put(stores, lathe(ir?[[0,z-h,T],[0.06*r/0.12,z-h+0.03,T],[r*0.83,z-h+0.10,T],[r,z-h+0.2,W],[r,z-h+0.55,W],[r,z-h+0.56,0xa88a2a],[r,z-h+0.64,0xa88a2a],[r,z-h+0.65,W],[r,z+h-0.02,W],[r*0.8,z+h,0x55595e],[0,z+h,0x55595e]]
       :[[0,z-h,T],[r*0.32,z-h+0.05,T],[r*0.62,z-h+0.18,T],[r*0.9,z-h+0.35,T],[r,z-h+0.55,W],[r,z-h+0.9,W],[r,z-h+0.91,0xa88a2a],[r,z-h+1.0,0xa88a2a],[r,z-h+1.01,W],[r,z+h-0.03,W],[r*0.85,z+h,0x55595e],[0,z+h,0x55595e]],LS,x,y));
     for(let f=0;f<4;f++){ const ang=Math.PI/4+f*Math.PI/2, tf=(span,chord,zc)=>{ const m=new THREE.Matrix4().makeTranslation(x,y,zc).multiply(new THREE.Matrix4().makeRotationZ(ang)).multiply(new THREE.Matrix4().makeTranslation(0,r+span/2,0));
-        put(stores, prim(new THREE.BoxGeometry(0.018,span,chord),0xcfd1d3,m)); };
+        put(stores, prim(new THREE.BoxGeometry(0.018,span,chord),0x92969a,m)); };
       tf(ir?0.20:0.17, 0.30, z+h-0.2); tf(ir?0.07:0.12, ir?0.14:0.32, ir?z-h+0.45:z-0.05); }
     put(trim, prim(new THREE.BoxGeometry(0.09,0.05,len*0.7),0x3a3f45,M4(x,y+r+0.02,z))); }
   for(const sx of [-1,1]){
     putP(pylon(sx*3.4,3.0,1.35,wingSurfY(3.4,3.0,-1)+0.12,-0.86)); missile(sx*3.4,3.0,2.6,0.16,false);   // clear of the main-gear swing
     putP(pylon(sx*5.1,4.6,1.10,wingSurfY(5.1,4.6,-1)+0.08,-0.90)); missile(sx*5.1,4.6,2.2,0.12,true); }
-  putP(pylon(0,1.6,2.0,-0.95,-1.14));
-  putP(lathe([[0,-0.9],[0.1,-0.8],[0.19,-0.6],[0.25,-0.35],[0.285,-0.05],[0.29,0.3],[0.29,2.9],[0.275,3.4],[0.22,3.75],[0.13,4.0],[0,4.12]],LS,0,-1.40));   // bottom exactly -1.69 (belly datum)
+  putP(pylon(0,2.7,2.0,-0.95,-1.14));
+  putP(lathe([[0,0.2],[0.1,0.3],[0.19,0.5],[0.25,0.75],[0.285,1.05],[0.29,1.4],[0.29,4.0],[0.275,4.5],[0.22,4.85],[0.13,5.1],[0,5.22]],LS,0,-1.40));   // bottom exactly -1.69 (belly datum)
 
   // ---- MARKINGS: decal grids draped onto the analytic surfaces ---------------------------------
   const px=(x0,y0,x1,y1)=>[x0/1024,1-y1/256,x1/1024,1-y0/256];
@@ -5036,7 +5041,7 @@ function efAssets(){
     side(0.9,0.42,0.9,0.1,R_ST(3),3,1);              // servicing lettering
     const fin=(zc,yc,W,H,rect)=>efDecal((u,v)=>{ const z=zc+sx*(0.5-u)*W, y=yc+(v-0.5)*H; return [sx*(finHalf(y,z)+0.006),y,z]; },rect,4,2);
     fin(4.9,1.45,1.1,0.55,R_NUM); fin(5.35,2.55,0.9,0.45,R_FLAG);
-    efDecal((u,v)=>{ const z=-4.25+sx*(0.5-u)*0.8, y=-1.0+(v-0.5)*0.1; return [sx*1.178,y,z]; },R_ST(2),2,1);   // DANGER INTAKE on the cowl side
+    side(-3.75,-0.95,0.8,0.1,R_ST(2),3,1);          // DANGER INTAKE on the trunk side, just aft of the lip
     efDecal((u,v)=>{ const x=sx>0?1.55+0.75*u:-2.3+0.75*u, z=1.2-(v-0.5)*0.1; return [x,wingSurfY(x,z,1)+0.006,z]; },R_ST(1),3,1);   // NO STEP at the wing root
   }
   // nav lights: red port (-x), green starboard (+x), white tail
@@ -5079,14 +5084,16 @@ function efAssets(){
     M.push(prim(new THREE.BoxGeometry(0.05,0.26,0.05),GD,M4(0,-1.25,-0.12,0.4))); M.push(prim(new THREE.BoxGeometry(0.05,0.26,0.05),GD,M4(0,-1.46,-0.12,-0.4)));   // torque links
     const [tyre,hub]=wheel(r,main?0.15:0.12,main?0.19:0.125,wx); M.push(hub); T.push(tyre);
     const parts=[[THREE.BufferGeometryUtils.mergeBufferGeometries(M,false),gearM],[THREE.BufferGeometryUtils.mergeBufferGeometries(T,false),tyreM]];
-    if(main) parts.push([prim(new THREE.BoxGeometry(0.03,1.75,0.62),0x959ba2,M4(0.13*sx,-0.20,-0.02)),paint]);   // leg door on the outboard face
+    if(main) parts.push([prim(new THREE.BoxGeometry(0.03,1.75,0.62),0x7a7f85,M4(0.13*sx,-0.20,-0.02)),paint]);   // leg door on the outboard face
     for(const p of parts) p[0].userData.keep=true; return parts; }
-  // nose bay sits under the intake cowl, which climbs ~0.15/unit aft: doors + well are pitched to follow
-  // it (hinge.rotation.x; updateGearVisual only drives rotation.z, which then swings about the pitched edge)
-  const pN=-Math.atan(0.15), yN=-1.382, yM=wingSurfY(2.275,2.0,-1)-0.01;
-  const doorSpec=[[-0.18,-4.0,0.34,1.3,-1,yN,pN],[0.18,-4.0,0.34,1.3,1,yN,pN],[-2.0,2.0,0.55,1.4,-1,yM,0],[2.0,2.0,0.55,1.4,1,yM,0]];
-  const doorGeo=doorSpec.map(([x,z,w,l,side])=>{ const d=prim(new THREE.BoxGeometry(w,0.03,l),0x959ba2,M4(-side*w/2,0,0)); d.userData.keep=true; return d; });
-  const bays=[efBay(-0.34,0.34,-4.65,-3.35,(x,z)=>-1.366+0.15*(z+4.0))];
+  // Nose bay under the flat trunk floor: doors + well follow its (slight) slope, measured from the
+  // loft itself (hinge.rotation.x; updateGearVisual only drives rotation.z, which then swings about
+  // the pitched edge). Doors sit just proud of the skin, the dark well just inside the closed doors.
+  const nb=z=>{ const S=fsec(z); return S[0]-S[3]; }, nz0=-4.55, nz1=-3.25, nzc=(nz0+nz1)/2, nsl=(nb(nz1)-nb(nz0))/(nz1-nz0), nP=z=>nb(nzc)+nsl*(z-nzc);
+  const pN=-Math.atan(nsl), yN=nP(nzc)-0.023, yM=wingSurfY(2.275,2.0,-1)-0.01;
+  const doorSpec=[[-0.18,nzc,0.34,nz1-nz0,-1,yN,pN],[0.18,nzc,0.34,nz1-nz0,1,yN,pN],[-2.0,2.0,0.55,1.4,-1,yM,0],[2.0,2.0,0.55,1.4,1,yM,0]];
+  const doorGeo=doorSpec.map(([x,z,w,l,side])=>{ const d=prim(new THREE.BoxGeometry(w,0.03,l),0x7a7f85,M4(-side*w/2,0,0)); d.userData.keep=true; return d; });
+  const bays=[efBay(-0.34,0.34,nz0,nz1,(x,z)=>nP(z)-0.006)];
   for(const sx of [-1,1]) bays.push(efBay(sx>0?1.72:-2.28,sx>0?2.28:-1.72,1.3,2.7,(x,z)=>wingSurfY(x,z,-1)-0.006));
   function efBay(x0,x1,z0,z1,yf){ const rings=[]; for(let i=0;i<=4;i++){ const r=[]; for(let j=0;j<=3;j++){ const x=x0+(x1-x0)*j/3, z=z0+(z1-z0)*i/4; r.push([x,yf(x,z),z]); } rings.push(r); } return loft(rings,{rect:[0,0,1,1]}).toNonIndexed(); }
   const bayGeo=THREE.BufferGeometryUtils.mergeBufferGeometries(bays,false); bayGeo.userData.keep=true;
