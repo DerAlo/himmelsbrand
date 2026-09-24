@@ -5,46 +5,66 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
 <title>HIMMELSBRAND — Das HELIOS-Protokoll</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 
 <style>
-  :root { --gold:#ffcc33; --red:#e33; --hud:#7dffb0; }
+  /* ---------------------------------------------------------------------------
+     DESIGN TOKENS — one HUD colour (phosphor green), one caution (brass gold),
+     one danger (red). Everything else derives from these three + the deep-navy
+     cockpit background. Panels are cut-corner "avionics" shapes, not rounded cards.
+     --------------------------------------------------------------------------- */
+  :root {
+    --gold:#ffcc33; --red:#e33; --hud:#7dffb0;               /* kept: referenced inline elsewhere */
+    --hud-dim:rgba(125,255,176,.55); --hud-glow:rgba(125,255,176,.45);
+    --amber:#ffb454; --danger:#ff4d4d; --brass:#ffce8a;
+    --bg-deep:#050b13; --panel:rgba(9,18,30,.66); --panel-edge:rgba(140,220,190,.22);
+    --font-display:'Space Grotesk','Segoe UI',system-ui,sans-serif;
+    --cut:14px;   /* corner-cut size for avionics panels */
+  }
   * { margin:0; padding:0; box-sizing:border-box; }
-  html,body { width:100%; height:100%; overflow:hidden; background:#000; font-family: 'Segoe UI', Roboto, system-ui, sans-serif; color:#fff; cursor:crosshair; }
+  html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-deep); font-family:'Segoe UI', Roboto, system-ui, sans-serif; color:#fff; cursor:crosshair; }
   #game { position:fixed; inset:0; }
   canvas { display:block; }
   #hud { position:fixed; inset:0; pointer-events:none; z-index:5; }
+  ::selection { background:rgba(125,255,176,.35); }
+  ::-webkit-scrollbar{ width:8px; } ::-webkit-scrollbar-thumb{ background:rgba(255,255,255,.2); border-radius:4px; }
+
+  /* cut-corner avionics panel: used for cards, briefing, settings, boss bar, debrief */
+  .panel-cut { clip-path:polygon(var(--cut) 0,100% 0,100% calc(100% - var(--cut)),calc(100% - var(--cut)) 100%,0 100%,0 var(--cut)); }
 
   /* ---- DOM HUD ---- */
-  .hud-el { position:fixed; z-index:6; pointer-events:none; text-shadow:0 0 6px rgba(0,0,0,.9); font-variant-numeric:tabular-nums; display:none; }
+  .hud-el { position:fixed; z-index:6; pointer-events:none; text-shadow:0 0 6px rgba(0,0,0,.9); font-variant-numeric:tabular-nums; font-family:var(--font-display); display:none; }
   body.in-game .hud-el { display:block; }
-  #stat-left  { left:22px; top:20px; font-size:15px; line-height:1.7; padding:12px 16px; border-radius:12px;
-                background:linear-gradient(to right, rgba(2,8,18,.34), rgba(2,8,18,0) 78%); border-left:2px solid rgba(125,255,176,.45); }
-  #stat-right { right:22px; top:20px; font-size:15px; text-align:right; line-height:1.7; padding:12px 16px; border-radius:12px;
-                background:linear-gradient(to left, rgba(2,8,18,.34), rgba(2,8,18,0) 78%); border-right:2px solid rgba(125,255,176,.45); }
+  #stat-left  { left:22px; top:20px; font-size:15px; line-height:1.7; padding:12px 18px 12px 16px; clip-path:polygon(0 0,100% 0,100% 100%,10px 100%,0 calc(100% - 10px));
+                background:linear-gradient(to right, rgba(3,10,20,.42), rgba(3,10,20,0) 82%); border-left:2px solid var(--hud-dim); }
+  #stat-right { right:22px; top:20px; font-size:15px; text-align:right; line-height:1.7; padding:12px 16px 12px 18px; clip-path:polygon(0 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%);
+                background:linear-gradient(to left, rgba(3,10,20,.42), rgba(3,10,20,0) 82%); border-right:2px solid var(--hud-dim); }
   .lbl { color:#9fe8c8; font-size:11px; letter-spacing:2px; opacity:.8; }
-  .val { color:var(--hud); font-size:22px; font-weight:700; text-shadow:0 0 14px rgba(125,255,176,.45), 0 2px 6px rgba(0,0,0,.95); }
+  .val { color:var(--hud); font-size:22px; font-weight:700; text-shadow:0 0 14px var(--hud-glow), 0 2px 6px rgba(0,0,0,.95); }
   .val.big { font-size:30px; }
 
-  #hpwrap { width:230px; height:14px; border:1px solid rgba(125,255,176,.6); border-radius:3px; margin-top:3px; background:rgba(0,20,10,.4); overflow:hidden;}
+  #hpwrap { width:230px; height:14px; border:1px solid var(--hud-dim); margin-top:3px; background:rgba(0,20,10,.4); overflow:hidden; clip-path:polygon(6px 0,100% 0,100% 100%,0 100%,0 6px); }
   #hpbar { height:100%; width:100%; background:linear-gradient(90deg,#28d17c,#7dffb0); transition:width .15s, background .3s; }
   #hpbar.low { background:linear-gradient(90deg,#e33,#ff8a3d); animation:hpPulse .62s ease-in-out infinite alternate; }
    @keyframes hpPulse { from{filter:brightness(.92);} to{filter:brightness(1.65);} }
-  #throttlewrap { width:230px; height:8px; border:1px solid rgba(125,255,176,.5); border-radius:3px; margin-top:6px; background:rgba(0,20,10,.4); overflow:hidden;}
+  #throttlewrap { width:230px; height:8px; border:1px solid rgba(125,255,176,.5); border-radius:2px; margin-top:6px; background:rgba(0,20,10,.4); overflow:hidden;}
   #throttlebar { height:100%; width:60%; background:linear-gradient(90deg,#3aa0ff,#7dffb0);}
 
   #missiles { margin-top:12px; }
-  .msl-dot { display:inline-block; width:12px; height:26px; margin-right:5px; border-radius:2px 2px 4px 4px; background:var(--gold); box-shadow:0 0 8px rgba(255,204,51,.8); }
+  .msl-dot { display:inline-block; width:12px; height:26px; margin-right:5px; clip-path:polygon(0 4px,50% 0,100% 4px,100% 100%,0 100%); background:var(--gold); box-shadow:0 0 8px rgba(255,204,51,.8); }
   .msl-dot.empty { background:rgba(255,255,255,.10); box-shadow:none; border:1px solid rgba(255,255,255,.14); }
 
   #centermsg { left:50%; top:26%; transform:translateX(-50%); text-align:center; z-index:7;}
-  #wavebanner { font-size:46px; font-weight:800; letter-spacing:6px; color:var(--gold);
+  #wavebanner { font-family:var(--font-display); font-size:44px; font-weight:700; letter-spacing:6px; color:var(--gold);
     text-shadow:0 0 20px rgba(255,204,51,.7), 0 0 60px rgba(255,140,40,.35); opacity:0; transition:opacity .4s, transform .4s;
     transform:translateY(-8px) scale(.97); }
   #wavebanner.on { transform:translateY(0) scale(1); }
-  #subbanner { font-size:20px; color:#fff; margin-top:6px; opacity:0; transition:opacity .4s; letter-spacing:2px;}
+  #subbanner { font-size:19px; color:#e8f0fa; margin-top:6px; opacity:0; transition:opacity .4s; letter-spacing:1.5px;}
 
   #killfeed { position:fixed; right:22px; top:120px; z-index:6; text-align:right; }
-  .kill { color:var(--gold); font-size:15px; font-weight:700; opacity:0; animation:killpop 2.2s ease forwards; text-shadow:0 0 8px rgba(0,0,0,.9);}
+  .kill { color:var(--gold); font-family:var(--font-display); font-size:15px; font-weight:700; opacity:0; animation:killpop 2.2s ease forwards; text-shadow:0 0 8px rgba(0,0,0,.9);}
   @keyframes killpop { 0%{opacity:0; transform:translateX(20px);} 12%{opacity:1; transform:translateX(0);} 75%{opacity:1;} 100%{opacity:0;} }
 
   #warn { position:fixed; left:50%; top:64%; transform:translateX(-50%); z-index:7; color:#ff4a4a; font-weight:800; font-size:26px;
@@ -52,53 +72,66 @@
   @keyframes warnPulse { from{ text-shadow:0 0 12px rgba(255,0,0,.8);} to{ text-shadow:0 0 30px rgba(255,60,40,1), 0 0 60px rgba(255,0,0,.6);} }
 
   /* ---- Screens ---- */
-  .screen { position:fixed; inset:0; z-index:20; display:flex; flex-direction:column; align-items:center; justify-content:center;
-            background:radial-gradient(ellipse at center, rgba(6,20,40,.55), rgba(2,6,16,.9)); pointer-events:auto; }
+  .screen { position:fixed; inset:0; z-index:20; display:flex; flex-direction:column; align-items:center; justify-content:safe center;
+            background:radial-gradient(ellipse at center, rgba(6,20,40,.55), rgba(2,6,16,.92)); pointer-events:auto; overflow-y:auto; padding:32px 16px; }
   .hidden { display:none !important; }
-  h1.title { font-size:74px; font-weight:900; letter-spacing:10px; margin-bottom:4px;
+  h1.title { font-family:var(--font-display); font-size:clamp(40px,6vw,74px); font-weight:700; letter-spacing:8px; margin-bottom:4px;
              background:linear-gradient(180deg,#fff,#8fd9ff); -webkit-background-clip:text; background-clip:text; color:transparent;
              text-shadow:0 6px 30px rgba(60,150,255,.4);}
-  .flag { display:inline-flex; height:26px; width:78px; border-radius:3px; overflow:hidden; box-shadow:0 2px 10px rgba(0,0,0,.6); margin-bottom:18px; }
+  .flag { display:inline-flex; height:26px; width:78px; overflow:hidden; box-shadow:0 2px 10px rgba(0,0,0,.6); margin-bottom:18px; }
   .flag i{ flex:1; } .flag .b{background:#000;} .flag .r{background:#d00;} .flag .g{background:#ffce00;}
-  .tag { color:#bfe0ff; letter-spacing:4px; font-size:15px; margin-bottom:26px; opacity:.9;}
-  .btn { pointer-events:auto; cursor:pointer; border:none; padding:16px 46px; font-size:22px; font-weight:800; letter-spacing:3px; border-radius:10px;
-         background:linear-gradient(180deg,#ffd85a,#f5a623); color:#241a00; box-shadow:0 8px 26px rgba(245,166,35,.45), inset 0 1px 0 rgba(255,255,255,.5);
-         transition:transform .1s, box-shadow .1s; }
-  .btn:hover { transform:translateY(-2px) scale(1.02); box-shadow:0 12px 34px rgba(245,166,35,.6);}
-  .btn:active { transform:translateY(1px) scale(.99);}
-  .controls { margin-top:34px; max-width:640px; display:grid; grid-template-columns:1fr 1fr; gap:8px 34px; font-size:14px; color:#cfe6ff;}
-  .controls .k { display:inline-block; min-width:74px; padding:2px 8px; margin-right:10px; border:1px solid rgba(255,255,255,.35); border-radius:5px; background:rgba(255,255,255,.06); font-weight:700; text-align:center; color:#fff;}
-  .row { display:flex; align-items:center; }
-  #go-title { font-size:64px; font-weight:900; letter-spacing:8px; color:#ff5a5a; text-shadow:0 0 30px rgba(255,0,0,.5); }
-  #go-stats { font-size:22px; margin:18px 0 30px; color:#dfefff; text-align:center; line-height:1.7;}
-  #go-stats b { color:var(--gold); font-size:34px;}
+  .tag { color:#bfe0ff; letter-spacing:3px; font-size:15px; margin-bottom:26px; opacity:.9;}
+  .btn { pointer-events:auto; cursor:pointer; border:none; padding:15px 44px; font-family:var(--font-display); font-size:20px; font-weight:700; letter-spacing:2.5px;
+         clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px);
+         background:linear-gradient(180deg,#ffd85a,#f0a020); color:#241a00; box-shadow:0 8px 26px rgba(245,166,35,.4), inset 0 1px 0 rgba(255,255,255,.5);
+         transition:transform .1s, box-shadow .1s, filter .1s; }
+  .btn:hover { transform:translateY(-2px); filter:brightness(1.06); box-shadow:0 12px 34px rgba(245,166,35,.55);}
+  .btn:active { transform:translateY(1px); }
+  .btn:focus-visible { outline:2px solid var(--hud); outline-offset:3px; }
+  .controls { margin-top:34px; max-width:640px; display:grid; grid-template-columns:1fr 1fr; gap:9px 34px; font-size:14px; color:#cfe6ff;}
+  .controls .k { display:inline-block; flex:none; min-width:74px; padding:2px 8px; margin-right:10px; border:1px solid rgba(255,255,255,.35); background:rgba(255,255,255,.06);
+    font-family:var(--font-display); font-weight:600; text-align:center; color:#fff;}
+  .row { display:flex; flex-wrap:wrap; align-items:center; row-gap:6px; }
+  #go-title { font-family:var(--font-display); font-size:56px; font-weight:700; letter-spacing:7px; color:#ff5a5a; text-shadow:0 0 30px rgba(255,0,0,.5); }
+  #go-stats { font-size:20px; margin:18px 0 30px; color:#dfefff; text-align:center; line-height:1.7;}
+  #go-stats b { color:var(--gold); font-family:var(--font-display); font-size:32px;}
   .credit { position:fixed; bottom:14px; width:100%; text-align:center; font-size:12px; color:rgba(255,255,255,.4); z-index:6; letter-spacing:1px;}
-  #loading { position:fixed; inset:0; z-index:30; display:flex; align-items:center; justify-content:center; background:#04070f; color:#8fd9ff; font-size:20px; letter-spacing:3px; animation:loadPulse 1.1s ease-in-out infinite alternate;}
+  #loading { position:fixed; inset:0; z-index:30; display:flex; align-items:center; justify-content:center; background:#04070f; color:#8fd9ff; font-family:var(--font-display); font-size:20px; letter-spacing:3px; animation:loadPulse 1.1s ease-in-out infinite alternate;}
     @keyframes loadPulse { from{opacity:.55;} to{opacity:1;} }
 
   /* ---- Campaign / menu / briefing ---- */
-  .screen { overflow-y:auto; }
-  .screen::-webkit-scrollbar{ width:8px; } .screen::-webkit-scrollbar-thumb{ background:rgba(255,255,255,.2); border-radius:4px; }
-  h1.title.brand { font-size:88px; letter-spacing:14px;
+  h1.title.brand { font-size:clamp(46px,8vw,86px); letter-spacing:12px;
     background:linear-gradient(180deg,#ffd98a 0%,#ff7a3c 55%,#c02020 100%); -webkit-background-clip:text; background-clip:text; color:transparent;
     text-shadow:0 0 42px rgba(255,110,50,.45); }
-  .subbrand { color:#ffb27a; letter-spacing:8px; font-size:16px; margin-bottom:4px; opacity:.9; }
-  .menu-btns { display:flex; flex-direction:column; gap:14px; margin-top:10px; align-items:center; }
+  .subbrand { font-family:var(--font-display); color:#ffb27a; letter-spacing:7px; font-size:15px; margin-bottom:4px; opacity:.9; }
+  .menu-btns { display:flex; flex-direction:column; gap:13px; margin-top:10px; align-items:center; }
   .btn.ghost { background:linear-gradient(180deg,rgba(140,200,255,.16),rgba(90,150,230,.10)); color:#dff0ff;
-    box-shadow:0 4px 18px rgba(30,80,160,.35), inset 0 1px 0 rgba(255,255,255,.18); border:1px solid rgba(150,200,255,.3); }
-  .btn.small { padding:11px 30px; font-size:16px; letter-spacing:2px; }
+    box-shadow:0 4px 18px rgba(30,80,160,.3), inset 0 1px 0 rgba(255,255,255,.18); border:1px solid rgba(150,200,255,.3); }
+  .btn.small { padding:10px 28px; font-size:15px; letter-spacing:2px; }
   .backbtn { position:fixed; top:20px; left:22px; z-index:22; }
 
   /* mission select */
-  #missionlist { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:16px; width:min(1000px,92vw); margin-top:10px; }
-  .mcard { text-align:left; border:1px solid rgba(140,190,255,.25); border-radius:12px; padding:16px 18px; cursor:pointer;
+  #missionlist { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:16px; width:min(1040px,92vw); margin-top:10px; }
+  .mcard { text-align:left; border:1px solid rgba(140,190,255,.25); padding:16px 18px; cursor:pointer;
     background:linear-gradient(160deg,rgba(20,40,70,.7),rgba(8,16,30,.7)); transition:transform .12s, box-shadow .12s, border-color .12s; position:relative; overflow:hidden; }
   .mcard:hover { transform:translateY(-3px); border-color:rgba(255,180,90,.6); box-shadow:0 10px 30px rgba(0,0,0,.5); }
-  .mcard .mnum { font-size:12px; letter-spacing:3px; color:#7fb0e8; }
-  .mcard .mname { font-size:22px; font-weight:800; margin:2px 0 6px; color:#fff; }
-  .mcard .mtype { display:inline-block; font-size:11px; letter-spacing:2px; padding:2px 8px; border-radius:4px; margin-bottom:8px; }
+  .mcard .mnum { font-family:var(--font-display); font-size:12px; letter-spacing:3px; color:#7fb0e8; }
+  .mcard .mname { font-family:var(--font-display); font-size:21px; font-weight:700; margin:2px 0 6px; color:#fff; }
+  .mcard .mtype { display:inline-block; font-size:11px; letter-spacing:2px; padding:2px 8px; margin-bottom:8px; }
   .mtype.air{ background:rgba(80,150,255,.2); color:#9fc8ff;} .mtype.ground{ background:rgba(120,200,120,.2); color:#a8e6a0;}
   .mtype.boss{ background:rgba(255,80,80,.22); color:#ff9a9a;} .mtype.mixed{ background:rgba(200,150,255,.2); color:#d0b0ff;}
+  .mtype.tutorial{ background:rgba(230,220,190,.14); color:#eee4c4;} .mtype.escort{ background:rgba(90,200,255,.18); color:#9fe4ff;}
+  /* type accent bar, time-of-day chip, story-frontier badge */
+  .mcard::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--acc,#7fb0e8); opacity:.9; }
+  .mcard.t-air{--acc:#6fa8ff;} .mcard.t-ground{--acc:#8fd88a;} .mcard.t-boss{--acc:#ff6a5a;} .mcard.t-mixed{--acc:#c49bff;} .mcard.t-tutorial{--acc:#e8dcb0;} .mcard.t-escort{--acc:#6fe0ff;}
+  .mcard:hover { background:linear-gradient(160deg,rgba(30,56,92,.8),rgba(12,24,42,.8)); }
+  .mcard .mtod { display:inline-block; font-family:var(--font-display); font-size:11px; letter-spacing:1.5px; padding:2px 8px; margin:0 0 8px 6px; background:rgba(255,255,255,.07); color:#d4e0ee; }
+  .mcard .mtod.dusk { background:rgba(255,150,80,.13); color:#ffc08a; } .mcard .mtod.night { background:rgba(120,130,255,.15); color:#b8beff; }
+  .mcard .mnew { position:absolute; top:14px; right:16px; font-family:var(--font-display); font-size:11px; font-weight:700; letter-spacing:2px; color:#04140b;
+    background:var(--hud); padding:2px 9px; animation:newPulse 1.4s ease-in-out infinite alternate; }
+  @keyframes newPulse { from{ box-shadow:0 0 0 rgba(125,255,176,0); } to{ box-shadow:0 0 14px rgba(125,255,176,.75); } }
+  .mcard.fresh { border-color:rgba(125,255,176,.55); background:linear-gradient(160deg,rgba(16,54,58,.78),rgba(8,20,30,.78)); }
+  .mcard.unreached { opacity:.72; } .mcard.unreached:hover { opacity:1; }
   .mcard .mdesc { font-size:13px; color:#bcd4ee; line-height:1.5; opacity:.9; }
   .mcard.locked { opacity:.45; cursor:not-allowed; filter:grayscale(.6); }
   .mcard.locked:hover { transform:none; border-color:rgba(140,190,255,.25); box-shadow:none; }
@@ -108,7 +141,7 @@
   .mstars span { color:#3a4a5e; font-size:15px; }
   .mstars span.on { color:var(--gold); }
   .mstars .mbest { margin-left:8px; font-size:11px; color:#8fb0d0; letter-spacing:1px; }
-  .debrief-stars { font-size:44px; letter-spacing:10px; color:#3a4a5e; margin-bottom:6px; }
+  .debrief-stars { font-size:42px; letter-spacing:9px; color:#3a4a5e; margin-bottom:6px; }
   .debrief-stars .on { color:var(--gold); text-shadow:0 0 18px rgba(255,200,90,.6); }
   .unlock-note { margin-top:12px; color:#7dffb0; letter-spacing:2px; }
   .newrec { color:#ffce8a; font-weight:800; letter-spacing:2px; }
@@ -116,8 +149,8 @@
 
   /* briefing / debrief */
   .brief { width:min(860px,92vw); text-align:left; }
-  .brief h2 { font-size:34px; font-weight:800; color:#ffce8a; letter-spacing:2px; margin-bottom:2px; }
-  .brief .mtype { font-size:11px; letter-spacing:2px; padding:2px 8px; border-radius:4px; }
+  .brief h2 { font-family:var(--font-display); font-size:32px; font-weight:700; color:#ffce8a; letter-spacing:1.5px; margin-bottom:2px; }
+  .brief .mtype { font-size:11px; letter-spacing:2px; padding:2px 8px; }
   .brief .story { margin:16px 0; padding:16px 18px; border-left:3px solid #ff8a3d; background:rgba(255,140,60,.07);
     font-size:16px; line-height:1.7; color:#e8f0fa; }
   .brief .story .who { color:#ffce8a; font-weight:700; }
@@ -125,24 +158,76 @@
   .brief .objs .o { display:flex; align-items:center; gap:10px; font-size:15px; margin:7px 0; color:#dbe8f6; }
   .brief .objs .o .ic { width:22px; text-align:center; }
   .brief .prime { color:#fff; } .brief .sec { color:#9fb8d0; }
-  #hud-objectives { position:fixed; left:22px; top:190px; z-index:6; max-width:320px; }
+  #hud-objectives { position:fixed; left:22px; top:238px; z-index:6; max-width:320px; }
   .obj-line { font-size:14px; color:#dbe8f6; margin:4px 0; text-shadow:0 0 6px rgba(0,0,0,.9); letter-spacing:.5px; }
-  .obj-line .box { display:inline-block; width:14px; height:14px; border:1.5px solid #7dffb0; border-radius:3px; margin-right:8px; vertical-align:-2px; text-align:center; line-height:12px; font-size:11px; }
+  .obj-line .box { display:inline-block; width:14px; height:14px; border:1.5px solid #7dffb0; margin-right:8px; vertical-align:-2px; text-align:center; line-height:12px; font-size:11px; }
   .obj-line.done .box { background:#7dffb0; color:#04140b; }
   .obj-line.done { color:#7dffb0; opacity:.75; }
   .obj-line.fail .box { border-color:#ff5a5a; color:#ff5a5a; } .obj-line.fail { color:#ff8a8a; }
+
+  /* ---- Radio / subtitles — per-speaker identity via [data-spk] ---- */
   #radio { position:fixed; left:50%; bottom:64px; transform:translateX(-50%); z-index:7; width:min(700px,84vw); text-align:center;
-    font-size:17px; color:#cfe6ff; opacity:0; transition:opacity .35s; text-shadow:0 2px 10px rgba(0,0,0,.9); pointer-events:none;
-    background:linear-gradient(0deg, rgba(4,12,26,.72), rgba(4,12,26,.30)); border:1px solid rgba(140,190,255,.16); border-radius:14px; padding:10px 20px; }
-  #radio .rspk { color:#ffce8a; font-weight:700; }
+    font-size:17px; color:#cfe6ff; opacity:0; transition:opacity .3s, border-color .3s, bottom .35s; text-shadow:0 2px 10px rgba(0,0,0,.9); pointer-events:none;
+    background:linear-gradient(0deg, rgba(4,12,26,.76), rgba(4,12,26,.32)); border:1px solid rgba(140,190,255,.18); border-left:3px solid var(--brass); padding:10px 22px; }
+  #radio .rspk { font-family:var(--font-display); color:var(--brass); font-weight:700; letter-spacing:.5px; }
   #radio.show { opacity:1; }
+  #radio.lift { bottom:184px; }   /* the takeoff/landing panel occupies h-170..h-74 */
+  body.nosubs #radio { visibility:hidden; }   /* Untertitel aus (Einstellungen) */
+  /* WAGNER — steady command-post blue-grey */
+  #radio[data-spk="WAGNER"] { border-left-color:#9fc4e8; } #radio[data-spk="WAGNER"] .rspk{ color:#9fc4e8; }
+  /* LÄRCHE — warm amber, a little softer than the default brass */
+  #radio[data-spk="LÄRCHE"] { border-left-color:#ffb27a; } #radio[data-spk="LÄRCHE"] .rspk{ color:#ffb27a; }
+  /* HELIOS — cold synthetic cyan with a faint jitter, like a filtered transmission */
+  #radio[data-spk="HELIOS"] { border-left-color:#6fe0ff; background:linear-gradient(0deg, rgba(6,20,30,.78), rgba(6,20,30,.34)); }
+  #radio[data-spk="HELIOS"] .rspk{ color:#6fe0ff; }
+  #radio[data-spk="HELIOS"] .rtext{ animation:heliosJit 2.6s steps(2) infinite; }
+  @keyframes heliosJit { 0%,88%,100%{ opacity:1; transform:none; } 90%{ opacity:.82; transform:translateX(-1px); } 94%{ opacity:1; transform:translateX(1px); } }
+  /* KELLER — unsettlingly clean: no jitter, no warmth, thin cool white-gold, studio-flat */
+  #radio[data-spk="KELLER"] { border-left-color:#e9e2c8; background:linear-gradient(0deg, rgba(10,12,14,.8), rgba(10,12,14,.36)); }
+  #radio[data-spk="KELLER"] .rspk{ color:#e9e2c8; font-weight:600; letter-spacing:1px; }
+  #radio[data-spk="KELLER"] .rtext{ color:#f2efe4; }
+  /* KIEBITZ — tower green, crisp procedure-voice */
+  #radio[data-spk="KIEBITZ"] { border-left-color:#5adfc4; } #radio[data-spk="KIEBITZ"] .rspk{ color:#5adfc4; }
+  /* STIMME — synthetic, colder & more purple than HELIOS (same design school, other side) */
+  #radio[data-spk="STIMME"] { border-left-color:#c98cff; } #radio[data-spk="STIMME"] .rspk{ color:#c98cff; }
+  /* B-Team — warm bierzelt tones */
+  #radio[data-spk="SEPP"] { border-left-color:#e0a24a; } #radio[data-spk="SEPP"] .rspk{ color:#e0a24a; }
+  #radio[data-spk="WIGGERL"] { border-left-color:#9fe08a; } #radio[data-spk="WIGGERL"] .rspk{ color:#9fe08a; }
+  #radio[data-spk="NARRATOR"] { border-left-color:#b8c4d4; font-style:italic; } #radio[data-spk="NARRATOR"] .rspk{ color:#b8c4d4; }
+  #radio[data-spk="?"] { border-left-color:#8a8f96; } #radio[data-spk="?"] .rspk{ color:#8a8f96; }
+  #radio[data-spk="?"] .rtext{ animation:heliosJit 3.4s steps(2) infinite; }
+
   .weapon-tab { position:fixed; left:22px; bottom:70px; z-index:6; font-size:13px; letter-spacing:1px; }
   .weapon-tab .wsel { color:var(--gold); font-weight:800; }
-  .bosswrap { position:fixed; left:50%; top:70px; transform:translateX(-50%); z-index:6; width:min(560px,80vw); display:none; }
+  .bosswrap { position:fixed; left:50%; top:84px; transform:translateX(-50%); z-index:6; width:min(560px,80vw); display:none; }
   .bosswrap.show{ display:block; }
-  .bosswrap .bname { text-align:center; color:#ff8a8a; letter-spacing:3px; font-weight:800; font-size:15px; text-shadow:0 0 8px rgba(0,0,0,.9); }
-  .bossbar { height:12px; border:1px solid rgba(255,90,90,.7); border-radius:3px; background:rgba(30,0,0,.5); overflow:hidden; margin-top:3px;}
+  .bosswrap .bname { font-family:var(--font-display); text-align:center; color:#ff8a8a; letter-spacing:3px; font-weight:700; font-size:15px; text-shadow:0 0 8px rgba(0,0,0,.9); }
+  .bossbar { height:12px; border:1px solid rgba(255,90,90,.7); background:rgba(30,0,0,.5); overflow:hidden; margin-top:3px; clip-path:polygon(6px 0,100% 0,100% 100%,0 100%,0 6px); }
   .bossbar > div { height:100%; width:100%; background:linear-gradient(90deg,#ff3020,#ff8a3d); transition:width .2s; box-shadow:0 0 18px rgba(255,60,30,.7); }
+
+  /* ---- Settings screen ---- */
+  .settings-panel { width:min(560px,92vw); background:var(--panel); border:1px solid var(--panel-edge); padding:26px 30px; margin-top:8px; }
+  .set-group { padding:16px 0; border-bottom:1px solid rgba(255,255,255,.08); }
+  .set-group:last-child { border-bottom:none; padding-bottom:4px; }
+  .set-row { display:flex; align-items:center; justify-content:space-between; gap:20px; }
+  .set-row + .set-row { margin-top:14px; }
+  .set-label { font-family:var(--font-display); font-size:14px; letter-spacing:2px; color:#dbe8f6; }
+  .set-label.sub { font-size:12px; color:#9fb8d0; letter-spacing:1.5px; }
+  .set-note { margin-top:8px; font-size:11px; color:#7dffb0; letter-spacing:1.5px; }
+  .seg { display:flex; margin-top:10px; border:1px solid var(--hud-dim); overflow:hidden; }
+  .seg-btn { flex:1; pointer-events:auto; cursor:pointer; border:none; background:transparent; color:#bcd4ee; font-family:var(--font-display);
+    font-size:12px; font-weight:600; letter-spacing:1.5px; padding:9px 4px; border-right:1px solid rgba(125,255,176,.18); transition:background .15s, color .15s; }
+  .seg-btn:last-child { border-right:none; }
+  .seg-btn:hover { background:rgba(125,255,176,.08); }
+  .seg-btn.active { background:var(--hud); color:#04140b; }
+  .toggle { pointer-events:auto; cursor:pointer; width:46px; height:24px; border:1px solid var(--hud-dim); background:rgba(0,20,10,.5); position:relative; flex:none; }
+  .toggle .knob { position:absolute; top:2px; left:2px; width:18px; height:18px; background:#5a6a72; transition:left .15s, background .15s; }
+  .toggle.on { border-color:var(--hud); }
+  .toggle.on .knob { left:24px; background:var(--hud); box-shadow:0 0 8px var(--hud-glow); }
+  .slider { pointer-events:auto; -webkit-appearance:none; appearance:none; width:100%; max-width:220px; height:4px; background:rgba(125,255,176,.25); outline:none; }
+  .slider::-webkit-slider-thumb { -webkit-appearance:none; width:15px; height:15px; background:var(--hud); cursor:pointer; box-shadow:0 0 6px var(--hud-glow); }
+  .slider::-moz-range-thumb { width:15px; height:15px; border:none; background:var(--hud); cursor:pointer; box-shadow:0 0 6px var(--hud-glow); }
+  .slider:disabled { opacity:.35; }
 </style>
 </head>
 <body>
@@ -192,6 +277,7 @@
       <button id="btn-endless" class="btn ghost small">ENDLOS-GEFECHT</button>
       <button id="btn-ace" class="btn ghost small hidden">ENDLOS · ASS-MODUS</button>
       <button id="btn-howto" class="btn ghost small">STEUERUNG</button>
+      <button id="btn-settings" class="btn ghost small">⚙ EINSTELLUNGEN</button>
       <button id="btn-reset" class="btn ghost small" style="font-size:12px; padding:8px 22px; opacity:.6">FORTSCHRITT ZURÜCKSETZEN</button>
     </div>
     <div id="menu-progress" class="subbrand" style="margin-top:20px; opacity:.85; font-size:13px"></div>
@@ -289,6 +375,7 @@
     <div id="pause-stats" class="tag" style="margin-bottom:22px"></div>
     <div class="menu-btns" style="flex-direction:row; gap:14px">
       <button id="resumebtn" class="btn">▶ WEITER (P / Esc)</button>
+      <button id="pause-settingsbtn" class="btn ghost small">⚙ EINSTELLUNGEN</button>
       <button id="pause-menubtn" class="btn ghost small">HAUPTMENÜ</button>
     </div>
     <div class="controls" style="margin-top:26px">
@@ -306,6 +393,41 @@
       🚀 Raketen lenken <b style="color:var(--gold)">nur bei LOCK</b> ·
       👑 Boss: erst Türme/Pylonen, dann den <b style="color:var(--gold)">Kern</b> ·
       <b style="color:var(--gold)">Strg</b> = enger kurven
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div id="settings" class="screen hidden">
+    <button id="settings-backbtn" class="btn ghost small backbtn">‹ ZURÜCK</button>
+    <h1 class="title" style="font-size:44px; letter-spacing:6px">EINSTELLUNGEN</h1>
+    <div class="settings-panel panel-cut">
+      <div class="set-group">
+        <div class="set-label">GRAFIKQUALITÄT</div>
+        <div id="set-gfx" class="seg"></div>
+        <div id="set-gfx-note" class="set-note"></div>
+      </div>
+      <div class="set-group">
+        <div class="set-row">
+          <div><div class="set-label">SPRACHAUSGABE</div><div class="set-label sub">Funksprüche als gesprochenes Audio</div></div>
+          <div id="set-voice-toggle" class="toggle"><div class="knob"></div></div>
+        </div>
+        <div class="set-row">
+          <div class="set-label sub">LAUTSTÄRKE</div>
+          <input id="set-voice-vol" class="slider" type="range" min="0" max="100" value="100">
+        </div>
+      </div>
+      <div class="set-group">
+        <div class="set-row">
+          <div><div class="set-label">UNTERTITEL</div><div class="set-label sub">Funksprüche als Text einblenden</div></div>
+          <div id="set-subs-toggle" class="toggle"><div class="knob"></div></div>
+        </div>
+      </div>
+      <div class="set-group">
+        <div class="set-row">
+          <div class="set-label sub">MUSIKLAUTSTÄRKE</div>
+          <input id="set-music-vol" class="slider" type="range" min="0" max="100" value="100">
+        </div>
+      </div>
     </div>
   </div>
 
@@ -3808,6 +3930,153 @@ function hudText(txt, x, y, fill){
   hctx.strokeText(txt, x, y);
   hctx.fillStyle=fill; hctx.fillText(txt, x, y);
 }
+// ---- HUD typography + palette: canvas side of the CSS design tokens ----
+const HUD_FF="'Space Grotesk','Segoe UI',system-ui,sans-serif";
+const HF10='600 10px '+HUD_FF, HF11='600 11px '+HUD_FF, HF12='600 12px '+HUD_FF, HF13B='700 13px '+HUD_FF,
+      HF15B='700 15px '+HUD_FF, HF16B='700 16px '+HUD_FF, HF18B='700 18px '+HUD_FF, HF22B='700 22px '+HUD_FF, HF26B='700 26px '+HUD_FF, HF9='600 9px '+HUD_FF;
+const HUD_G='rgba(125,255,176,0.92)', HUD_RED='rgba(255,70,60,0.96)';
+const _hudP=new THREE.Vector3();   // scratch for HUD projections (no per-frame allocations)
+
+// ---- Heading tape: strip pre-rendered once at 2x (ticks/labels/outlines baked in); per frame one
+// slice into a small scratch canvas, edge-faded with a cached destination-in gradient, then blitted.
+// Compass degree = -player.heading (heading grows counter-clockwise: fwd = (-sin h, 0, -cos h)).
+const HDG_PPD=7, HDG_S=2, HDG_MIN=-60, HDG_MAX=420, HDG_TH=30;
+let hdgTape=null, hdgScr=null, hdgScrCtx=null, hdgMask=null, hdgScrW=0, hdgScrD=0;
+const HDG_NUM=[]; for(let d=0; d<360; d++) HDG_NUM[d]=String(d).padStart(3,'0');
+const HDG_CARD={0:'N',90:'O',180:'S',270:'W',45:'NO',135:'SO',225:'SW',315:'NW'};
+function buildHeadingTape(){
+  const c=document.createElement('canvas');
+  c.width=(HDG_MAX-HDG_MIN)*HDG_PPD*HDG_S; c.height=HDG_TH*HDG_S;
+  const g=c.getContext('2d'); g.scale(HDG_S,HDG_S); g.textAlign='center'; g.textBaseline='alphabetic'; g.lineJoin='round';
+  for(let d=HDG_MIN; d<=HDG_MAX; d+=5){
+    const nd=((d%360)+360)%360, x=(d-HDG_MIN)*HDG_PPD, ten=nd%10===0, card=nd%90===0;
+    const tl=card?11:(ten?8:4), y0=HDG_TH-1;
+    g.strokeStyle='rgba(0,0,0,0.5)'; g.lineWidth=ten?3.4:2.6;
+    g.beginPath(); g.moveTo(x,y0); g.lineTo(x,y0-tl); g.stroke();
+    g.strokeStyle=ten?'rgba(125,255,176,0.95)':'rgba(125,255,176,0.55)'; g.lineWidth=ten?1.6:1;
+    g.beginPath(); g.moveTo(x,y0); g.lineTo(x,y0-tl); g.stroke();
+    const lbl = HDG_CARD[nd] || (ten ? String(nd/10).padStart(2,'0') : null);
+    if(lbl){
+      const big=card, inter=!card && nd%45===0;
+      g.font = big ? '700 13px '+HUD_FF : (inter ? '600 10px '+HUD_FF : '600 11px '+HUD_FF);
+      g.lineWidth=3; g.strokeStyle='rgba(0,0,0,0.6)'; g.strokeText(lbl, x, 13);
+      g.fillStyle = big ? 'rgba(255,214,140,0.98)' : (inter ? 'rgba(125,255,176,0.6)' : 'rgba(125,255,176,0.92)');
+      g.fillText(lbl, x, 13);
+    }
+  }
+  hdgTape=c;
+}
+function drawHeadingTape(cx,w){
+  if(!hdgTape) buildHeadingTape();
+  const tw=Math.round(Math.max(300,Math.min(460,w*0.3))), ty=10, dpr=Math.min(devicePixelRatio||1,2);
+  if(!hdgScr || hdgScrW!==tw || hdgScrD!==dpr){
+    hdgScr=document.createElement('canvas'); hdgScr.width=Math.round(tw*dpr); hdgScr.height=Math.round(HDG_TH*dpr);
+    hdgScrCtx=hdgScr.getContext('2d');
+    hdgMask=hdgScrCtx.createLinearGradient(0,0,hdgScr.width,0);
+    hdgMask.addColorStop(0,'rgba(0,0,0,0)'); hdgMask.addColorStop(0.2,'#000'); hdgMask.addColorStop(0.8,'#000'); hdgMask.addColorStop(1,'rgba(0,0,0,0)');
+    hdgScrW=tw; hdgScrD=dpr;
+  }
+  const deg=((-player.heading*180/Math.PI)%360+360)%360, view=tw/HDG_PPD;
+  const g=hdgScrCtx, W=hdgScr.width, H=hdgScr.height;
+  g.globalCompositeOperation='source-over'; g.clearRect(0,0,W,H);
+  g.fillStyle='rgba(2,10,20,0.34)'; g.fillRect(0,0,W,H);
+  g.drawImage(hdgTape, (deg-HDG_MIN-view/2)*HDG_PPD*HDG_S, 0, tw*HDG_S, hdgTape.height, 0, 0, W, H);
+  g.globalCompositeOperation='destination-in'; g.fillStyle=hdgMask; g.fillRect(0,0,W,H);
+  g.globalCompositeOperation='source-over';
+  hctx.drawImage(hdgScr, cx-tw/2, ty, tw, HDG_TH);
+  // caret + boxed digital readout
+  hctx.fillStyle=HUD_G; hctx.beginPath();
+  hctx.moveTo(cx,ty+HDG_TH+1); hctx.lineTo(cx-6,ty+HDG_TH+9); hctx.lineTo(cx+6,ty+HDG_TH+9); hctx.closePath(); hctx.fill();
+  const bw=48, bh=19, by=ty+HDG_TH+10;
+  hctx.fillStyle='rgba(2,10,20,0.6)'; hctx.fillRect(cx-bw/2,by,bw,bh);
+  hctx.strokeStyle=HUD_G; hctx.lineWidth=1.2; hctx.strokeRect(cx-bw/2+0.5,by+0.5,bw-1,bh-1);
+  hctx.font=HF13B; hctx.textAlign='center'; hctx.textBaseline='middle'; hctx.fillStyle=HUD_G;
+  hctx.fillText(HDG_NUM[Math.round(deg)%360], cx, by+bh/2+1);
+  hctx.textAlign='left'; hctx.textBaseline='alphabetic';
+}
+
+// ---- Pitch ladder, locked to the REAL camera: rung angle θ sits at tan(θ - camPitch)·f from the
+// screen centre, rotated by the camera's on-screen horizon tilt (the chase cam leans into turns).
+// Only a central window is drawn (edge-faded) so it never collides with tape, radar or subtitles.
+const LAD_LBL=[]; for(let i=0;i<=9;i++) LAD_LBL[i]=String(i*10);
+function drawPitchLadder(cx,cy,w,h){
+  camera.updateMatrixWorld();   // current frame (render would do it later) — keeps all HUD projections in sync
+  const e=camera.matrixWorld.elements;
+  const dx=-e[8], dy=-e[9], dz=-e[10];                 // view direction
+  const hx=-dz, hz=dx, hl=Math.hypot(hx,hz);            // world-horizontal right = dir × up
+  if(hl<0.1) return;                                    // looking straight up/down: horizon undefined
+  const sr=(hx*e[0]+hz*e[2])/hl, su=(hx*e[4]+hz*e[6])/hl;
+  const tilt=Math.atan2(-su, sr);
+  const camPitch=Math.asin(Math.max(-1,Math.min(1,dy)))*180/Math.PI;
+  const f=(h/2)/Math.tan(camera.fov*Math.PI/360), lim=h*0.3;
+  hctx.save(); hctx.translate(cx,cy); hctx.rotate(tilt);
+  hctx.font=HF11; hctx.textBaseline='middle'; hctx.lineCap='butt';
+  for(let th=-90; th<=90; th+=10){
+    const d=th-camPitch; if(d>70 || d<-70) continue;
+    const y=-Math.tan(d*Math.PI/180)*f, ay=Math.abs(y);
+    if(ay>lim) continue;
+    hctx.globalAlpha = ay<lim*0.55 ? 0.72 : 0.72*(1-(ay-lim*0.55)/(lim*0.45));
+    if(th===0){
+      // horizon bar: long, gapped around the reticle, small down-ticks at the inner ends
+      const L=Math.min(210,w*0.16);
+      hctx.strokeStyle='rgba(0,0,0,0.35)'; hctx.lineWidth=4; hctx.setLineDash([]);
+      hctx.beginPath(); hctx.moveTo(-L,y); hctx.lineTo(-44,y); hctx.moveTo(44,y); hctx.lineTo(L,y); hctx.stroke();
+      hctx.strokeStyle=HUD_G; hctx.lineWidth=1.8;
+      hctx.beginPath(); hctx.moveTo(-L,y); hctx.lineTo(-44,y); hctx.lineTo(-44,y+7); hctx.moveTo(44,y+7); hctx.lineTo(44,y); hctx.lineTo(L,y); hctx.stroke();
+      continue;
+    }
+    const climb=th>0, r0=30, r1=climb?78:74, tk=climb?7:-7;
+    hctx.strokeStyle=HUD_G; hctx.lineWidth=1.4;
+    if(!climb) hctx.setLineDash([7,5]); else hctx.setLineDash([]);
+    hctx.beginPath(); hctx.moveTo(-r1,y); hctx.lineTo(-r0,y); hctx.moveTo(r0,y); hctx.lineTo(r1,y); hctx.stroke();
+    hctx.setLineDash([]);
+    hctx.beginPath(); hctx.moveTo(-r1,y); hctx.lineTo(-r1,y+tk); hctx.moveTo(r1,y); hctx.lineTo(r1,y+tk); hctx.stroke();
+    const lb=LAD_LBL[Math.abs(th)/10];
+    hctx.fillStyle=HUD_G; hctx.textAlign='right'; hctx.fillText(lb, -r1-6, y); hctx.textAlign='left'; hctx.fillText(lb, r1+6, y);
+  }
+  hctx.setLineDash([]); hctx.globalAlpha=1; hctx.restore();
+  hctx.textAlign='left'; hctx.textBaseline='alphabetic';
+}
+
+// ---- Missile threat (RWR): red chevrons toward every inbound missile, boxed warning with range,
+// pulsing edge vignette when one is close. Replaces the old blinking text.
+function drawMissileThreats(cx,cy,w,h){
+  const n=enemyMissiles.length;
+  if(!n && rwrT<=0) return;
+  const pp=player.obj.position; let near=1e9;
+  const r=Math.min(w,h)*0.36, pulse=0.5+0.5*Math.sin(menuTime*14);
+  hctx.lineWidth=2;
+  for(let i=0;i<n;i++){
+    const mp=enemyMissiles[i].mesh.position, d=mp.distanceTo(pp); if(d<near) near=d;
+    _hudP.copy(mp).project(camera);
+    let ax=_hudP.x, ay=_hudP.y; const behind=_hudP.z>1; if(behind){ ax=-ax; ay=-ay; }
+    if(!behind && ax>-1 && ax<1 && ay>-1 && ay<1){
+      const sx=(ax*0.5+0.5)*w, sy=(-ay*0.5+0.5)*h;
+      hctx.strokeStyle=HUD_RED; hctx.beginPath();
+      hctx.moveTo(sx,sy-11); hctx.lineTo(sx+11,sy); hctx.lineTo(sx,sy+11); hctx.lineTo(sx-11,sy); hctx.closePath(); hctx.stroke();
+      hctx.beginPath(); hctx.arc(sx,sy,17+4*pulse,0,Math.PI*2); hctx.stroke();
+    } else {
+      const ang=Math.atan2(-ay, ax), ex=cx+Math.cos(ang)*r, ey=cy+Math.sin(ang)*r;
+      hctx.save(); hctx.translate(ex,ey); hctx.rotate(ang); hctx.fillStyle=HUD_RED; hctx.globalAlpha=0.65+0.35*pulse;
+      hctx.beginPath(); hctx.moveTo(18,0); hctx.lineTo(-6,-11); hctx.lineTo(0,0); hctx.lineTo(-6,11); hctx.closePath(); hctx.fill();
+      hctx.restore();
+    }
+  }
+  // boxed warning top centre under the heading readout (steady frame, blinking text): never covers targets,
+  // lock box or the jet; during boss fights it sits below the (possibly two-line) boss bar. Only runs while a threat exists.
+  const bw=196, bh=24, bx=cx-bw/2, by=(boss && dom.bosswrap) ? Math.max(86, dom.bosswrap.getBoundingClientRect().bottom+8) : 86;
+  hctx.fillStyle='rgba(40,4,4,0.55)'; hctx.fillRect(bx,by,bw,bh);
+  hctx.strokeStyle=HUD_RED; hctx.lineWidth=1.5; hctx.strokeRect(bx+0.5,by+0.5,bw-1,bh-1);
+  hctx.textAlign='center'; hctx.textBaseline='middle'; hctx.font=HF13B;
+  if(Math.sin(menuTime*20)>-0.3){ hctx.fillStyle=HUD_RED; hctx.fillText(near<1e8 ? '⚠ RAKETE  '+(near/1000).toFixed(1)+' km' : '⚠ RAKETENSTART', cx, by+bh/2+1); }
+  hctx.textAlign='left'; hctx.textBaseline='alphabetic';
+  // edge vignette when a missile is close (<1.8 km): cheap thick translucent frame
+  if(near<1800){
+    hctx.globalAlpha=(0.10+0.16*pulse)*(1-near/1800);
+    hctx.strokeStyle='#ff2a1a'; hctx.lineWidth=36; hctx.strokeRect(0,0,w,h);
+    hctx.globalAlpha=1; hctx.lineWidth=1;
+  }
+}
 function drawHUD(){
   const w=innerWidth, h=innerHeight; hctx.clearRect(0,0,w,h);   // CSS units: hctx carries the dpr transform
   // red damage flash — drawn in ALL states so a fatal crash punch is visible
@@ -3815,6 +4084,8 @@ function drawHUD(){
   if(damageFlash>0){ hctx.fillStyle='rgba(210,25,20,'+Math.min(0.5,damageFlash*0.85)+')'; hctx.fillRect(0,0,w,h); }
   if(state!=='playing' && state!=='paused') return;
   const cx=w/2, cy=h/2;
+  drawPitchLadder(cx,cy,w,h);
+  drawHeadingTape(cx,w);
   // center reticle
   const lockAhead = currentLock!=null;
   hctx.strokeStyle = lockAhead? 'rgba(255,80,80,0.95)':'rgba(125,255,176,0.85)';
@@ -3841,40 +4112,42 @@ function drawHUD(){
   } else hitMarkKill=false;
 
   // RWR launch-warning blink (enemy missile inbound)
-  if(rwrT>0 && Math.sin(menuTime*30)>0){
-    hctx.fillStyle='rgba(255,60,60,0.95)'; hctx.font='bold 15px monospace'; hctx.textAlign='center';
-    hctx.fillText('⚠ RAKETE', cx, cy+52); hctx.textAlign='left';
-  }
+  drawMissileThreats(cx,cy,w,h);
 
-  // target boxes for each enemy
-  const proj=new THREE.Vector3();
+  // target boxes for each enemy: corner brackets (full box only when locked), range in m / km
+  const proj=_hudP;
   for(const e of enemies){
     proj.copy(e.obj.position).project(camera);
     const onScreen = proj.z<1 && proj.x>=-1 && proj.x<=1 && proj.y>=-1 && proj.y<=1;
     const sx=(proj.x*0.5+0.5)*w, sy=(-proj.y*0.5+0.5)*h;
     const dist=e.obj.position.distanceTo(player.obj.position);
     if(onScreen){
-      const size=Math.max(18, 2600/dist*20);
+      const size=Math.min(110, Math.max(20, 2600/dist*20)), s2=size/2, c=Math.max(5,size*0.28);
       const isLock=(e===currentLock);
-      hctx.strokeStyle = e.isAce?'rgba(255,80,255,0.95)':(isLock?'rgba(255,60,60,0.95)':'rgba(255,190,60,0.85)');
-      hctx.lineWidth=isLock?2.5:1.5;
-      hctx.strokeRect(sx-size/2, sy-size/2, size, size);
-      // corner ticks
-      hctx.fillStyle=hctx.strokeStyle;
-      hctx.font='11px monospace'; hctx.fillText(Math.round(dist)+'m', sx-size/2, sy-size/2-4);
-      if(e.isAce){ hctx.fillStyle='rgba(255,80,255,0.95)'; hctx.font='bold 11px monospace'; hctx.fillText('★ '+e.aceName, sx-size/2, sy+size/2+26); }
-      if(isLock){
-        hctx.fillText('LOCK', sx-size/2, sy+size/2+14);
-        // rotating lock brackets
-        hctx.strokeStyle='rgba(255,60,60,0.9)';
-        const b=size*0.7;
+      const col = e.isAce?'rgba(255,90,255,0.95)':(isLock?HUD_RED:'rgba(255,196,80,0.9)');
+      hctx.strokeStyle='rgba(0,0,0,0.45)'; hctx.lineWidth=isLock?4.5:3.5;
+      for(let pass=0; pass<2; pass++){
         hctx.beginPath();
-        hctx.moveTo(sx-b,sy-b+8); hctx.lineTo(sx-b,sy-b); hctx.lineTo(sx-b+8,sy-b);
-        hctx.moveTo(sx+b,sy-b+8); hctx.lineTo(sx+b,sy-b); hctx.lineTo(sx+b-8,sy-b);
-        hctx.moveTo(sx-b,sy+b-8); hctx.lineTo(sx-b,sy+b); hctx.lineTo(sx-b+8,sy+b);
-        hctx.moveTo(sx+b,sy+b-8); hctx.lineTo(sx+b,sy+b); hctx.lineTo(sx+b-8,sy+b);
+        hctx.moveTo(sx-s2,sy-s2+c); hctx.lineTo(sx-s2,sy-s2); hctx.lineTo(sx-s2+c,sy-s2);
+        hctx.moveTo(sx+s2-c,sy-s2); hctx.lineTo(sx+s2,sy-s2); hctx.lineTo(sx+s2,sy-s2+c);
+        hctx.moveTo(sx-s2,sy+s2-c); hctx.lineTo(sx-s2,sy+s2); hctx.lineTo(sx-s2+c,sy+s2);
+        hctx.moveTo(sx+s2-c,sy+s2); hctx.lineTo(sx+s2,sy+s2); hctx.lineTo(sx+s2,sy+s2-c);
         hctx.stroke();
+        hctx.strokeStyle=col; hctx.lineWidth=isLock?2.2:1.6;
       }
+      hctx.font=HF11; hctx.textAlign='center';
+      hudText(dist<1000 ? Math.round(dist)+' m' : (dist/1000).toFixed(1)+' km', sx, sy-s2-6, col);
+      if(e.isAce){ hctx.font=HF12; hudText('★ '+e.aceName, sx, sy+s2+(isLock?30:16), 'rgba(255,90,255,0.95)'); }
+      if(isLock){
+        hctx.strokeRect(sx-s2, sy-s2, size, size);
+        hctx.font=HF12; hudText('◆ LOCK', sx, sy+s2+15, HUD_RED);
+        // outer lock diamond, slowly rotating
+        const b=size*0.62+10, ra=menuTime*1.6;
+        hctx.save(); hctx.translate(sx,sy); hctx.rotate(ra); hctx.strokeStyle=HUD_RED; hctx.lineWidth=1.6;
+        hctx.beginPath(); hctx.moveTo(0,-b); hctx.lineTo(b,0); hctx.lineTo(0,b); hctx.lineTo(-b,0); hctx.closePath(); hctx.stroke();
+        hctx.restore();
+      }
+      hctx.textAlign='left';
     } else {
       // off-screen arrow toward enemy
       let ax=proj.x, ay=proj.y; if(proj.z>1){ ax=-ax; ay=-ay; }
@@ -3908,16 +4181,16 @@ function drawHUD(){
       hctx.beginPath(); hctx.moveTo(px-19,py); hctx.lineTo(px-9,py); hctx.moveTo(px+9,py); hctx.lineTo(px+19,py);
       hctx.moveTo(px,py-19); hctx.lineTo(px,py-9); hctx.moveTo(px,py+9); hctx.lineTo(px,py+19); hctx.stroke();
       // range readout next to the pipper
-      hctx.font='11px monospace'; hctx.textAlign='left'; hctx.fillStyle=col;
+      hctx.font=HF11; hctx.textAlign='left'; hctx.fillStyle=col;
       hctx.fillText(Math.round(gunSolution.dist)+' m', px+22, py-6);
       const clo=Math.max(-2000,Math.min(2000,Math.round(gunSolution.closure*3.6)));   // closure km/h, clamped
       hctx.fillStyle='rgba(200,220,240,0.75)';
       hctx.fillText((clo>=0?'▲':'▼')+Math.abs(clo)+' km/h', px+22, py+9);
       // big status cue under the center reticle
-      hctx.textAlign='center'; hctx.font='bold 16px monospace';
+      hctx.textAlign='center'; hctx.font=HF16B;
       if(onTgt){ hctx.fillStyle='rgba(120,255,120,0.98)'; hctx.fillText('◄ FEUER · GUNS ►', cx, cy-44); }
-      else if(near){ hctx.font='bold 13px monospace'; hudText('IN REICHWEITE — auf Zielpunkt halten', cx, cy-44, 'rgba(255,120,120,0.95)'); }
-      else { hctx.font='12px monospace'; hudText('ausser Reichweite ('+Math.round(gunSolution.dist)+' m)', cx, cy-44, 'rgba(255,210,110,0.9)'); }
+      else if(near){ hctx.font=HF13B; hudText('IN REICHWEITE — auf Zielpunkt halten', cx, cy-44, 'rgba(255,120,120,0.95)'); }
+      else { hctx.font=HF12; hudText('außer Reichweite ('+Math.round(gunSolution.dist)+' m)', cx, cy-44, 'rgba(255,210,110,0.9)'); }
       hctx.textAlign='left';
     }
   }
@@ -3926,10 +4199,10 @@ function drawHUD(){
   if(combo>=2){
     const a=Math.min(1,comboT/1.0);
     hctx.save(); hctx.globalAlpha=a; hctx.textAlign='center';
-    hctx.fillStyle='#ffcc33'; hctx.font='bold 26px system-ui, sans-serif';
-    hctx.fillText('KILL-SERIE ×'+Math.min(combo,5), cx, 92);
+    hctx.fillStyle='#ffcc33'; hctx.font=HF26B;
+    hctx.fillText('KILL-SERIE ×'+Math.min(combo,5), cx, 146);   // below heading tape + boss bar
     // shrinking timer bar
-    hctx.fillStyle='rgba(255,204,51,0.85)'; hctx.fillRect(cx-70, 100, 140*(comboT/4.0), 4);
+    hctx.fillStyle='rgba(255,204,51,0.85)'; hctx.fillRect(cx-70, 154, 140*(comboT/4.0), 4);
     hctx.restore(); hctx.textAlign='left';
   }
 
@@ -3948,7 +4221,7 @@ function drawHUD(){
       // health pip — only for destroyable targets (the crate is a fly-over objective, not a kill)
       if(!gt.invuln){ const hpw=Math.max(0,gt.hp/gt.maxhp);
         hctx.fillStyle='rgba(255,90,60,0.8)'; hctx.fillRect(gx-12,gy+12,24*hpw,3); }
-      if(GT_LABELS[gt.tag]){ hctx.fillStyle=hctx.strokeStyle; hctx.font='10px monospace'; hctx.textAlign='center'; hctx.fillText(GT_LABELS[gt.tag], gx, gy-13); hctx.textAlign='left'; }
+      if(GT_LABELS[gt.tag]){ hctx.fillStyle=hctx.strokeStyle; hctx.font=HF10; hctx.textAlign='center'; hctx.fillText(GT_LABELS[gt.tag], gx, gy-13); hctx.textAlign='left'; }
       if(isAgmLock){  // green AGM lock brackets + label
         const b=16; hctx.strokeStyle='rgba(90,255,120,0.95)';
         hctx.beginPath();
@@ -3957,7 +4230,7 @@ function drawHUD(){
         hctx.moveTo(gx-b,gy+b-7); hctx.lineTo(gx-b,gy+b); hctx.lineTo(gx-b+7,gy+b);
         hctx.moveTo(gx+b,gy+b-7); hctx.lineTo(gx+b,gy+b); hctx.lineTo(gx+b-7,gy+b);
         hctx.stroke();
-        hctx.fillStyle='rgba(90,255,120,0.95)'; hctx.font='bold 10px monospace'; hctx.textAlign='center'; hctx.fillText('LB-LOCK', gx, gy+27); hctx.textAlign='left';
+        hctx.fillStyle='rgba(90,255,120,0.95)'; hctx.font=HF10; hctx.textAlign='center'; hctx.fillText('LB-LOCK', gx, gy+27); hctx.textAlign='left';
       }
     }
   }
@@ -3969,7 +4242,7 @@ function drawHUD(){
       if(on){ const axp=(ap.x*0.5+0.5)*w, ayp=(-ap.y*0.5+0.5)*h;
         hctx.strokeStyle='rgba(90,200,255,0.95)'; hctx.lineWidth=2;
         hctx.strokeRect(axp-13,ayp-13,26,26);
-        hctx.fillStyle='rgba(90,200,255,0.95)'; hctx.font='10px monospace'; hctx.textAlign='center';
+        hctx.fillStyle='rgba(90,200,255,0.95)'; hctx.font=HF10; hctx.textAlign='center';
         hctx.fillText(ally.name||'LÄRCHE', axp, ayp-17);
         const hw=Math.max(0,ally.hp/ally.maxhp);
         hctx.fillStyle='rgba(40,40,50,0.7)'; hctx.fillRect(axp-16,ayp+16,32,4);
@@ -4004,14 +4277,14 @@ function drawHUD(){
         hctx.moveTo(ix-18,iy); hctx.lineTo(ix-12,iy); hctx.moveTo(ix+12,iy); hctx.lineTo(ix+18,iy); hctx.stroke();
         // line from aircraft-nadir to impact
         hctx.strokeStyle='rgba(120,255,176,0.35)'; hctx.setLineDash([5,5]); hctx.beginPath(); hctx.moveTo(cx,cy); hctx.lineTo(ix,iy); hctx.stroke(); hctx.setLineDash([]);
-        hctx.fillStyle='rgba(120,255,176,0.9)'; hctx.font='bold 11px monospace'; hctx.textAlign='center'; hctx.fillText('CCIP', ix, iy+30); hctx.textAlign='left';
+        hctx.fillStyle='rgba(120,255,176,0.9)'; hctx.font=HF11; hctx.textAlign='center'; hctx.fillText('CCIP', ix, iy+30); hctx.textAlign='left';
       }
     }
   }
   // SAM launch warning
   if(samWarnActive && state==='playing'){
     hctx.fillStyle='rgba(255,60,60,'+(0.55+0.35*Math.sin(menuTime*12))+')';
-    hctx.font='bold 22px system-ui, sans-serif'; hctx.textAlign='center';
+    hctx.font=HF22B; hctx.textAlign='center';
     hctx.fillText('⚠ SAM — RAKETENWARNUNG', cx, h-150); hctx.textAlign='left';
   }
 
@@ -4021,17 +4294,17 @@ function drawHUD(){
       if(player.grantlActive){                       // berserk vignette + banner
         const p=0.22+0.18*Math.sin(menuTime*18);
         hctx.strokeStyle='rgba(255,45,20,'+p+')'; hctx.lineWidth=26; hctx.strokeRect(13,13,w-26,h-26); hctx.lineWidth=1;
-        hctx.fillStyle='rgba(255,90,50,0.95)'; hctx.font='bold 15px system-ui,sans-serif'; hctx.textAlign='center';
-        hctx.fillText('🔥 GRANTL-MODUS!', cx, 42); hctx.textAlign='left';
+        hctx.fillStyle='rgba(255,90,50,0.95)'; hctx.font=HF15B; hctx.textAlign='center';
+        hctx.fillText('🔥 GRANTL-MODUS!', cx, 182); hctx.textAlign='left';
       }
       const bw=170, bx=cx-bw/2, by=h-64;             // rage bar
       hctx.fillStyle='rgba(4,12,20,0.55)'; hctx.fillRect(bx-2,by-2,bw+4,12);
       hctx.fillStyle=player.grantlActive?'#ff5a2a':'#c23a1a'; hctx.fillRect(bx,by,bw*Math.max(0,Math.min(1,player.grantl)),8);
-      hctx.fillStyle='rgba(255,185,155,0.9)'; hctx.font='9px monospace'; hctx.textAlign='center'; hctx.fillText('GRANTL', cx, by-4); hctx.textAlign='left';
+      hctx.fillStyle='rgba(255,185,155,0.9)'; hctx.font=HF9; hctx.textAlign='center'; hctx.fillText('GRANTL', cx, by-4); hctx.textAlign='left';
     } else if(player.hero==='wiggerl'){
       const fl=Math.max(0,Math.min(1,player.duselFlash/0.6));
       hctx.globalAlpha=0.45+0.55*fl;
-      hctx.fillStyle=fl>0.05?'#7dff9a':'rgba(150,210,165,0.85)'; hctx.font='bold 16px system-ui,sans-serif'; hctx.textAlign='center';
+      hctx.fillStyle=fl>0.05?'#7dff9a':'rgba(150,210,165,0.85)'; hctx.font=HF16B; hctx.textAlign='center';
       hctx.fillText('🍀 DUSEL', cx, h-56); hctx.textAlign='left'; hctx.globalAlpha=1;
     }
   }
@@ -4077,12 +4350,18 @@ function drawHUD(){
     }
     hctx.restore(); hctx.textAlign='left';
   }
+  // Lift the subtitle box above the takeoff/landing panel while it is shown (class flip only on change)
+  const liftRadio = state==='playing' && (player.onGround || (player.gearDown && nearRunway));
+  if(dom.radio._lift!==liftRadio){ dom.radio._lift=liftRadio; dom.radio.classList.toggle('lift', liftRadio); }
 
-  // Radar (bottom center)
-  const rr=68, rx=cx, ry=h-90;
+  // Radar (bottom right — bottom centre belongs to subtitles + the takeoff/landing panel)
+  const rr=68, rx=w-104, ry=h-106;
   hctx.save();
   hctx.strokeStyle='rgba(125,255,176,0.5)'; hctx.fillStyle='rgba(0,30,15,0.35)';
   hctx.beginPath(); hctx.arc(rx,ry,rr,0,Math.PI*2); hctx.fill(); hctx.stroke();
+  hctx.strokeStyle='rgba(125,255,176,0.2)'; hctx.beginPath(); hctx.arc(rx,ry,rr*0.5,0,Math.PI*2); hctx.stroke();
+  hctx.font=HF9; hctx.fillStyle='rgba(125,255,176,0.6)'; hctx.textAlign='center'; hctx.fillText('RADAR · 6 KM', rx, ry+rr+13); hctx.textAlign='left';
+  hctx.strokeStyle='rgba(125,255,176,0.5)';
   hctx.beginPath(); hctx.moveTo(rx,ry-rr); hctx.lineTo(rx,ry+rr); hctx.moveTo(rx-rr,ry); hctx.lineTo(rx+rr,ry); hctx.stroke();
   // player heading up
   const fwd=_v.set(0,0,-1).applyQuaternion(player.obj.quaternion); const pang=Math.atan2(fwd.x,-fwd.z);
@@ -4174,7 +4453,7 @@ function nextWaveCheck(dt){
 }
 
 /* ===== Screen navigation ===== */
-const SCREENS=['menu','missionselect','briefing','brotzeit','howto','start','gameover','pause','cutscene'];
+const SCREENS=['menu','missionselect','briefing','brotzeit','howto','start','gameover','pause','cutscene','settings'];
 function showScreen(id){
   for(const s of SCREENS){ const el=document.getElementById(s); if(el) el.classList.add('hidden'); }
   if(id){ const el=document.getElementById(id); if(el) el.classList.remove('hidden'); }
@@ -4374,6 +4653,7 @@ function togglePause(){ if(state==='playing') pauseGame(); else if(state==='paus
 
 /* ===== Menu wiring ===== */
 const TYPE_NAME={air:'LUFTKAMPF',ground:'BODENANGRIFF',mixed:'KOMBINIERT',boss:'BOSS',tutorial:'FLUGSCHULE',escort:'ESKORTE'};
+const TOD_NAME={day:'☀ TAG',dusk:'◐ DÄMMERUNG',night:'☾ NACHT'};
 function buildMissionList(){
   const wrap=document.getElementById('missionlist'); wrap.innerHTML='';
   activeCampaign.forEach((m,i)=>{
@@ -4381,10 +4661,13 @@ function buildMissionList(){
     const reached = i < unlockedCount();      // reached in the story so far
     const done = !!(rec && rec.cleared);
     const card=document.createElement('div');
-    card.className='mcard'+(done?' done':'');
+    const fresh = reached && !done && i===unlockedCount()-1;   // the story frontier
+    card.className='mcard panel-cut t-'+m.type+(done?' done':'')+(fresh?' fresh':'')+(reached?'':' unreached');
     card.innerHTML = `<div class="mnum">MISSION ${i+1}</div>`+
+      (fresh?'<div class="mnew">NEU</div>':'')+
       `<div class="mname">${m.name}</div>`+
       `<span class="mtype ${m.type}">${TYPE_NAME[m.type]||m.type}</span>`+
+      `<span class="mtod ${m.tod||'day'}">${TOD_NAME[m.tod]||TOD_NAME.day}</span>`+
       `<div class="mdesc">${m.objectives.filter(o=>o.primary).map(o=>o.label).join(' · ')}</div>`+
       `<div class="mstars">`+[0,1,2].map(k=>`<span class="${rec&&k<rec.stars?'on':''}">${rec&&k<rec.stars?'★':'☆'}</span>`).join('')+
         (rec?`<span class="mbest">BEST ${rec.bestScore} · ${fmtTime(rec.bestTime)}</span>`:'')+`</div>`+
@@ -4440,6 +4723,97 @@ document.getElementById('restartbtn').onclick=()=>startEndless();  // default; o
 document.getElementById('resumebtn').onclick=()=>resumeGame();
 document.getElementById('tomenubtn').onclick=()=>gotoMenu();
 document.getElementById('pause-menubtn').onclick=()=>{ pauseScreen.classList.add('hidden'); gotoMenu(); };
+
+/* ---------------------------------------------------------------------------
+   15a2. SETTINGS SCREEN (UI track) — graphics quality, voice, subtitles, music.
+   Feature-detects Voice's volume/enable API (added in parallel by the VOICE
+   track) and falls back to the pre-existing V-key toggle when absent.
+   --------------------------------------------------------------------------- */
+const SUBS_KEY='himmelsbrand_subs', MUSICVOL_KEY='himmelsbrand_musicvol';
+let settingsReturn='menu';
+function gfxLabel(l){ return l==='high'?'HOCH': l==='medium'?'MITTEL': l==='low'?'NIEDRIG':l; }
+function subsOn(){ try{ return localStorage.getItem(SUBS_KEY)!=='0'; }catch(e){ return true; } }
+function setSubsOn(on){ try{ localStorage.setItem(SUBS_KEY, on?'1':'0'); }catch(e){} }
+function musicVol(){ try{ const v=localStorage.getItem(MUSICVOL_KEY); return v===null?1:Math.max(0,Math.min(1,parseFloat(v))); }catch(e){ return 1; } }
+// Music volume scales the music bus' un-ducked level (0.62). Audio.duckMusic(false) resets the
+// bus to 0.62 on every menu/mission/resume, so wrap the public duckMusic to re-apply the scale.
+let musicDucked=false;
+function applyMusicGain(){
+  const c=Audio.ctx&&Audio.ctx(), mb=Audio.musicBus&&Audio.musicBus();
+  if(!c||!mb||!mb.gain||musicDucked) return;
+  mb.gain.cancelScheduledValues(c.currentTime); mb.gain.setTargetAtTime(0.62*musicVol(), c.currentTime, 0.12);
+}
+if(typeof Audio.duckMusic==='function'){
+  const _duck=Audio.duckMusic;
+  Audio.duckMusic=function(on){ musicDucked=!!on; const r=_duck.apply(this, arguments); if(!on) applyMusicGain(); return r; };
+}
+function setMusicVol(v){
+  v=Math.max(0,Math.min(1,v));
+  try{ localStorage.setItem(MUSICVOL_KEY, String(v)); }catch(e){}
+  applyMusicGain();
+}
+function voiceIsOn(){
+  if(typeof Voice==='undefined' || !Voice) return false;
+  if(typeof Voice.enabled==='boolean') return Voice.enabled;
+  if(typeof Voice.isOn==='function') return !!Voice.isOn();
+  return true;
+}
+function setVoiceOn(on){
+  if(typeof Voice==='undefined' || !Voice) return;
+  if(typeof Voice.setEnabled==='function'){ Voice.setEnabled(on); }
+  else if(typeof Voice.isOn==='function' && Voice.isOn()!==on && typeof Voice.toggle==='function'){ Voice.toggle(); }
+}
+function renderSettings(){
+  const gfxWrap=document.getElementById('set-gfx'); gfxWrap.innerHTML='';
+  const cur=(typeof GFX!=='undefined')?GFX.quality:'auto';
+  for(const q of ['auto','high','medium','low']){
+    const b=document.createElement('button'); b.className='seg-btn'+(cur===q?' active':''); b.textContent=q==='auto'?'AUTO':gfxLabel(q);
+    b.onclick=()=>{ GFX.set(q); renderSettings(); };
+    gfxWrap.appendChild(b);
+  }
+  const note=document.getElementById('set-gfx-note');
+  note.textContent = (typeof GFX!=='undefined') ? ('AKTIV: '+gfxLabel(GFX.level())) : '';
+
+  const vOn=voiceIsOn();
+  const vt=document.getElementById('set-voice-toggle'); vt.classList.toggle('on', vOn);
+  vt.onclick=()=>{ setVoiceOn(!voiceIsOn()); renderSettings(); };
+  const vv=document.getElementById('set-voice-vol');
+  const hasVol = typeof Voice!=='undefined' && Voice && typeof Voice.getVolume==='function' && typeof Voice.setVolume==='function';
+  vv.disabled=!hasVol;
+  vv.value = hasVol ? Math.round(Voice.getVolume()*100) : 100;
+  vv.oninput=()=>{ if(hasVol) Voice.setVolume(vv.value/100); };
+
+  const st=document.getElementById('set-subs-toggle'); st.classList.toggle('on', subsOn());
+  st.onclick=()=>{ setSubsOn(!subsOn()); applySubsClass(); renderSettings(); };
+
+  const mv=document.getElementById('set-music-vol');
+  mv.value=Math.round(musicVol()*100);
+  mv.oninput=()=>{ setMusicVol(mv.value/100); };
+}
+// From pause the settings panel is a plain overlay swap: showScreen() would drop body.in-game
+// (DOM HUD stays hidden after resume) and Esc would resume with settings still on top.
+const settingsEl=document.getElementById('settings');
+function openSettings(returnTo){
+  settingsReturn=returnTo||'menu'; renderSettings();
+  if(settingsReturn==='pause'){ pauseScreen.classList.add('hidden'); settingsEl.classList.remove('hidden'); }
+  else showScreen('settings');
+}
+function closeSettings(){
+  if(settingsReturn==='pause'){ settingsEl.classList.add('hidden'); if(state==='paused') pauseScreen.classList.remove('hidden'); }
+  else showScreen(settingsReturn);
+}
+// Esc/P inside settings = back (capture phase: runs before the game's pause toggle)
+addEventListener('keydown', e=>{
+  if(settingsEl.classList.contains('hidden') || (e.code!=='Escape' && e.code!=='KeyP')) return;
+  e.stopImmediatePropagation(); closeSettings();
+}, true);
+function applySubsClass(){ document.body.classList.toggle('nosubs', !subsOn()); }
+applySubsClass();
+document.getElementById('btn-settings').onclick=()=>openSettings('menu');
+document.getElementById('pause-settingsbtn').onclick=()=>openSettings('pause');
+document.getElementById('settings-backbtn').onclick=closeSettings;
+// apply persisted music volume once Audio exists (best-effort; harmless if Audio inits later)
+try{ setMusicVol(musicVol()); }catch(e){}
 
 /* ---------------------------------------------------------------------------
    15b. TIME OF DAY — sky/light tint per mission (eyecandy + mood)
@@ -4499,6 +4873,7 @@ let radioHideT=0;
 function radio(line){
   // line: "SPEAKER|text" or "SPEAKER|text|hint" (see parseLine)
   const pl=parseLine(line); const spk=pl.spk, txt=pl.text;
+  dom.radio.dataset.spk = spk || '';   // UI: drives #radio[data-spk] per-speaker styling
   dom.radio.querySelector('.rspk').textContent = spk?('» '+spk+':'):'';
   dom.radio.querySelector('.rtext').textContent = txt;
   dom.radio.classList.add('show'); radioHideT=4.2;
