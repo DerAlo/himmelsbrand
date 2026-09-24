@@ -2820,7 +2820,11 @@ HOOKS.preRender.push((rawDt)=>updateSunGlare(rawDt));
    --------------------------------------------------------------------------- */
 const terrainGroup = new THREE.Group(); scene.add(terrainGroup);
 const chunks = new Map();
-const terrainMat = new THREE.MeshLambertMaterial({ vertexColors:true });
+// Phong, not Lambert: r128's Lambert lights per VERTEX (20 m / 250 m lattice), which is what
+// made every slope read as flat Gouraud facets. Per-pixel lighting lets the bump stage below
+// carve crags and ledges into the light. Specular is white but scaled per land cover
+// (specularStrength): only snow and wet shore really shine, grass keeps a faint sheen.
+const terrainMat = new THREE.MeshPhongMaterial({ vertexColors:true, specular:0xffffff, shininess:18 });
 // Land-cover colour stage (see LAND below): every land pixel is classified in world space
 // (meadow / field parcels / forest / rock / noisy snow line) and multiplied by the material
 // colour, so applyTimeOfDay()'s ground tint keeps working. Vertex colours still carry sea
@@ -2838,6 +2842,7 @@ terrainMat.onBeforeCompile = function(sh){
   sh.uniforms.uFields = { value: LAND.ftex };
   sh.uniforms.uAir = { value: new THREE.Vector4() };               // airfield centre x,z + cos,sin
   sh.uniforms.uAirExt = { value: new THREE.Vector3() };            // half width, half length, on
+  sh.uniforms.uBump = { value: LAND.btex };
   terrainMat.userData.shader = sh;
   const WL = CFG.waterLevel.toFixed(2);
   sh.vertexShader = sh.vertexShader
@@ -2846,9 +2851,18 @@ terrainMat.onBeforeCompile = function(sh){
   sh.fragmentShader = sh.fragmentShader
     .replace('#include <common>',
       '#include <common>\nvarying vec3 vWPosG;\nvarying vec3 vNW;\nuniform float uTime;\nuniform vec3 uCamPos;\nuniform float uDetail;\nuniform float uFar;\nuniform vec3 uSkyTop;\nuniform vec3 uSkyBot;\n' +
-      'uniform sampler2D uNoise;\nuniform sampler2D uFields;\nuniform vec4 uAir;\nuniform vec3 uAirExt;\n')
+      'uniform sampler2D uNoise;\nuniform sampler2D uFields;\nuniform vec4 uAir;\nuniform vec3 uAirExt;\nuniform sampler2D uBump;\n' +
+      // crag gradient, triplanar: a top-down projection alone smears into vertical streaks on cliffs,
+      // so steep faces also sample the side planes (branches skip them on gentle ground)
+      'vec3 cragG(vec3 p, float s, vec3 w){\n' +
+      '  vec2 t = texture2D(uBump, p.xz/s).rg - 0.5; vec3 g = vec3(t.x, 0.0, t.y)*w.y;\n' +
+      '  if(w.x > 0.02){ t = texture2D(uBump, p.zy/s + 0.29).rg - 0.5; g += vec3(0.0, t.y, t.x)*w.x; }\n' +
+      '  if(w.z > 0.02){ t = texture2D(uBump, p.xy/s + 0.57).rg - 0.5; g += vec3(t.x, t.y, 0.0)*w.z; }\n' +
+      '  return g;\n' +
+      '}\n')
     .replace('#include <color_fragment>',
       '#include <color_fragment>\n' +
+      '  float tLand = 0.0, tRock = 0.0, tSnow = 0.0, tForest = 0.0, tAir = 0.0;\n' +
       '  {\n' +
       '    vec2 wp = vWPosG.xz; float h = vWPosG.y;\n' +
       '    float ny = clamp(normalize(vNW).y, 0.0, 1.0);\n' +
@@ -2881,15 +2895,45 @@ terrainMat.onBeforeCompile = function(sh){
       '    albedo = mix(albedo, forestC, forest);\n' +
       // rock on cliffs and above the pasture, horizontal strata; snow only where it can lie
       '    float rockW = max(smoothstep(380.0, 440.0, h + (macro-0.5)*60.0), 1.0 - smoothstep(0.60, 0.76, ny + (nB.g-0.5)*0.12));\n' +
-      '    vec3 rockC = vec3(0.300,0.285,0.265) * (0.93 + 0.07*sin(h*0.11 + nB.b*9.0 + nA.g*6.0)) * (0.78 + 0.44*nB.g);\n' +
+      // rock: cool granite grey vs warm weathered limestone in big patches, darker lichen streaks
+      '    vec3 rockC = mix(vec3(0.285,0.280,0.272), vec3(0.330,0.292,0.240), smoothstep(0.35, 0.75, macro + (nA.g-0.5)*0.5));\n' +
+      '    rockC *= (0.93 + 0.07*sin(h*0.11 + nB.b*9.0 + nA.g*6.0)) * (0.74 + 0.48*nB.g) * (0.86 + 0.14*texture2D(uNoise, vec2(wp.x+wp.y, h*4.0)/310.0).a);\n' +
       '    albedo = mix(albedo, rockC, rockW*(1.0 - forest*0.7));\n' +
-      '    float snowLine = 470.0 + (macro-0.5)*170.0 + (nB.b-0.5)*60.0;\n' +
-      '    float snow = smoothstep(snowLine-15.0, snowLine+25.0, h) * smoothstep(0.50, 0.70, ny + (nB.a-0.5)*0.2);\n' +
+      // snow lies lower on shaded (north-west) faces and thins out on sun-facing ones
+      '    float aspect = dot(normalize(vNW.xz + 1e-4), vec2(-0.78,-0.62)) * (1.0 - ny);\n' +
+      '    float snowLine = 470.0 + (macro-0.5)*170.0 + (nB.b-0.5)*60.0 - aspect*90.0;\n' +
+      '    float snow = smoothstep(snowLine-15.0, snowLine+25.0, h) * smoothstep(0.50, 0.70, ny + (nB.a-0.5)*0.2 + aspect*0.12);\n' +
       '    albedo = mix(albedo, vec3(0.86,0.89,0.95), snow);\n' +
       '    diffuseColor.rgb = mix(diffuseColor.rgb, albedo*diffuse, land);\n' +
+      '    tLand = land; tRock = rockW*(1.0 - forest*0.7)*(1.0 - snow); tSnow = snow; tForest = forest; tAir = air;\n' +
       // close-range grain only (GFX level gated)
       '    float detailFade = uDetail*(1.0 - smoothstep(150.0, 600.0, length(vWPosG - uCamPos)));\n' +
       '    if(detailFade > 0.002) diffuseColor.rgb *= 1.0 + (texture2D(uNoise, wp/61.0 + 0.53).a - 0.5)*0.22*detailFade;\n' +
+      '  }\n')
+    .replace('#include <specularmap_fragment>',
+      '#include <specularmap_fragment>\n' +
+      '  specularStrength = tLand*(0.018 + 0.03*tRock + 0.20*tSnow)*(1.0 - tForest*0.8) + (1.0 - tLand)*0.10;\n')
+    // Procedural normal detail (world space, then back to view space). uBump holds analytic
+    // GRADIENTS of two tileable noise fields, so mipmapping averages them towards a flat normal
+    // with distance by itself: no shimmer, no visible tiling fade. Macro relief (700 m) runs on
+    // medium+high, crags (110 m) and grain (19 m) only on high; the airfield stays flat.
+    .replace('#include <normal_fragment_maps>',
+      '#include <normal_fragment_maps>\n' +
+      '  if(uDetail > 0.01){\n' +
+      '    vec3 nW = normalize(vNW); vec2 wq = vWPosG.xz;\n' +
+      '    float k = uDetail*tLand*(1.0 - tAir);\n' +
+      '    vec2 g2 = (texture2D(uBump, wq/700.0 + 0.13).ba - 0.5)*(0.30 + 0.25*tRock)*k;\n' +
+      '    vec3 g = vec3(g2.x, 0.0, g2.y);\n' +
+      '    if(uDetail > 0.8){\n' +
+      '      vec3 tw = pow(abs(nW), vec3(4.0)); tw /= tw.x + tw.y + tw.z;\n' +
+      '      g += cragG(vWPosG, 110.0, tw)*(0.10 + 0.95*tRock + 0.25*tSnow)*(1.0 - tForest*0.6)*k;\n' +
+      '      g += cragG(vWPosG, 21.0, tw)*(0.06 + 0.40*tRock + 0.10*tSnow)*k;\n' +
+      '    }\n' +
+      // horizontal ledges on cliffs: the strata in the rock colour get a matching normal kick
+      '    float st = cos(vWPosG.y*0.11 + texture2D(uNoise, wq/730.0 + 0.37).b*9.0);\n' +
+      '    vec3 up = vec3(0.0, 1.0, 0.0) - nW*nW.y;\n' +
+      '    nW = normalize(nW - g*2.0 + up*st*0.35*tRock*k*(1.0 - nW.y));\n' +
+      '    normal = normalize((viewMatrix*vec4(nW, 0.0)).xyz);\n' +
       '  }\n')
     .replace('#include <fog_fragment>',
       '#include <fog_fragment>\n' +
@@ -3029,6 +3073,33 @@ function _landTexture(data, N){
   LAND.tex=_landTexture(LAND.data, N);
   LAND.fdata=new Uint8Array(LAND.FN*LAND.FN*4); _landFields(LAND.FN, LAND.fdata);
   LAND.ftex=_landTexture(LAND.fdata, LAND.FN);
+  // bump gradients: RG = ridged crag field, BA = smooth rolling field, each as d/du, d/dv
+  // (quintic value noise, so the derivative has no lattice creases), scaled to fill 8 bit
+  const bd=new Uint8Array(N*N*4);
+  const field=(p0,oct,seed,ridged)=>{
+    const v=new Float32Array(N*N); let amp=1, p=p0;
+    for(let o=0;o<oct;o++, p*=2, amp*=0.5){
+      const lat=new Float32Array(p*p); for(let i=0;i<lat.length;i++) lat[i]=_lhash(i*7919 + seed*104729 + o*15485863);
+      const k=p/N, q=t=>t*t*t*(t*(t*6-15)+10);
+      for(let y=0;y<N;y++){ const fy=y*k, y0=Math.floor(fy), sy=q(fy-y0), r0=(y0%p)*p, r1=((y0+1)%p)*p;
+        for(let x=0;x<N;x++){ const fx=x*k, x0=Math.floor(fx), sx=q(fx-x0), c0=x0%p, c1=(x0+1)%p;
+          const a=lat[r0+c0], b=lat[r0+c1], c=lat[r1+c0], d=lat[r1+c1];
+          let n=(a+(b-a)*sx) + ((c+(d-c)*sx)-(a+(b-a)*sx))*sy;
+          if(ridged){ n=1-Math.abs(2*n-1); n*=n; }
+          v[y*N+x]+=amp*n; } }
+    }
+    return v;
+  };
+  const grad=(v,ch)=>{
+    const gx=new Float32Array(N*N), gy=new Float32Array(N*N); let m=[];
+    for(let y=0;y<N;y++) for(let x=0;x<N;x++){ const i=y*N+x;
+      gx[i]=v[y*N+((x+1)&(N-1))]-v[y*N+((x-1)&(N-1))]; gy[i]=v[((y+1)&(N-1))*N+x]-v[((y-1)&(N-1))*N+x];
+      if((i&7)===0) m.push(Math.abs(gx[i]), Math.abs(gy[i])); }
+    m.sort((a,b)=>a-b); const s=127/Math.max(1e-6, m[Math.floor(m.length*0.985)]);
+    for(let i=0;i<N*N;i++){ bd[i*4+ch]=Math.max(0,Math.min(255,Math.round(128+gx[i]*s))); bd[i*4+ch+1]=Math.max(0,Math.min(255,Math.round(128+gy[i]*s))); }
+  };
+  grad(field(8,5,71,true),0); grad(field(6,5,83,false),2);
+  LAND.btex=_landTexture(bd, N);
 })();
 // bilinear, repeat-wrapped: identical to the GPU's level-0 sample of uNoise at uv=(x,z)/scale+off
 function landTex(ch, x, z, scale, off){
@@ -6608,7 +6679,7 @@ try{ setMusicVol(musicVol()); }catch(e){}
    15b. TIME OF DAY — sky/light tint per mission (eyecandy + mood)
    --------------------------------------------------------------------------- */
 const TOD={
-  day:  { top:0x1f57bd, bot:0xc3e2ff, fog:0xb2cfec, fogDensity:0.000200, cloudBank:0.32, sun:1.70, sunColor:0xfff4e0, amb:0x88aacc, hemi:0.50, sunDir:[0.5,0.55,0.4], sunTint:0xfff2d8, stars:0.0, cloud:0xffffff, cloudShade:0x9fb2c8, cirrusTint:0xffffff, cirrusOp:0.30, water:0x2f6fb0, ground:0xffffff, hemiSky:0xafd4ff,
+  day:  { top:0x1f57bd, bot:0xc3e2ff, fog:0xb2cfec, fogDensity:0.000200, cloudBank:0.32, sun:1.80, sunColor:0xfff4e0, amb:0x88aacc, hemi:0.62, sunDir:[0.5,0.55,0.4], sunTint:0xfff2d8, stars:0.0, cloud:0xffffff, cloudShade:0x9fb2c8, cirrusTint:0xffffff, cirrusOp:0.30, water:0x2f6fb0, ground:0xffffff, hemiSky:0xafd4ff,
           haze:0.72, mie:0.55, scat:0.26, moon:0, spriteOp:1.0, glare:0.55, grade:{ sat:1.08, vig:0.14, exp:1.02, lift:0x0b1220, warm:0x231708 } },
   dusk: { top:0x121f52, bot:0xff8f4a, fog:0xb07a52, fogDensity:0.000240, cloudBank:0.48, sun:1.35, sunColor:0xffb488, amb:0x5a4a6a, hemi:0.38, sunDir:[0.86,0.16,0.35], sunTint:0xff9a55, stars:0.10, cloud:0xffb27a, cloudShade:0x6a4f66, cirrusTint:0xffc79a, cirrusOp:0.26, water:0x3c4f74, ground:0xb98f74, hemiSky:0xff9e6a,
           haze:0.85, mie:1.0, scat:0.50, moon:0, spriteOp:1.0, glare:0.90, grade:{ sat:1.12, vig:0.22, exp:1.00, lift:0x1c1030, warm:0x3a1a06 } },
