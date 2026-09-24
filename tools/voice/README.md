@@ -82,8 +82,15 @@ Volle Begründung, Metriken (WER/CER/MOS/Sprecherähnlichkeit) und Vergleichstab
 Siehe `tools/voice/make_refs.py` (reproduzierbarer Fetch/Build) und `report/bakeoff.md` fürs Detail.
 Kurzfassung:
 
+- `refs/librivox/*.wav` — echte menschliche Aufnahmen, 9–11 s aus **gemeinfreien** LibriVox-Lesungen
+  (archive.org, Lizenz „Public Domain"). Eine eigene Stimme pro männlicher Hauptfigur — vorher klonten
+  WAGNER, SEPP und KELLER alle `thorsten_disgusted.wav` und klangen wie ein Mann (ECAPA-Ähnlichkeit
+  0,92–0,95, F0 ~180 Hz statt Bariton/Bass). Auswahl: 110 Ausschnitte von 57 deutschen LibriVox-Lesern
+  gescannt (UTMOS, SNR, F0, Sprechtempo, Sprecher-Embedding), Top-Kandidaten pro Rolle probegebacken.
+  Datei, Startzeit und Länge stehen in `make_refs.py` (`LIBRIVOX_REFS`) → bytegenauer Neubau.
 - `refs/thorsten/*.wav` — echte menschliche Aufnahmen aus dem **CC0**-Datensatz
-  `Thorsten-Voice/TV-44kHz-Full` (Subset `TV-2021.06-Emotional`) auf HuggingFace.
+  `Thorsten-Voice/TV-44kHz-Full` (Subset `TV-2021.06-Emotional`) auf HuggingFace. Nur noch für `?`
+  (Flüster-Ref) und den Archetyp `boss_pilot_m`; HELIOS/STIMME sind Pipers `thorsten-high`.
 - `refs/piper/*.wav` — selbst generiert, indem Piper-Stimmen (`rhasspy/piper-voices`, Code MIT)
   einen kurzen Satz vorlesen. **Achtung, die Stimmen selbst haben die Lizenz ihres Trainingsdatensatzes**
   (laut MODEL_CARD der jeweiligen Stimme, geprüft im Review):
@@ -96,6 +103,34 @@ Kurzfassung:
     „Sprachreferenzen: M-AILABS Speech Dataset (Imdat Solak / caito.de), Thorsten-Voice (CC0), Kerstin (CC0)“ —
     oder, falls strikt CC0 gewünscht, LÄRCHE/WIGGERL/NARRATOR auf `kerstin`/`thorsten_*`-Referenzen umcasten
     und neu backen (`--speakers LÄRCHE,WIGGERL,NARRATOR --force`).
+
+## Credits / Lizenzen
+
+Alle Stimmen sind synthetisch (offline gebacken); die Referenzen liefern nur die Klangfarbe. Kein Leser
+spielt sich selbst, keine Figur ist einer echten Person nachempfunden.
+
+**Text zum Kopieren (Credits-Panel im Spiel):**
+
+> Sprachausgabe erzeugt mit Chatterbox Multilingual (Resemble AI, MIT-Lizenz) und Piper (MIT-Lizenz).
+> Stimmreferenzen: die LibriVox-Leser FritzSavira, marham63, Christian Al-Kadi, Boris und Carsten
+> (gemeinfreie Aufnahmen, librivox.org); Thorsten-Voice von Thorsten Müller (CC0); Kerstin (CC0);
+> M-AILABS Speech Dataset (Imdat Solak / caito.de). Danke an alle LibriVox-Freiwilligen!
+
+| Figur | Referenz | Quelle | Leser / Sprecher | Lizenz |
+|---|---|---|---|---|
+| WAGNER | `refs/librivox/fritzsavira.wav` (ab 128,12 s, 9,46 s) | [Andersens Märchen Ergänzungsband – „Die Dryade 2"](https://archive.org/details/andersensmarchenerganzungsband_2404_librivox) | [FritzSavira](https://librivox.org/reader/10325) | gemeinfrei (Public Domain) |
+| SEPP | `refs/librivox/marham63.wav` (ab 240,98 s, 9,68 s) | [Max Liebermann: Gesammelte Schriften – „Zwei Holzschnitte von Manet"](https://archive.org/details/schriften_liebermann_1811_librivox) | [marham63](https://librivox.org/reader/12415) | gemeinfrei |
+| KELLER | `refs/librivox/alkadi.wav` (ab 93,90 s, 10,84 s) | [Karl May: Sammlung kurzer Werke – „Der Ölprinz"](https://archive.org/details/sammlung_karl_may_1010_librivox) | [Christian Al-Kadi](https://librivox.org/reader/3503) | gemeinfrei |
+| Archetyp `officer_m` (unbekannte Sprecher) | `refs/librivox/boris.wav` (ab 48,36 s, 9,72 s) | [Cervantes: Don Quixote, Band 1 – Abschnitt 17](https://archive.org/details/don_quixote_band_1_1805_librivox) | [Boris](https://librivox.org/reader/5753) | gemeinfrei |
+| Archetyp `old_bavarian_m` | `refs/librivox/carsten.wav` (ab 148,36 s, 11,18 s) | [Sammlung kurzer deutscher Prosa 060 – „Der gelbe Kater"](https://archive.org/details/sammlung_kurzer_deutscher_prosa_060_2311_librivox) | [Carsten](https://librivox.org/reader/19039) | gemeinfrei |
+| HELIOS, STIMME | Piper `de_DE-thorsten-high` | [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) | Thorsten Müller ([Thorsten-Voice](https://www.thorsten-voice.de)) | CC0 |
+| `?`, Archetyp `boss_pilot_m` | `refs/thorsten/*.wav` | [Thorsten-Voice/TV-44kHz-Full](https://huggingface.co/datasets/Thorsten-Voice/TV-44kHz-Full) | Thorsten Müller | CC0 |
+| KIEBITZ | `refs/piper/kerstin.wav` | Piper `de_DE-kerstin-low` ([Datensatz](https://huggingface.co/datasets/rhasspy/dataset-voice-kerstin)) | Kerstin | CC0 |
+| LÄRCHE, WIGGERL, NARRATOR | `refs/piper/eva_k.wav`, `karlsson.wav`, `ramona.wav` | Piper `eva_k`/`karlsson`/`ramona` | [M-AILABS Speech Dataset](https://www.caito.de/2019/01/03/the-m-ailabs-speech-dataset/) (Imdat Solak) | BSD-artig, Namensnennung |
+
+Engines: [Chatterbox](https://github.com/resemble-ai/chatterbox) (MIT), [Piper](https://github.com/rhasspy/piper) (MIT).
+LibriVox-Aufnahmen sind gemeinfrei („All LibriVox recordings are in the public domain"); die Nennung
+ist freiwillig, aber fair.
 
 ## Casting (`casting.json`)
 
@@ -134,8 +169,9 @@ Stimmen von `rhasspy/piper-voices` auf HuggingFace). `-Only eval,qwen,f5` baut z
 Venvs, die nur für die Bake-off-Exploration in `report/bakeoff.md` gebraucht wurden — für einen
 normalen Re-Bake nicht nötig.
 
-`tools/voice/make_refs.py` holt danach den CC0-Datensatz und generiert die Piper-Referenzen (siehe
-oben); beides ist idempotent (`--force` zum Neubauen).
+`tools/voice/make_refs.py` holt danach den CC0-Datensatz, schneidet die LibriVox-Referenzen (curl +
+ffmpeg) und generiert die Piper-Referenzen (siehe oben); alles idempotent (`--force` zum Neubauen,
+`--only thorsten|piper|librivox` für eine Gruppe).
 
 ## Dateien in diesem Ordner
 
