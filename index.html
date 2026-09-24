@@ -63,7 +63,7 @@
   #wavebanner.on { transform:translateY(0) scale(1); }
   #subbanner { font-size:19px; color:#e8f0fa; margin-top:6px; opacity:0; transition:opacity .4s; letter-spacing:1.5px;}
 
-  #killfeed { position:fixed; right:22px; top:120px; z-index:6; text-align:right; }
+  #killfeed { position:fixed; right:22px; top:330px; z-index:6; text-align:right; max-width:40vw; }   /* top re-anchored under #stat-right by killMsg */
   .kill { color:var(--gold); font-family:var(--font-display); font-size:15px; font-weight:700; opacity:0; animation:killpop 2.2s ease forwards; text-shadow:0 0 8px rgba(0,0,0,.9);}
   @keyframes killpop { 0%{opacity:0; transform:translateX(20px);} 12%{opacity:1; transform:translateX(0);} 75%{opacity:1;} 100%{opacity:0;} }
 
@@ -5598,7 +5598,8 @@ function toggleWeapon(){
   player.weapon=avail[(i+1)%avail.length];
   updateWeaponHUD();
 }
-function killMsg(txt){ const d=document.createElement('div'); d.className='kill'; d.textContent=txt; dom.killfeed.appendChild(d); setTimeout(()=>d.remove(),2300); }
+function killMsg(txt){ const sr=document.getElementById('stat-right').getBoundingClientRect(); if(sr.height) dom.killfeed.style.top=Math.round(sr.bottom+12)+'px';
+  const d=document.createElement('div'); d.className='kill'; d.textContent=txt; dom.killfeed.appendChild(d); setTimeout(()=>d.remove(),2300); }
 function fmtTime(s){ s=Math.max(0,Math.round(s)); const m=(s/60)|0; const r=s%60; return m+':'+(r<10?'0':'')+r; }
 function banner(main, sub){
   dom.wavebanner.textContent=main; dom.subbanner.textContent=sub||'';
