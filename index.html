@@ -6217,7 +6217,7 @@ function gameOver(victory){
       persistSave();
       const hasNext = mission.index < activeCampaign.length-1;
       // every win line as speaker + text: they keep playing over the debrief, where the #radio subtitle is hidden
-      const winLine = (def.win||[]).map(l=>parseLine(l)).filter(p=>p.text).map(p=>`<div class="debrief-line">${p.spk?`<span class="dl-spk">${p.spk}</span>`:''}${p.text}</div>`).join('');
+      const winLine = winLinesFor(def).map(l=>parseLine(l)).filter(p=>p.text).map(p=>`<div class="debrief-line">${p.spk?`<span class="dl-spk">${p.spk}</span>`:''}${p.text}</div>`).join('');
       const starRow = `<div class="debrief-stars">`+[0,1,2].map(k=>`<span class="${k<res.stars?'on':''}">${k<res.stars?'★':'☆'}</span>`).join('')+`</div>`;
       const unlockNote = campaignId!=='helios' ? '' :
                        ((!wasAce&&SAVE.unlocks.ace?'<div class="unlock-note">FREIGESCHALTET: ASS-MODUS (Endlos)</div>':'')
@@ -6563,6 +6563,17 @@ function updateRadio(dt){
   // legacy no-op: Voice paces + shows/hides subtitles itself via HOOKS.always (real time,
   // works in menu/pause/cutscene too). Kept so the call site in 15d needs no foreign edit.
 }
+// Touchdown call-outs stay quiet when this landing completes the mission: win[] speaks instead
+// (m0 would otherwise say "Willkommen daheim" twice, or "Techniker werden fluchen" then "nichts zu meckern").
+function landCompletesMission(){
+  if(gameMode!=='campaign' || !mission.active || mission.done) return false;
+  const P=mission.objectives.filter(o=>o.primary);
+  return P.some(o=>o.kind==='land' && !o.done) && P.every(o=>o.done || o.kind==='land');
+}
+function landRadio(line){ if(!landCompletesMission()) radio(line); }
+// win[] lines that praise the landing are dropped after a hard one
+const WIN_SOFT_ONLY=/nichts zu meckern/;
+function winLinesFor(def){ const w=(def&&def.win)||[]; return mission.landHard ? w.filter(l=>!WIN_SOFT_ONLY.test(l)) : w; }
 function renderObjectives(){
   if(!mission.active){ dom.objectives.innerHTML=''; return; }
   dom.objectives.innerHTML = mission.objectives.map(o=>{
@@ -6720,7 +6731,7 @@ function checkMissionComplete(){
   if(primaries.every(o=>o.done)){
     mission.done=true; mission.active=false; winLocked=true;   // win committed — leftover fire can't turn this into a loss
     banner(campaignId==='bteam'?'PACKMA\'S GHABT! 🍺':'MISSION ERFÜLLT', mission.def.name.toUpperCase());
-    queueRadioNow(mission.def.win);
+    queueRadioNow(winLinesFor(mission.def));
     player.alive=true;
     const wonIndex=mission.index;
     clearVictoryTimer();
@@ -8442,10 +8453,10 @@ function landingTouchdown(fwd, wheelClear, onStrip, groundY){
   EV.emit('touchdown',{vs:sink, rating: hard?'hart':(soft?'butterweich':'sauber')});
   if(hard){ player.hp=Math.max(1,player.hp-18); shake=Math.max(shake,0.8); damageFlash=Math.max(damageFlash,0.6); Audio.hitTaken();
     banner('HARTE LANDUNG', !onStrip?'Neben der Piste aufgesetzt':(noseFirst?'Bugrad zuerst — Struktur beschädigt':'Struktur beschädigt — aber unten'));
-    radio(bt ? ((player.hero==='wiggerl')?'WIGGERL|Tschuldigung, Resi. Des war ned so gmeint.':'SEPP|Des war ned hart. Des war bodenständig.')
+    landRadio(bt ? ((player.hero==='wiggerl')?'WIGGERL|Tschuldigung, Resi. Des war ned so gmeint.':'SEPP|Des war ned hart. Des war bodenständig.')
              : (Math.random()<0.5?'KIEBITZ|Hart, aber ganz. Die Techniker werden fluchen.':'KIEBITZ|Das hat gerummst. Alles dran?')); }
   else { shake=Math.max(shake, soft?0.06:0.18); banner('AUFGESETZT', soft?'Butterweich, Geier':'Saubere Landung, Geier');
-    radio(bt ? 'KIEBITZ|Aufgesetzt. Ich sag\'s ungern: Das war ordentlich.'
+    landRadio(bt ? 'KIEBITZ|Aufgesetzt. Ich sag\'s ungern: Das war ordentlich.'
              : (soft ? 'KIEBITZ|Butterweich. Das schreib ich mir auf.' : 'KIEBITZ|Aufgesetzt. Willkommen daheim, Geier.|warm')); }
   tyreScreech(THREE.MathUtils.clamp(0.3+sink/CFG.touchHard,0,1));
   // tyre smoke from the main wheels (or the nose wheel), streaming back
