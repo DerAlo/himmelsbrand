@@ -7839,10 +7839,15 @@ function fireMid(m, o){
   mission._midFired.add(m);
   lastBarkT=nowS();                               // scripted lines push the flavor barks back
   if(m.delay){
-    const gen=missionGen;
-    const h=setTimeout(()=>{ _midTimers=_midTimers.filter(x=>x!==h);
-      if(gen!==missionGen || !mission.active || mission.done || state!=='playing') return; sayMid(m.line, o); }, m.delay*1000);
-    _midTimers.push(h);
+    // pause-aware delay: mission time (pause subtracted); a timer landing in the pause re-arms instead of dropping the line
+    const gen=missionGen, eff=()=>performance.now()-(mission.pausedMs||0), due=eff()+m.delay*1000;
+    const arm=(ms)=>{ const h=setTimeout(()=>{ _midTimers=_midTimers.filter(x=>x!==h); step(); }, ms); _midTimers.push(h); };
+    const step=()=>{
+      if(gen!==missionGen || !mission.active || mission.done) return;
+      if(state==='paused'){ arm(250); return; }
+      const r=due-eff(); if(r>20){ arm(r); return; }
+      if(state!=='playing') return; sayMid(m.line, o); };
+    arm(m.delay*1000);
   } else sayMid(m.line, o);
 }
 // All mid[] events need a running, undecided mission. A win sets mission.active=false, so nothing
