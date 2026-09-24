@@ -517,7 +517,9 @@ function runHooks(list, a, b){ for(let i=list.length-1;i>=0;i--){ try{ list[i](a
 // Gameplay event bus: barks, voice, stats or FX can LISTEN without editing the gameplay code.
 //   EV.on(name, fn)   EV.emit(name, data)     (a throwing listener is logged, the others still run)
 // Emitted today: 'kill' {e, combo, ace}  'groundKill' {gt}  'playerHit' {dmg, src:'gun'|'missile'}
-//   'missileWarn' {e}  'lock' {target}  'allyHit' {dmg, hp}  'missionEnd' {victory}. Add new emits freely.
+//   'missileWarn' {e}  'lock' {target}  'allyHit' {dmg, hp}  'missionEnd' {victory}.
+//   'bossSpawn' {kind,name}  'bossPart' {kind,left}  'bossPhase' {kind,phase}  'bossExposed' {kind,open}
+//   'bossHp' {kind,frac: 0.75|0.5|0.25, each once, descending}  'bossKilled' {kind}. Add new emits freely.
 const EV = (function(){ const L={}; return { on(n,f){ (L[n]=L[n]||[]).push(f); }, emit(n,d){ const l=L[n]; if(!l) return; for(const f of l){ try{ f(d||{}); }catch(e){ console.error('EV '+n, e); } } } }; })();
 
 // Spoken/radio line format: 'SPEAKER|text' or 'SPEAKER|text|hint' (hint = delivery for the TTS bake,
@@ -3881,7 +3883,7 @@ function destroyGround(gt){
   scene.remove(gt.obj); disposeTree(gt.obj);
   if(gt.bossPart && boss){
     const left=boss.parts.filter(p=>!p.dead).length;
-    if(left>0) radio('WAGNER|'+(boss.kind==='auge'?'Pylon':'Turm')+' zerstört — '+left+' übrig.');
+    EV.emit('bossPart', {kind:boss.kind, left});
     updateBossBar();
     checkBossExpose();   // expose core immediately if that was the last part
   }
@@ -5027,6 +5029,7 @@ function applyTimeOfDay(tod){
    15c. RADIO (comms subtitles) + OBJECTIVE HUD
    --------------------------------------------------------------------------- */
 let radioHideT=0;
+let lastRadioT=-99;   // BOSSES: last time ANY radio line fired (menuTime clock) — used to silence boss callouts near other lines
 function radio(line){
   // line: "SPEAKER|text" or "SPEAKER|text|hint" (see parseLine)
   const pl=parseLine(line); const spk=pl.spk, txt=pl.text;
@@ -5034,6 +5037,7 @@ function radio(line){
   dom.radio.querySelector('.rspk').textContent = spk?('» '+spk+':'):'';
   dom.radio.querySelector('.rtext').textContent = txt;
   dom.radio.classList.add('show'); radioHideT=4.2;
+  lastRadioT=menuTime;   // BOSSES: callout dedup reads this to silence itself near other radio lines
   if(spk==='HELIOS') Audio.warnBeep(); else Audio.reload();
   Voice.speak(spk, txt);   // spoken radio line (toggle with V)
 }
@@ -5372,132 +5376,688 @@ function fireAllyBullet(pos, dir, target){
 }
 
 /* ---------------------------------------------------------------------------
-   15e. BOSSES — KRONOS (carrier) and DAS AUGE (finale)
+   15e. BOSSES — shared boss framework (contract in story_bible.md §3/§4)
    --------------------------------------------------------------------------- */
 let boss=null;
-function clearBoss(){ if(boss){ scene.remove(boss.obj); disposeTree(boss.obj); boss=null; } dom.bosswrap.classList.remove('show'); }
+let fallingPlates=[];   // detached FEUERTRÄGER armor plates (own physics, own 5s cleanup)
+let escapePod=null;     // FEUERTRÄGER death-sequence escape pod (own 12s cleanup)
+
+const BOSS_FALLBACK_NAME = {
+  kronos:'KRONOS · DROHNENWERFT',
+  auge:'DAS AUGE · HELIOS-KERN',
+  prometheus:'PROMETHEUS · KERN IM SCHWARZKAR',
+  feuertraeger:'FEUERTRÄGER · KELLERS FESTUNG',
+  himmelszelt:'HIMMELSZELT · FLIEGENDE FESTUNG'
+};
+const BOSS_BY_MISSION = { m12:'prometheus', m13:'feuertraeger', b6:'himmelszelt' };
+
+// scratch vectors (kept private to this section to avoid touching other tracks' scratch vars)
+const _bossMslWP=new THREE.Vector3();
+const _blcWP=new THREE.Vector3(), _blcFwd=new THREE.Vector3(), _blcRel=new THREE.Vector3();
+const _bdWP=new THREE.Vector3();
+
+function clearBoss(){
+  if(boss){ scene.remove(boss.obj); disposeTree(boss.obj); boss=null; }
+  dom.bosswrap.classList.remove('show');
+}
+HOOKS.reset.push(()=>{
+  for(const r of fallingPlates){ scene.remove(r.mesh); r.mesh.geometry.dispose(); r.mesh.material.dispose(); }
+  fallingPlates.length=0;
+  if(escapePod){ scene.remove(escapePod); escapePod.geometry.dispose(); escapePod.material.dispose(); escapePod=null; }
+});
+HOOKS.always.push((dt)=>{
+  for(let i=fallingPlates.length-1;i>=0;i--){
+    const r=fallingPlates[i]; r.vel.y-=200*dt; r.mesh.position.addScaledVector(r.vel,dt);
+    r.mesh.rotation.x+=r.av.x*dt; r.mesh.rotation.y+=r.av.y*dt; r.mesh.rotation.z+=r.av.z*dt;
+    if(Math.random()<0.5) smokeP.spawn(r.mesh.position.x,r.mesh.position.y,r.mesh.position.z,0,10,0,0.8,6,40,C_SOOT,C_SMOKE,0.94,-3);
+  }
+});
+
+// --- callout dedup: ≤2× per mission per attack key, 12s cooldown, silenced within 2.5s of any other radio() line
+function bossCall(b, key, line){
+  if(!b) return false;
+  b.callCount[key]=b.callCount[key]||0;
+  if(b.callCount[key]>=2) return false;
+  if((b.callCd[key]||0)>0) return false;
+  if(menuTime-lastRadioT<2.5) return false;
+  b.callCount[key]++; b.callCd[key]=12;
+  radio(line);
+  return true;
+}
+function updateBossCallCd(b,dt){ for(const k in b.callCd) b.callCd[k]=Math.max(0,b.callCd[k]-dt); }
+
+function bossHitPlayer(dmg){
+  if(!player.alive) return;
+  player.hp-=dmg; shake=Math.max(shake,0.6); damageFlash=Math.max(damageFlash,0.5); Audio.hitTaken();
+  EV.emit('playerHit',{dmg, src:'boss'});
+  if(player.hp<=0 && !winLocked){ player.alive=false; gameOver(false); }
+}
+
+// FEUERTRÄGER lock-proxy: lets A2A missiles guide onto the exposed core (bible §3.4).
+function bossLockCandidate(){
+  if(!boss || boss.dead || !boss.lockable || !boss.exposed) return null;
+  boss.core.getWorldPosition(_blcWP);
+  _blcFwd.set(0,0,-1).applyQuaternion(player.obj.quaternion);
+  _blcRel.copy(_blcWP).sub(player.obj.position);
+  const dist=_blcRel.length(); if(dist>3500) return null;
+  _blcRel.normalize();
+  if(_blcFwd.dot(_blcRel)<0.9) return null;
+  return boss.core;
+}
+
+// --- boss telegraph audio (built fresh on Audio.ctx()/Audio.out() — blip()/noiseBurst() are private to the Audio IIFE)
+function bossTone(f0,f1,dur,type){
+  const ctx=Audio.ctx(); if(!ctx) return;
+  const t=ctx.currentTime, o=ctx.createOscillator(), g=ctx.createGain();
+  o.type=type||'sine'; o.frequency.setValueAtTime(Math.max(1,f0),t);
+  if(f1 && f1!==f0) o.frequency.exponentialRampToValueAtTime(Math.max(1,f1), t+dur);
+  g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.18,t+0.05); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  o.connect(g); g.connect(Audio.out()); o.start(t); o.stop(t+dur+0.02);
+}
+function bossKlaxon(dur){
+  const n=Math.max(1,Math.floor(dur/0.35));
+  for(let i=0;i<n;i++) setTimeout(()=>bossTone(i%2?220:180,null,0.28,'square'), i*350);
+}
+
 function spawnBoss(kind, finale){
+  const missionKind = (mission && mission.def && BOSS_BY_MISSION[mission.def.id]) || kind;
   const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(player.obj.quaternion);
   const bx=player.obj.position.x+fwd.x*3800, bz=player.obj.position.z+fwd.z*3800;
-  if(kind==='kronos') boss=buildKronos(bx,bz);
+  if(missionKind==='kronos') boss=buildKronos(bx,bz);
+  else if(missionKind==='prometheus') boss=buildPrometheus(bx,bz);
+  else if(missionKind==='feuertraeger') boss=buildFeuertraeger(bx,bz);
+  else if(missionKind==='himmelszelt') boss=buildHimmelszelt(bx,bz);
   else boss=buildAuge(bx,bz);
-  if(finale){ boss.hp=Math.round(boss.hp*1.25); boss.maxhp=boss.hp; boss.finale=true; }  // choice-point / finale climax: tougher core + bigger death
+  if(mission && mission.def && mission.def.bossName) boss.name=mission.def.bossName;
+  // finale/choicePoint multiplier: only the two ORIGINAL kinds get it — new kinds already carry final HP
+  if(finale && (boss.kind==='kronos'||boss.kind==='auge')){ boss.hp=Math.round(boss.hp*1.25); boss.maxhp=boss.hp; }
+  boss.finale=!!finale;
+  boss.lockable=!!boss.lockable;
+  boss.hpDone={}; boss.callCount={}; boss.callCd={}; boss.quietUntil=0;
   scene.add(boss.obj);
   dom.bosswrap.classList.add('show');
-  dom.bosswrap.querySelector('.bname').textContent=boss.name;
+  EV.emit('bossSpawn', {kind:boss.kind, name:boss.name});
   updateBossBar();
 }
+
+function checkBossExpose(){
+  if(!boss || boss.dead || boss.phase>=2) return;
+  if(boss.parts.filter(p=>!p.dead).length>0) return;
+  boss.phase=2; EV.emit('bossPhase',{kind:boss.kind,phase:2}); boss.quietUntil=menuTime+5;
+  // FEUERTRÄGER manages its own exposed toggling (chamber open/close) — everyone else opens once, for good.
+  if(boss.kind!=='feuertraeger'){
+    boss.exposed=true; EV.emit('bossExposed',{kind:boss.kind,open:true});
+  }
+  if(boss.onExposeOpen) boss.onExposeOpen();
+  updateBossBar();
+}
+
+function emitBossHpThresholds(){
+  const b=boss; if(!b) return;
+  const frac=Math.max(0,b.hp/b.maxhp);
+  for(const s of [0.75,0.5,0.25]){
+    if(frac<=s && !b.hpDone[s]){
+      b.hpDone[s]=true;
+      EV.emit('bossHp',{kind:b.kind, frac:s});
+      if(s===0.25 && b.phase<3){
+        b.phase=3;
+        EV.emit('bossPhase',{kind:b.kind,phase:3});   // same frame as the 0.25 bossHp, per contract
+        b.quietUntil=menuTime+5;
+        if(b.onPhase3) b.onPhase3();
+      }
+    }
+  }
+}
+
+function damageBoss(dmg){
+  if(!boss || !boss.exposed || boss.dead) return;
+  const mul = boss.dmgMul ? boss.dmgMul() : 1;
+  boss.hp -= dmg*mul;
+  (boss.core||boss.eye).getWorldPosition(_bdWP);
+  fireP.spawn(_bdWP.x,_bdWP.y,_bdWP.z, (Math.random()-0.5)*60,30,(Math.random()-0.5)*60,0.3,14,3,C_WHITE,C_ORANGE,0.9,0);
+  updateBossBar();
+  emitBossHpThresholds();
+  if(boss.hp<=0) killBoss();
+}
+
+function chainExplosions(pos,n,spreadX,spreadY,spreadZ){
+  for(let i=0;i<n;i++){ setTimeout(()=>{ if(!boss) return; groundExplode(pos.x+(Math.random()-0.5)*spreadX, pos.y+spreadY*0.5+Math.random()*spreadY, pos.z+(Math.random()-0.5)*spreadZ, 2.2); }, i*160); }
+}
+
+function killKronosLike(){
+  const b=boss, p=b.obj.position.clone();
+  slowmo=SLOWMO_DUR; shake=Math.max(shake,1.3); markHit(true,false);
+  spawnDebris(p.x,p.y+20,p.z,24,2.2,true);
+  chainExplosions(p, b.finale?16:10, 120,40,180);
+  b.deathUpdate=(dt)=>{ b.obj.position.y-=dt*(60/1.8); b.obj.rotation.z-=dt*(25*Math.PI/180/1.8); };
+  if(b.kind==='himmelszelt' && b.streamers){
+    for(const s of b.streamers){
+      s.userData.vel=new THREE.Vector3((Math.random()-0.5)*30, 20+Math.random()*20, (Math.random()-0.5)*30);
+      fallingPlates.push({mesh:s, vel:s.userData.vel, av:new THREE.Vector3((Math.random()-0.5)*4,(Math.random()-0.5)*4,(Math.random()-0.5)*4)});
+    }
+    b.obj.remove(...b.streamers);
+    for(const s of b.streamers) scene.add(s);
+    b.streamers=[];
+  }
+  setTimeout(()=>{ if(boss===b) clearBoss(); },1800);   // identity check: a new boss may already have spawned by then
+}
+function killAuge(){
+  const b=boss, p=b.obj.position.clone();
+  slowmo=SLOWMO_DUR; shake=Math.max(shake,1.0);
+  const startEmissive=b.eye.material.emissiveIntensity;
+  b.deathUpdate=(dt)=>{
+    b.dimT=(b.dimT||0)+dt;
+    const f=Math.max(0,1-b.dimT/1.5);
+    b.eye.material.emissiveIntensity=startEmissive*f;
+    b.glow.material.opacity=f;
+  };
+  setTimeout(()=>{
+    if(boss!==b) return;   // a reset/new mission already replaced this boss — don't touch it
+    markHit(true,false);
+    spawnDebris(p.x,p.y+20,p.z,24,2.2,true);
+    chainExplosions(p, b.finale?16:10, 120,40,180);
+    b.deathUpdate=null;
+    setTimeout(()=>{ if(boss===b) clearBoss(); },1800);
+  }, 1500);
+}
+function killPrometheus(){
+  const b=boss;
+  slowmo=0.6; shake=Math.max(shake,0.6);
+  const wp=new THREE.Vector3(); b.core.getWorldPosition(wp);
+  spawnFlare(wp.x,wp.y,wp.z,90,0xffffff,0.3); flashLight(wp.x,wp.y,wp.z,0xffffff,10,400,0.3);
+  b.lamTarget=1;
+  dom.bosswrap.classList.remove('show');
+  b.deathUpdate=(dt)=>{
+    b.lamOpen += (1-b.lamOpen)*Math.min(1,dt*2);
+    const ang=b.lamOpen*(70*Math.PI/180);
+    for(const piv of b.lamellae) piv.children[0].rotation.x=ang;
+    b.flickerCd=(b.flickerCd||0)-dt;
+    if(b.flickerCd<=0){ b.flickerCd=0.1+Math.random()*0.3; b.core.material.emissiveIntensity=0.2+Math.random()*0.4; b.core.material.color.setHex(0x224466); }
+  };
+  // no clearBoss timeout: the model stands until mission end / reset (bible §3.3 Tod)
+}
+function killFeuertraeger(){
+  const b=boss, p=b.obj.position.clone();
+  slowmo=SLOWMO_DUR; shake=Math.max(shake,1.3); markHit(true,false);
+  const bridgeWP=b.obj.localToWorld(new THREE.Vector3(0,14,110));
+  const pod=new THREE.Mesh(new THREE.SphereGeometry(3,10,8), new THREE.MeshBasicMaterial({color:0xdfffe0,transparent:true}));
+  pod.position.copy(bridgeWP); scene.add(pod); escapePod=pod;
+  const podV={vel:new THREE.Vector3(0,40,0), t:0};
+  chainExplosions(p, 16, 200,60,300);
+  b.deathUpdate=(dt)=>{
+    podV.t+=dt;
+    if(podV.t>2) podV.vel.y=-6;
+    pod.position.addScaledVector(podV.vel,dt);
+    pod.material.opacity=(Math.sin(menuTime*Math.PI*4)>0)?1:0.3;
+    if(podV.t>1 && !b.wingBroken) b.wingBroken=true;
+    if(b.wingBroken){
+      b.wingL.rotation.z=Math.max(-25*Math.PI/180,(b.wingL.rotation.z||0)-dt*0.5);
+      b.wingL.rotation.x=Math.min(10*Math.PI/180,(b.wingL.rotation.x||0)+dt*0.2);
+      b.wingR.rotation.z=Math.min(25*Math.PI/180,(b.wingR.rotation.z||0)+dt*0.5);
+      b.wingR.rotation.x=Math.max(-10*Math.PI/180,(b.wingR.rotation.x||0)-dt*0.2);
+      b.obj.position.y-=dt*40;
+      for(const n of b.nacelles) smokeP.spawn(b.obj.position.x+n.glow.position.x, b.obj.position.y, b.obj.position.z+n.glow.position.z, 0,10,0,1,10,60,C_SOOT,C_DARK,0.94,4);
+    }
+  };
+  setTimeout(()=>{ if(escapePod===pod){ scene.remove(pod); pod.geometry.dispose(); pod.material.dispose(); escapePod=null; } },12000);
+  setTimeout(()=>{ if(boss===b) clearBoss(); },4000);
+}
+function killBoss(){
+  if(!boss || boss.dead) return;
+  boss.dead=true; boss.exposed=false;
+  EV.emit('bossKilled', {kind:boss.kind});   // emitted at the START of the death sequence so STORY can speak over it
+  onBossDestroyed();
+  if(boss.kind==='prometheus') killPrometheus();
+  else if(boss.kind==='auge') killAuge();
+  else if(boss.kind==='feuertraeger') killFeuertraeger();
+  else killKronosLike();
+}
+
+function bossPhaseLabel(){
+  const b=boss; const left=b.parts.filter(p=>!p.dead).length;
+  if(b.kind==='kronos') return left>0 ? `${left} × TURM BRECHEN, DANN DER BAUCH` : '① BAUCH OFFEN — KERN VERSENKEN';
+  if(b.kind==='auge'){
+    if(left>0) return `${left} × MAST BRECHEN (Blende)`;
+    return b.phase>=3 ? '① ES SCHIESST NICHT MEHR' : '① BLENDE OFFEN — VERSENKEN';
+  }
+  if(b.kind==='prometheus'){
+    if(left>0) return `${left} × PYLON BRECHEN (Käfig)`;
+    return (b.lamOpen>0.5) ? '① LAMELLEN OFFEN — FEUER' : 'LAMELLEN ZU — KURS ÄNDERN';
+  }
+  if(b.kind==='feuertraeger'){
+    if(left>0) return `${left} × BRANDTURM BRECHEN`;
+    if(b.phase>=3) return '① LETZTE KARTE — KAMMER OFFEN';
+    return b.chamberOpen ? '① BRANDKAMMER OFFEN — FEUER!' : 'BRANDKAMMER ZU — AUSWEICHEN';
+  }
+  if(b.kind==='himmelszelt') return left>0 ? `${left} × TURM BRECHEN` : '① KERN FREI — O\'ZAPFT IS';
+  return '';
+}
+function updateBossBar(){
+  if(!boss) return;
+  const barW = boss.exposed
+    ? Math.max(0, boss.hp/boss.maxhp*100)
+    : (boss.parts.length ? (1 - boss.parts.filter(p=>!p.dead).length/boss.parts.length)*40 : 0);
+  dom.bosswrap.querySelector('.bossbar>div').style.width = barW+'%';
+  const label = (boss.hudMsgT>0 && boss.hudMsg) ? boss.hudMsg : bossPhaseLabel();
+  dom.bosswrap.querySelector('.bname').textContent = boss.name + '  —  ' + label;
+}
+
+function updateBoss(dt){
+  if(!boss) return;
+  checkBossExpose();
+  updateBossCallCd(boss,dt);
+  if(boss.hudMsgT>0) boss.hudMsgT-=dt;
+  if(boss.dead){ if(boss.deathUpdate) boss.deathUpdate(dt); updateBossBar(); return; }
+  if(boss.kind==='kronos') updateKronos(dt);
+  else if(boss.kind==='prometheus') updatePrometheus(dt);
+  else if(boss.kind==='feuertraeger') updateFeuertraeger(dt);
+  else if(boss.kind==='himmelszelt') updateHimmelszelt(dt);
+  else updateAuge(dt);
+  updateBossBar();
+}
+
+/* ---------------------------------------------------------------------------
+   15e2. BOSS MODELS — geometry + per-kind AI/telegraphs for every boss kind
+   --------------------------------------------------------------------------- */
 function buildKronos(x,z){
   const g=new THREE.Group();
-  // KRONOS is an airborne drone-carrier — it HOVERS well clear of terrain so it's
-  // always fully visible and can't be buried in mountains.
   const hoverY = Math.max(terrainHeight(x,z),CFG.waterLevel)+650;
   g.position.set(x, hoverY, z);
   const hull=new THREE.Mesh(new THREE.BoxGeometry(60,18,220), new THREE.MeshStandardMaterial({color:0x2b3138, metalness:0.6, roughness:0.5}));
   hull.position.y=9; g.add(hull);
   const deck=new THREE.Mesh(new THREE.BoxGeometry(70,3,230), new THREE.MeshStandardMaterial({color:0x3a4149, metalness:0.5, roughness:0.6})); deck.position.y=18; g.add(deck);
   const tower=new THREE.Mesh(new THREE.BoxGeometry(16,26,30), new THREE.MeshStandardMaterial({color:0x24282e, metalness:0.6, roughness:0.5})); tower.position.set(22,32,-40); g.add(tower);
-  // underside engine glow pods (hover eyecandy)
+  const deckLights=[];
   for(const oz of [-80,-20,40,90]){ for(const ox of [-26,26]){
     const pod=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex, color:0x66aaff, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending}));
-    pod.scale.set(30,30,1); pod.position.set(ox,-4,oz); g.add(pod); } }
-  // core (weak point, exposed after turrets down) — glowing
+    pod.scale.set(30,30,1); pod.position.set(ox,-4,oz); g.add(pod); deckLights.push(pod); } }
+  const hangar=new THREE.Group(); hangar.position.set(0,4,-100); g.add(hangar);
+  const doorL=new THREE.Mesh(new THREE.BoxGeometry(18,3,40), new THREE.MeshStandardMaterial({color:0x24282e,metalness:0.6,roughness:0.5})); doorL.position.set(-9,0,0); hangar.add(doorL);
+  const doorR=doorL.clone(); doorR.material=doorL.material.clone(); doorR.position.set(9,0,0); hangar.add(doorR);
   const core=new THREE.Mesh(new THREE.SphereGeometry(12,20,16), new THREE.MeshStandardMaterial({color:0x551111, emissive:0xff2200, emissiveIntensity:0.6, metalness:0.3, roughness:0.4}));
   core.position.set(0,26,10); g.add(core);
   const coreGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex, color:0xff3020, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending})); coreGlow.scale.set(60,60,1); coreGlow.position.copy(core.position); g.add(coreGlow);
-  // deck turrets as ground targets attached to the boss (positioned on the deck)
   const turretDefs=[[-24,-70],[24,-70],[-24,60],[24,60]];
   const parts=[];
   for(const [ox,oz] of turretDefs){
     const gt=spawnGroundTarget('turret', x+ox, z+oz);
-    gt.obj.position.set(x+ox, g.position.y+20, z+oz); // sit on the deck
-    gt.airborne=true;   // bomb/ground collision uses absolute y for these
-    gt.bossPart=true; parts.push(gt);
+    gt.obj.position.set(x+ox, g.position.y+20, z+oz);
+    gt.airborne=true; gt.bossPart=true; parts.push(gt);
   }
-  return { obj:g, kind:'kronos', name:'KRONOS · DROHNENWERFT', hp:420, maxhp:420, core, coreGlow, parts, exposed:false,
-    fireCd:1.5, phase:1, vx:0 };
+  return { obj:g, kind:'kronos', name:BOSS_FALLBACK_NAME.kronos, hp:420, maxhp:420, core, coreGlow, deckLights, hangar, doorL, doorR, parts, exposed:false,
+    fireCd:1.5, phase:1, dead:false, lockable:false, hitR:{bullet:18,missile:22}, deathStyle:'chain',
+    droneCd:9, doorT:0 };
 }
+function updateKronos(dt){
+  const b=boss;
+  if(b.coreGlow){ const s=50+Math.sin(menuTime*4)*8; b.coreGlow.scale.set(s,s,1); }
+  for(const p of b.deckLights) p.material.opacity=0.6+Math.sin(menuTime*3+p.position.z*0.05)*0.3;
+  if(b.dead) return;
+  // hangar door telegraph (1.6s) + drone launch — silenced during the post-phase quiet window
+  if(b.doorT>0){
+    b.doorT-=dt;
+    const f=1-Math.max(0,b.doorT)/1.6;
+    b.doorL.rotation.z=f*(50*Math.PI/180); b.doorR.rotation.z=-f*(50*Math.PI/180);
+    if(b.doorT<=0){
+      const wp=new THREE.Vector3(); b.hangar.getWorldPosition(wp); wp.y-=2;
+      for(let i=0;i<2;i++){ const off=(i?1:-1)*18; const e=spawnEnemy('f18', new THREE.Vector3(wp.x+off,wp.y,wp.z-20), 'grunt'); e.vel.set(0,0,-1); }
+      bossCall(b,'drohnen', b.kind==='himmelszelt' ? 'SEPP|Aus\'m Zelt kemman Drohnen! Wia bei da Sperrstund!|spoettisch' : 'WAGNER|Deck blinkt gelb! Sie wirft neue Wächter aus!|dringend');
+      setTimeout(()=>{ if(boss===b && !b.dead){ b.doorL.rotation.z=0; b.doorR.rotation.z=0; } },800);
+    }
+  } else {
+    b.droneCd-=dt;
+    if(b.droneCd<=0 && menuTime>=(b.quietUntil||0)){ b.droneCd = b.exposed?11:9; b.doorT=1.6; }
+  }
+  b.fireCd-=dt;
+  if(b.fireCd<=0 && player.alive){
+    const src=new THREE.Vector3(); b.core.getWorldPosition(src); src.y+=6;
+    const base=player.obj.position.clone().sub(src).normalize();
+    if(b.exposed){ b.fireCd=b.phase>=3?0.6:0.8; for(const off of [-0.14,0,0.14]){ const d=base.clone(); d.x+=off; fireBullet(src, d.normalize(), false, 6); } }
+    else { b.fireCd=1.0; const d=base.clone(); d.x+=(Math.random()-0.5)*0.06; d.y+=(Math.random()-0.5)*0.06; fireBullet(src,d.normalize(),false); }
+  }
+}
+
 function buildAuge(x,z){
   const g=new THREE.Group();
   const gh=terrainHeight(x,z); g.position.set(x, Math.max(gh,CFG.waterLevel), z);
-  // bunker base
   const base=new THREE.Mesh(new THREE.CylinderGeometry(70,90,30,10), new THREE.MeshStandardMaterial({color:0x1c2026, metalness:0.5, roughness:0.7})); base.position.y=15; g.add(base);
-  // rotating armored shutter (torus) hiding the eye
   const shutter=new THREE.Mesh(new THREE.TorusGeometry(26,10,10,28), new THREE.MeshStandardMaterial({color:0x2a2f36, metalness:0.7, roughness:0.4})); shutter.position.y=46; shutter.rotation.x=Math.PI/2; g.add(shutter);
-  // the eye
   const eye=new THREE.Mesh(new THREE.SphereGeometry(18,24,18), new THREE.MeshStandardMaterial({color:0x330000, emissive:0xff1500, emissiveIntensity:1.0, metalness:0.2, roughness:0.3})); eye.position.y=46; g.add(eye);
   const iris=new THREE.Mesh(new THREE.SphereGeometry(8,16,12), new THREE.MeshBasicMaterial({color:0x000000})); iris.position.set(0,46,-14); g.add(iris);
   const glow=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex, color:0xff2000, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending})); glow.scale.set(120,120,1); glow.position.set(0,46,0); g.add(glow);
-  // 3 shield pylons around it as ground targets
+  const beam=new THREE.Mesh(new THREE.CylinderGeometry(4,4,1,8), new THREE.MeshBasicMaterial({color:0xff2000, transparent:true, opacity:0, blending:THREE.AdditiveBlending, depthWrite:false})); g.add(beam);
   const parts=[];
   for(let i=0;i<3;i++){ const a=i/3*Math.PI*2; const gt=spawnGroundTarget('pylon', x+Math.cos(a)*120, z+Math.sin(a)*120); gt.bossPart=true; parts.push(gt); }
-  return { obj:g, kind:'auge', name:'DAS AUGE · HELIOS-KERN', hp:380, maxhp:380, eye, glow, shutter, parts, exposed:false,
-    fireCd:1.0, phase:1 };
+  return { obj:g, kind:'auge', name:BOSS_FALLBACK_NAME.auge, hp:380, maxhp:380, eye, glow, shutter, beam, core:eye, parts, exposed:false,
+    fireCd:1.0, phase:1, dead:false, lockable:false, hitR:{bullet:24,missile:30}, deathStyle:'chain',
+    beamState:'idle', beamCd:6, beamT:0, beamTarget:new THREE.Vector3(),
+    onPhase3:function(){ bossCall(this,'stopfire','WAGNER|Sie schießt nicht mehr — pass nur auf den Suchblick auf!|ruhig'); } };
 }
-function updateBossBar(){
-  if(!boss) return;
-  // during the shield phase the bar tracks PARTS destroyed (0->40%); once exposed it's the real core HP
-  const barW = boss.exposed
-    ? Math.max(0, boss.hp/boss.maxhp*100)
-    : (boss.parts.length ? (1 - boss.parts.filter(p=>!p.dead).length/boss.parts.length)*40 : 0);
-  dom.bosswrap.querySelector('.bossbar>div').style.width = barW+'%';
-  // live phase label: tell the player exactly what to shoot right now
-  const partsAlive = boss.parts.filter(p=>!p.dead).length;
-  const partName = boss.kind==='auge' ? 'PYLON' : 'TURM';
-  const phase = boss.exposed
-    ? '① KERN FREI — VERSENKEN'
-    : `Erst ${partsAlive} × ${partName} zerstören (dann Kern)`;
-  dom.bosswrap.querySelector('.bname').textContent = boss.name + '  —  ' + phase;
-}
-function damageBoss(dmg){
-  if(!boss || !boss.exposed) return;
-  boss.hp-=dmg; updateBossBar();
-  fireP.spawn(boss.core?boss.core.getWorldPosition(new THREE.Vector3()).x:boss.obj.position.x,
-    boss.obj.position.y+30, boss.obj.position.z, (Math.random()-0.5)*60,30,(Math.random()-0.5)*60,0.3,14,3,C_WHITE,C_ORANGE,0.9,0);
-  if(boss.hp<=0) killBoss();
-}
-function killBoss(){
-  if(!boss || boss.dead) return;        // guard re-entry: further hits in the 1.8s despawn window must no-op
-  boss.dead=true; boss.exposed=false;   // stops damageBoss/killBoss from re-firing the slow-mo + explosion cascade
-  const p=boss.obj.position;
-  // cinematic killing blow: slow-mo + heavy shake + a burst of big hot debris
-  slowmo=SLOWMO_DUR; shake=Math.max(shake,1.3); markHit(true,false);
-  spawnDebris(p.x,p.y+20,p.z, 24, 2.2, true);
-  // spectacular chain of explosions
-  const nBoom=boss.finale?16:10;
-  for(let i=0;i<nBoom;i++){ setTimeout(()=>{ if(!boss)return; groundExplode(p.x+(Math.random()-0.5)*120, p.y+20+Math.random()*40, p.z+(Math.random()-0.5)*180, 2.2); }, i*160); }
-  setTimeout(()=>{ clearBoss(); }, 1800);
-  onBossDestroyed();
-}
-function checkBossExpose(){
-  // expose the weak point the instant all boss parts are destroyed (not next frame)
-  if(boss && !boss.exposed && boss.parts.filter(p=>!p.dead).length===0){
-    boss.exposed=true;
-    radio( boss.kind==='auge' ? 'WAGNER|Die Pylonen sind unten — das Auge ist offen! Feuer frei!' : 'WAGNER|Türme neutralisiert! Der Kern liegt frei — versenk sie!');
-    updateBossBar();
+function updateAuge(dt){
+  const b=boss;
+  if(b.shutter && !b.exposed) b.shutter.rotation.z+=dt*0.8;
+  if(b.glow){ const s=(b.exposed?150:90)+Math.sin(menuTime*5)*14; b.glow.scale.set(s,s,1); }
+  if(b.dead) return;
+  const eyeWP=new THREE.Vector3(); b.eye.getWorldPosition(eyeWP);
+  // suchblick — 3-stage search beam (track 1.3s, freeze 0.5s incl. white flash) — only once exposed
+  if(b.beamState==='idle'){
+    b.beamCd-=dt;
+    if(b.exposed && b.beamCd<=0 && menuTime>=(b.quietUntil||0)){
+      b.beamCd = b.phase>=3?8:11; b.beamState='track'; b.beamT=0; b.beamTarget.copy(player.obj.position);
+      const first=(b.callCount.suchblick||0)===0;
+      bossCall(b,'suchblick', first ? 'HELIOS|ICH SEHE DICH. … WEICH AUS.|kalt' : 'WAGNER|Roter Strahl auf dir! Wenn er weiß wird, brich seitlich weg!|dringend');
+      b.beam.material.opacity=0.55; b.beam.material.color.setHex(0xff2000);
+    }
+  } else if(b.beamState==='track'){
+    b.beamT+=dt;
+    b.beamTarget.lerp(player.obj.position, Math.min(1, dt*2.2));
+    const dir=b.beamTarget.clone().sub(eyeWP); const len=Math.max(1,dir.length()); dir.normalize();
+    b.beam.scale.set(1,len,1); b.beam.position.copy(eyeWP).addScaledVector(dir, len*0.5);
+    b.beam.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir);
+    if(b.beamT>=1.3){ b.beamState='freeze'; b.beamT=0; b.beamFrozen=b.beamTarget.clone(); bossKlaxon(0.5); }
+  } else if(b.beamState==='freeze'){
+    b.beamT+=dt;
+    if(b.beamT>0.35) b.beam.material.color.setHex(0xffffff);
+    if(b.beamT>=0.5){
+      const d=b.beamFrozen.clone().sub(eyeWP);
+      if(distSqPointSeg(player.obj.position.x,player.obj.position.y,player.obj.position.z, eyeWP.x,eyeWP.y,eyeWP.z, d.x,d.y,d.z) < 40*40) bossHitPlayer(24);
+      flashLight(b.beamFrozen.x,b.beamFrozen.y,b.beamFrozen.z,0xffffff,8,300,0.3);
+      b.beam.material.opacity=0; b.beamState='idle'; b.beamT=0;
+    }
+  }
+  // P3: the eye itself stops firing — the search beam remains the only threat
+  if(!(b.exposed && b.phase>=3)){
+    b.fireCd-=dt;
+    if(b.fireCd<=0 && player.alive){
+      const src=eyeWP.clone();
+      const base=player.obj.position.clone().sub(src).normalize();
+      if(b.exposed){ b.fireCd=0.8; for(const off of [-0.14,0,0.14]){ const d=base.clone(); d.x+=off; fireBullet(src, d.normalize(), false, 6); } }
+      else { b.fireCd=1.0; const d=base.clone(); d.x+=(Math.random()-0.5)*0.06; d.y+=(Math.random()-0.5)*0.06; fireBullet(src,d.normalize(),false); }
+    }
   }
 }
-function updateBoss(dt){
-  if(!boss) return;
-  checkBossExpose();
-  // eyecandy: rotate parts + pulse glow
-  if(boss.coreGlow){ const s=50+Math.sin(menuTime*4)*8; boss.coreGlow.scale.set(s,s,1); }
-  if(boss.shutter && !boss.exposed) boss.shutter.rotation.z+=dt*0.8;
-  if(boss.glow){ const s=(boss.exposed?150:90)+Math.sin(menuTime*5)*14; boss.glow.scale.set(s,s,1); }
-  // boss fires at player when exposed or (kronos) always
-  boss.fireCd-=dt;
-  if(boss.fireCd<=0 && player.alive){
-    const src=new THREE.Vector3(); (boss.core||boss.eye||boss.obj).getWorldPosition(src); src.y+=10;
-    const base=player.obj.position.clone().sub(src).normalize();
-    if(boss.exposed){
-      // exposed core has teeth: a telegraphed 3-shot fan (dodgeable by weaving) so you can't just park + hold fire
-      boss.fireCd=0.8;
-      for(const off of [-0.14,0,0.14]){ const d=base.clone(); d.x+=off; fireBullet(src, d.normalize(), false, 6); }
-    } else {
-      boss.fireCd=1.0;
-      const d=base.clone(); d.x+=(Math.random()-0.5)*0.06; d.y+=(Math.random()-0.5)*0.06;
-      fireBullet(src, d.normalize(), false);
+
+// --- shared "Vorausberechnung" (precognition marker) helpers, reused by PROMETHEUS and HIMMELSZELT
+function spawnPrecogMarker(b, dur, mul){
+  const wp=new THREE.Vector3(); b.core.getWorldPosition(wp);
+  const targetPos=player.obj.position.clone().addScaledVector(player.vel, mul||2.2);
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(70,2.5,6,24), new THREE.MeshBasicMaterial({color:0x9fe6ff, transparent:true, opacity:0.9, blending:THREE.AdditiveBlending, depthWrite:false}));
+  ring.position.copy(targetPos); scene.add(ring);
+  const oct=new THREE.Mesh(new THREE.OctahedronGeometry(8,0), new THREE.MeshBasicMaterial({color:0xffffff}));
+  ring.add(oct);
+  b.markers.push({mesh:ring, t:0, dur, target:targetPos, tickCd:dur/5, fired:false});
+}
+function updatePrecogMarkers(b, dt){
+  const cam=camera;
+  for(let i=b.markers.length-1;i>=0;i--){
+    const m=b.markers[i]; m.t+=dt;
+    m.mesh.quaternion.copy(cam.quaternion);
+    const f=Math.min(1,m.t/m.dur);
+    m.mesh.scale.setScalar(1.57-0.57*f);
+    m.mesh.material.opacity=0.5+0.5*f;
+    m.tickCd-=dt; if(m.tickCd<=0 && f<1){ m.tickCd=m.dur/5; bossTone(500+f*700,null,0.08,'square'); }
+    if(!m.fired && m.t>=m.dur){
+      m.fired=true;
+      const grantlFail = (b.kind==='himmelszelt' && player.grantlActive);
+      if(grantlFail){
+        for(let k=0;k<6;k++) spawnFlare(m.target.x+(Math.random()-0.5)*20, m.target.y+(Math.random()-0.5)*20, m.target.z+(Math.random()-0.5)*20, 12, 0xffffff, 0.4);
+        boss.hudMsg='PROGNOSE UNGÜLTIG'; boss.hudMsgT=1.5;
+        bossCall(b,'grantl','STIMME|PROGNOSE … UNGÜLTIG. … WIESO UNGÜLTIG?|traurig');
+      } else {
+        spawnFlare(m.target.x,m.target.y,m.target.z,70,0xffffff,0.3); flashLight(m.target.x,m.target.y,m.target.z,0xffffff,8,350,0.3);
+        if(player.obj.position.distanceTo(m.target)<70) bossHitPlayer(18);
+      }
+      scene.remove(m.mesh); m.mesh.children[0].geometry.dispose(); m.mesh.children[0].material.dispose(); m.mesh.geometry.dispose(); m.mesh.material.dispose();
+      b.markers.splice(i,1);
     }
+  }
+}
+
+function buildPrometheus(x,z){
+  const g=new THREE.Group();
+  const gh=terrainHeight(x,z); g.position.set(x, Math.max(gh,CFG.waterLevel), z);
+  const shaft=new THREE.Mesh(new THREE.CylinderGeometry(70,85,120,7), new THREE.MeshStandardMaterial({color:0x2a2e33, flatShading:true, metalness:0.4, roughness:0.8})); shaft.position.y=60; g.add(shaft);
+  const collar=new THREE.Mesh(new THREE.TorusGeometry(72,4,6,7), new THREE.MeshStandardMaterial({color:0x9fb4c8, metalness:0.6, roughness:0.4})); collar.position.y=118; collar.rotation.x=Math.PI/2; g.add(collar);
+  const cage=new THREE.Group(); cage.position.y=165; g.add(cage);
+  const lamellae=[];
+  for(let i=0;i<6;i++){
+    const a=i/6*Math.PI*2;
+    const piv=new THREE.Group(); piv.position.set(Math.cos(a)*28,-18,Math.sin(a)*28); piv.rotation.y=a; cage.add(piv);
+    const blade=new THREE.Mesh(new THREE.BoxGeometry(8,36,3), new THREE.MeshStandardMaterial({color:0x24272b, metalness:0.5, roughness:0.5}));
+    blade.position.set(0,18,0); piv.add(blade);
+    lamellae.push(piv);
+  }
+  const core=new THREE.Mesh(new THREE.OctahedronGeometry(20,0), new THREE.MeshBasicMaterial({color:0xe6f6ff}));
+  cage.add(core);
+  const innerCore=new THREE.Mesh(new THREE.OctahedronGeometry(12,0), new THREE.MeshBasicMaterial({color:0x7fdcff, wireframe:true}));
+  cage.add(innerCore);
+  const coreGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:0x9fe6ff,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending})); coreGlow.scale.set(90,90,1); cage.add(coreGlow);
+  const parts=[];
+  for(let i=0;i<3;i++){ const a=i/3*Math.PI*2; const gt=spawnGroundTarget('pylon', x+Math.cos(a)*120, z+Math.sin(a)*120); gt.bossPart=true; parts.push(gt); }
+  return { obj:g, kind:'prometheus', name:BOSS_FALLBACK_NAME.prometheus, hp:600, maxhp:600, core, innerCore, coreGlow, cage, collar, lamellae, parts,
+    exposed:false, phase:1, dead:false, lockable:false, hitR:{bullet:22,missile:28}, deathStyle:'open',
+    dmgMul:function(){ return this.lamOpen>0.5?1:0.25; },
+    markers:[], lamOpen:0, lamTarget:0, salvoCd:14, telegraphT:0, pCycleState:'closed', pCycleT:0,
+    onExposeOpen:function(){
+      scene.remove(this.collar); if(this.collar.geometry) this.collar.geometry.dispose();
+      for(let i=0;i<6;i++){ const wp=new THREE.Vector3(); this.cage.getWorldPosition(wp);
+        fireP.spawn(wp.x,wp.y,wp.z,(Math.random()-0.5)*80,20+Math.random()*40,(Math.random()-0.5)*80,0.4,10,3,C_GREY,C_SMOKE,0.9,0); }
+    } };
+}
+function updatePrometheus(dt){
+  const b=boss;
+  b.cage.rotation.y += dt*0.3*(b.phase>=3?3:1);
+  b.innerCore.rotation.y -= dt*0.5*(b.phase>=3?3:1);
+  b.coreGlow.scale.setScalar(90+Math.sin(menuTime*3)*10);
+  b.lamOpen += (b.lamTarget-b.lamOpen)*Math.min(1,dt*2.5);
+  const ang=b.lamOpen*(70*Math.PI/180);
+  for(const piv of b.lamellae) piv.children[0].rotation.x=ang;
+  if(b.dead) return;
+  updatePrecogMarkers(b,dt);
+
+  if(b.phase<2){
+    // P1 "Der Käfig": core invulnerable (lamellae closed, generic exposed-gate blocks all hits).
+    b.salvoCd-=dt;
+    if(b.telegraphT>0){
+      b.telegraphT-=dt;
+      b.lamTarget=0.29; // ~20° crack
+      if(b.telegraphT<=0){
+        b.lamTarget=0;
+        const wp=new THREE.Vector3(); b.core.getWorldPosition(wp);
+        for(let i=0;i<3;i++) fireEnemyMissile({ obj:{position:wp.clone()}, vel:new THREE.Vector3(0,120,0) });
+      }
+    } else if(b.salvoCd<=0 && menuTime>=(b.quietUntil||0)){
+      b.salvoCd=14; b.telegraphT=1.5;
+      for(let k=0;k<3;k++) setTimeout(()=>{ if(boss===b && !b.dead){ const wp=new THREE.Vector3(); b.core.getWorldPosition(wp); spawnFlare(wp.x,wp.y,wp.z,30,0xffffff,0.25); } }, k*450);
+      bossTone(260,700,1.5,'sine');
+    }
+    return;
+  }
+  // P2/P3 cycle
+  if(menuTime<(b.quietUntil||0)) return;
+  b.pCycleT+=dt;
+  const closedDur=6, calcDur=2.2, openDur=b.phase>=3?6:5, p3Cycle=8;
+  if(b.pCycleState==='closed'){
+    b.lamTarget=0;
+    if(b.pCycleT>=(b.phase>=3?0:closedDur)){ b.pCycleState='calc'; b.pCycleT=0; spawnPrecogMarker(b,calcDur,2.2); if(b.phase>=3) spawnPrecogMarker(b,calcDur,3.2); bossCall(b,'vorausberechnung','HELIOS|Er rechnet, wo du gleich bist. Sei woanders.|ruhig'); }
+  } else if(b.pCycleState==='calc'){
+    if(b.pCycleT>=calcDur){ b.pCycleState='open'; b.pCycleT=0; b.lamTarget=1; bossCall(b,'schwarmsalve','LÄRCHE|Lamellen auf, Salve steigt! Hart abdrehen, dann rein in die Lücke!|dringend'); }
+  } else if(b.pCycleState==='open'){
+    if(b.pCycleT>=openDur){ b.pCycleState='closed'; b.pCycleT=0; }
+  }
+}
+
+function detachPlate(mesh){
+  const wp=new THREE.Vector3(); mesh.getWorldPosition(wp);
+  const wq=new THREE.Quaternion(); mesh.getWorldQuaternion(wq);
+  if(mesh.parent) mesh.parent.remove(mesh);
+  mesh.position.copy(wp); mesh.quaternion.copy(wq); scene.add(mesh);
+  const rec={mesh, vel:new THREE.Vector3((Math.random()-0.5)*20,10,(Math.random()-0.5)*20), av:new THREE.Vector3((Math.random()-0.5)*3,(Math.random()-0.5)*3,(Math.random()-0.5)*3)};
+  fallingPlates.push(rec);
+  setTimeout(()=>{ const i=fallingPlates.indexOf(rec); if(i>=0){ scene.remove(rec.mesh); rec.mesh.geometry.dispose(); rec.mesh.material.dispose(); fallingPlates.splice(i,1); } }, 5000);
+}
+function spawnFirewall(b){
+  bossCall(b,'feuerwand','WAGNER|Brandkammer glüht! Weiße Lichter heißt Feuer, raus aus der Linie!|dringend');
+  const mid=player.obj.position.clone().addScaledVector(player.vel,1.5);
+  const right=new THREE.Vector3(1,0,0).applyQuaternion(player.obj.quaternion);
+  const pts=[];
+  for(let off=-150; off<=150; off+=60){ const p=mid.clone().addScaledVector(right, off); pts.push(p); spawnFlare(p.x,p.y,p.z,20,0xffffff,1.6); }
+  b.wallPts=pts;
+}
+function detonateFirewall(b){
+  if(!b.wallPts) return;
+  for(const p of b.wallPts){ explode(p.x,p.y,p.z,1.1); flashLight(p.x,p.y,p.z,0xff8020,8,300,0.4); if(player.obj.position.distanceTo(p)<45) bossHitPlayer(14); }
+  b.wallPts=null;
+}
+function setChamberOpen(b,open){
+  if(b.chamberOpen===open) return;
+  b.chamberOpen=open; b.exposed=open;
+  EV.emit('bossExposed',{kind:b.kind,open});
+  if(open) bossCall(b,'kammerOffen','WAGNER|Kammer offen! Sechs Sekunden, Geier, alles rein!|dringend');
+}
+function buildFeuertraeger(x,z){
+  const g=new THREE.Group();
+  const hoverY=Math.max(terrainHeight(x,z),CFG.waterLevel)+700;
+  g.position.set(x,hoverY,z);
+  const wingMat=new THREE.MeshStandardMaterial({color:0x1a1614, metalness:0.6, roughness:0.5, flatShading:true});
+  const wingL=new THREE.Group();
+  const coneL=new THREE.Mesh(new THREE.ConeGeometry(180,300,3), wingMat); coneL.rotation.x=Math.PI/2; coneL.scale.y=0.08; coneL.position.set(-140,0,-60); wingL.add(coneL); g.add(wingL);
+  const wingR=new THREE.Group();
+  const coneR=new THREE.Mesh(new THREE.ConeGeometry(180,300,3), wingMat.clone()); coneR.rotation.x=Math.PI/2; coneR.scale.y=0.08; coneR.position.set(140,0,-60); wingR.add(coneR); g.add(wingR);
+  const spine=new THREE.Mesh(new THREE.BoxGeometry(40,22,240), wingMat); g.add(spine);
+  const bridge=new THREE.Mesh(new THREE.SphereGeometry(14,12,8,0,Math.PI*2,0,Math.PI*0.5), wingMat); bridge.position.set(0,14,110); g.add(bridge);
+  const windows=new THREE.Mesh(new THREE.BoxGeometry(22,2,1), new THREE.MeshBasicMaterial({color:0xffb060})); windows.position.set(0,18,118); g.add(windows);
+  const nacelles=[];
+  for(const ox of [-90,-40,40,90]){
+    const cyl=new THREE.Mesh(new THREE.CylinderGeometry(8,9,50,8), wingMat); cyl.rotation.x=Math.PI/2; cyl.position.set(ox,-4,-110); g.add(cyl);
+    const glow=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:0xff7a2a,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending})); glow.scale.set(22,22,1); glow.position.set(ox,-4,-138); g.add(glow);
+    const flame=new THREE.Mesh(new THREE.ConeGeometry(6,30,8), new THREE.MeshBasicMaterial({color:0xff7a2a,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false})); flame.rotation.x=Math.PI/2; flame.position.set(ox,-4,-150); g.add(flame);
+    nacelles.push({glow,flame});
+  }
+  const chamberGroup=new THREE.Group(); chamberGroup.position.set(0,-14,20); g.add(chamberGroup);
+  const core=new THREE.Mesh(new THREE.SphereGeometry(16,16,12), new THREE.MeshBasicMaterial({color:0xff5a1a})); chamberGroup.add(core);
+  const coreGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex, color:0xff5a1a, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending})); coreGlow.scale.set(90,90,1); chamberGroup.add(coreGlow);
+  const doorMat=new THREE.MeshStandardMaterial({color:0x24211d, metalness:0.6, roughness:0.5});
+  const doorL=new THREE.Mesh(new THREE.BoxGeometry(20,3,34), doorMat); doorL.position.set(-10,0,0); chamberGroup.add(doorL);
+  const doorR=new THREE.Mesh(new THREE.BoxGeometry(20,3,34), doorMat.clone()); doorR.position.set(10,0,0); chamberGroup.add(doorR);
+  const towerDefs=[[-70,12,-20],[70,12,-20],[-130,8,-70],[130,8,-70]];
+  const parts=[];
+  for(const [ox,oy,oz] of towerDefs){
+    const gt=spawnGroundTarget('turret', x+ox, z+oz);
+    gt.airborne=true; gt.bossPart=true; gt.localOffset=new THREE.Vector3(ox,oy,oz);
+    gt.obj.position.set(x+ox, hoverY+oy, z+oz);
+    parts.push(gt);
+  }
+  const plates=[];
+  for(const [ox,oz] of [[-100,-30],[100,-30],[-60,50],[60,50]]){
+    const p=new THREE.Mesh(new THREE.BoxGeometry(50,4,30), wingMat.clone()); p.position.set(ox,4,oz); g.add(p); plates.push(p);
+  }
+  return { obj:g, kind:'feuertraeger', name:BOSS_FALLBACK_NAME.feuertraeger, hp:850, maxhp:850, core, coreGlow, chamberGroup, doorL, doorR, wingL, wingR, nacelles, plates,
+    parts, exposed:false, phase:1, dead:false, lockable:true, hitR:{bullet:20,missile:26}, deathStyle:'chain',
+    orbitR:1200, orbitA:Math.random()*Math.PI*2, orbitCx:x, orbitCz:z, riseOffset:0,
+    fireCd:1.0, chamberOpen:false, doorOpenT:0, cycleState:'glow', cycleT:0, p3FireCd:0.8, p3WallCd:10, wingBroken:false,
+    onExposeOpen:function(){
+      bossKlaxon(3);
+      banner('HIMMELSBRAND','Die Brandkammer öffnet sich');
+      this.cycleState='glow'; this.cycleT=0;
+    },
+    onPhase3:function(){ setChamberOpen(this,true); for(const p of this.plates) detachPlate(p); } };
+}
+function updateFeuertraegerMotion(b,dt){
+  const spd=b.phase>=3?80:55;
+  b.orbitA += (spd/b.orbitR)*dt;
+  const nx=b.orbitCx+Math.cos(b.orbitA)*b.orbitR, nz=b.orbitCz+Math.sin(b.orbitA)*b.orbitR;
+  if(b.phase>=2) b.riseOffset=Math.min(80, b.riseOffset+dt*(80/4));
+  const hoverY=Math.max(terrainHeight(nx,nz),CFG.waterLevel)+700+b.riseOffset;
+  const heading=b.orbitA+Math.PI/2;
+  const dir=new THREE.Vector3(Math.cos(heading),0,Math.sin(heading));
+  b.obj.position.set(nx,hoverY,nz);
+  b.obj.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,-1), dir);
+  b.obj.rotateZ(THREE.MathUtils.degToRad(6));
+  for(const gt of b.parts){ if(gt.dead) continue; const wp=b.obj.localToWorld(gt.localOffset.clone()); gt.obj.position.copy(wp); }
+}
+function updateFeuertraeger(dt){
+  const b=boss;
+  updateFeuertraegerMotion(b,dt);
+  const flameScale = b.phase>=2?1.6:1;
+  for(const n of b.nacelles){ const f=(0.8+Math.random()*0.4)*flameScale; n.flame.scale.set(f,f,f); n.glow.scale.set(22*flameScale,22*flameScale,1); }
+  b.coreGlow.scale.set(90*(b.chamberOpen?1.3:0.9),90*(b.chamberOpen?1.3:0.9),1);
+  b.core.material.color.setHex(b.chamberOpen?0xffcf80:0xff5a1a);
+  b.doorOpenT=(b.doorOpenT||0)+((b.chamberOpen?1:0)-(b.doorOpenT||0))*Math.min(1,dt*2);
+  const dang=b.doorOpenT*(80*Math.PI/180);
+  b.doorL.rotation.z=dang; b.doorR.rotation.z=-dang;
+  if(b.dead) return;
+
+  if(b.phase<2){
+    b.fireCd-=dt;
+    if(b.fireCd<=0 && player.alive){ b.fireCd=1.0; const src=new THREE.Vector3(); b.obj.localToWorld(src.set(0,10,-110));
+      const dir=player.obj.position.clone().sub(src).normalize(); fireBullet(src,dir,false,6); }
+    return;
+  }
+  if(menuTime<(b.quietUntil||0)) return;
+  b.cycleT=(b.cycleT||0)+dt;
+  const st=b.cycleState||'glow';
+  if(st==='glow'){
+    if(b.cycleT>=2.0){ b.cycleState='wallwait'; b.cycleT=0; spawnFirewall(b); }
+  } else if(st==='wallwait'){
+    if(b.cycleT>=1.5){ detonateFirewall(b); b.cycleState='open'; b.cycleT=0; setChamberOpen(b,true); }
+  } else if(st==='open'){
+    if(b.phase<3 && b.cycleT>=6){ b.cycleState='closed'; b.cycleT=0; setChamberOpen(b,false); }
+  } else if(st==='closed'){
+    b.fireCd-=dt;
+    if(b.fireCd<=0 && player.alive){ b.fireCd=1.0; const src=new THREE.Vector3(); b.obj.localToWorld(src.set(0,10,-110));
+      const dir=player.obj.position.clone().sub(src).normalize(); fireBullet(src,dir,false,6); }
+    if(b.cycleT>=4){ b.cycleState='glow'; b.cycleT=0; }
+  }
+  if(b.phase>=3){
+    b.p3FireCd-=dt;
+    if(b.p3FireCd<=0 && player.alive){ b.p3FireCd=0.8; const src=new THREE.Vector3(); b.core.getWorldPosition(src);
+      const base=player.obj.position.clone().sub(src).normalize();
+      for(const off of [-0.14,0,0.14]){ const d=base.clone(); d.x+=off; fireBullet(src,d.normalize(),false,6); } }
+    b.p3WallCd-=dt;
+    if(b.p3WallCd<=0){ b.p3WallCd=10; spawnFirewall(b); setTimeout(()=>{ if(boss===b && !b.dead) detonateFirewall(b); },1500); }
+  }
+}
+
+const _hzStripeTex = (function(){
+  const c=document.createElement('canvas'); c.width=c.height=64; const ctx=c.getContext('2d');
+  ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,64,64);
+  ctx.fillStyle='#3a8fd9';
+  ctx.save(); ctx.translate(32,32); ctx.rotate(Math.PI/4); ctx.translate(-32,-32);
+  for(let i=-64;i<128;i+=16) ctx.fillRect(i,0,8,64);
+  ctx.restore();
+  const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(4,4); return t;
+})();
+function buildHimmelszelt(x,z){
+  const b=buildKronos(x,z);
+  b.kind='himmelszelt'; b.name=BOSS_FALLBACK_NAME.himmelszelt; b.hp=600; b.maxhp=600;
+  b.obj.traverse(o=>{ if(o.isMesh && o.geometry && o.geometry.type==='BoxGeometry' && o.material && o.material.color && o.material.color.getHex()===0x2b3138){
+    o.material=o.material.clone(); o.material.map=_hzStripeTex; o.material.color.setHex(0xffffff); o.material.needsUpdate=true; } });
+  const roof=new THREE.Mesh(new THREE.CylinderGeometry(30,30,120,3), new THREE.MeshStandardMaterial({map:_hzStripeTex, metalness:0.2, roughness:0.7}));
+  roof.rotation.z=Math.PI/2; roof.position.set(0,22,0); b.obj.add(roof);
+  const pole=new THREE.Mesh(new THREE.CylinderGeometry(1.5,1.5,60,6), new THREE.MeshStandardMaterial({color:0xdfc088})); pole.position.set(22,58,-40); b.obj.add(pole);
+  for(let i=0;i<3;i++){ const wreath=new THREE.Mesh(new THREE.TorusGeometry(6,1,6,12), new THREE.MeshStandardMaterial({color:i%2?0x2a7d2a:0xcc2020})); wreath.position.set(22,40+i*14,-40); wreath.rotation.x=Math.PI/2; b.obj.add(wreath); }
+  const streamers=[]; const anchor=new THREE.Vector3(22,86,-40);
+  for(const [cx,cz] of [[-35,-115],[35,-115],[-35,115],[35,115]]){
+    for(let i=0;i<10;i++){ const t=i/10; const px=anchor.x+(cx-anchor.x)*t, pz=anchor.z+(cz-anchor.z)*t, py=anchor.y-9*t;
+      const tri=new THREE.Mesh(new THREE.CircleGeometry(3,3), new THREE.MeshBasicMaterial({color:i%2?0x3a8fd9:0xffffff, side:THREE.DoubleSide}));
+      tri.position.set(px,py,pz); b.obj.add(tri); streamers.push(tri); }
+  }
+  b.streamers=streamers;
+  b.core.material=b.core.material.clone(); b.core.material.color.setHex(0x664422); b.core.material.emissive.setHex(0xffc040);
+  b.coreGlow.material.color.setHex(0xffc040);
+  b.hitR={bullet:18,missile:22};
+  b.markers=[]; b.vbCd=10;
+  return b;
+}
+function updateHimmelszelt(dt){
+  updateKronos(dt);
+  const b=boss;
+  if(b.dead) return;
+  updatePrecogMarkers(b,dt);
+  if(b.exposed){
+    b.vbCd-=dt;
+    if(b.vbCd<=0 && menuTime>=(b.quietUntil||0)){ b.vbCd=10; spawnPrecogMarker(b,2.2,2.2); bossCall(b,'vorausberechnung','WIGGERL|Sepp, a blauer Ring vor dir! Weg do, schnell!|panisch'); }
   }
 }
 
@@ -5893,7 +6453,7 @@ function updatePlayer(dt){
   }
 
   // Missile lock: tight forward cone (used for guided missiles).
-  currentLock = nearestEnemyInFront(0.985, 3500) || nearestEnemyInFront(0.94, 2600);
+  currentLock = nearestEnemyInFront(0.985, 3500) || nearestEnemyInFront(0.94, 2600) || bossLockCandidate();
   if(currentLock && currentLock!==EV._lastLock) EV.emit('lock', {target:currentLock}); EV._lastLock=currentLock;
   Audio.lockTone(currentLock!=null);
   // ground lock for the AGM (forgiving cone; only when ground targets exist)
@@ -5952,7 +6512,7 @@ function updateBullets(dt){
       if(!hit){ for(const gt of groundTargets){ if(gt.dead) continue; const gp=gt.obj.position;
         if(distSqPointSeg(gp.x,gp.y+gt.height*0.5,gp.z, ax,ay,az, sx,sy,sz) < (gt.radius*0.85)*(gt.radius*0.85)){ damageGround(gt, gt.bossPart? b.dmg : b.dmg*0.5); Audio.hit(screenPanX(gp)); markHit(false,false); hit=true; break; } } }
       // boss weak point (generous hit radius so guns are viable on the core)
-      if(!hit && boss && boss.exposed){ (boss.core||boss.eye).getWorldPosition(_wp); const wr=boss.kind==='auge'?24:18;
+      if(!hit && boss && boss.exposed){ (boss.core||boss.eye).getWorldPosition(_wp); const wr=boss.hitR.bullet;
         if(distSqPointSeg(_wp.x,_wp.y,_wp.z, ax,ay,az, sx,sy,sz) < wr*wr){ damageBoss(b.dmg*0.5); Audio.hit(screenPanX(_wp)); markHit(false,false); hit=true; } }   // guns chip the core; missiles/AGM are the payoff
     } else {
       const pp=player.obj.position;
@@ -5993,6 +6553,16 @@ function updateMissiles(dt){
         const newDir=cur.lerp(to, Math.min(1, CFG.missileTurn*dt)).normalize();
         mi.vel.copy(newDir);
       } else mi.vel.normalize();
+    } else if(mi.guided && boss && boss.lockable && !boss.dead && mi.target===boss.core){
+      // FEUERTRÄGER lock-proxy: boss.core is a real Object3D, so read its world position each frame.
+      boss.core.getWorldPosition(_bossMslWP);
+      const to=tmpV.copy(_bossMslWP).sub(mi.mesh.position);
+      if(to.dot(mi.vel)>0){
+        to.normalize();
+        const cur=tmpV2.copy(mi.vel).normalize();
+        const newDir=cur.lerp(to, Math.min(1, CFG.missileTurn*dt)).normalize();
+        mi.vel.copy(newDir);
+      } else mi.vel.normalize();
     } else mi.vel.normalize();
     mi.vel.multiplyScalar(mi.speed);
     mi.mesh.position.addScaledVector(mi.vel, dt);
@@ -6022,7 +6592,7 @@ function updateMissiles(dt){
       if(mi.mesh.position.distanceTo(gt.obj.position) < gt.radius+16){ damageGround(gt, CFG.missileDmgBoss); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false,mpan); markHit(false,true); exploded=true; break; } } }
     // boss core/eye once exposed
     if(!exploded && boss && boss.exposed){ (boss.core||boss.eye).getWorldPosition(_wp);
-      if(mi.mesh.position.distanceTo(_wp) < (boss.kind==='auge'?30:22)){ damageBoss(mi.agm?CFG.agmDmg:CFG.missileDmgBoss); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false,mpan); markHit(false,true); exploded=true; } }
+      if(mi.mesh.position.distanceTo(_wp) < boss.hitR.missile){ damageBoss(mi.agm?CFG.agmDmg:CFG.missileDmgBoss); explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,1.3); Audio.explosion(false,mpan); markHit(false,true); exploded=true; } }
     // AGM also strikes ground targets and detonates on terrain impact.
     if(!exploded && mi.agm){
       for(const gt of groundTargets){ if(gt.dead || gt.invuln) continue;
