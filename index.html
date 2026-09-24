@@ -6970,14 +6970,15 @@ function detachFalling(mesh, vel, opts){
 }
 
 // --- callout dedup: ≤2× per mission per attack key, 12s cooldown, silenced within 2.5s of any other radio() line
-function bossCall(b, key, line){
+// line2 (optional): shorter text for the 2nd call, so a repeat does not sound like a stuck record
+function bossCall(b, key, line, line2){
   if(!b || b.dead || menuTime<(b.quietUntil||0)) return false;   // never over the death silence / post-phase STORY window
   b.callCount[key]=b.callCount[key]||0;
   if(b.callCount[key]>=2) return false;
   if((b.callCd[key]||0)>0) return false;
   if(menuTime-lastRadioT<2.5) return false;
   b.callCount[key]++; b.callCd[key]=12;
-  radio(line);
+  radio((b.callCount[key]>1 && line2) ? line2 : line);
   return true;
 }
 function updateBossCallCd(b,dt){ for(const k in b.callCd) b.callCd[k]=Math.max(0,b.callCd[k]-dt); }
@@ -7561,7 +7562,7 @@ function updatePrometheus(dt){
 }
 
 function spawnFirewall(b){
-  bossCall(b,'feuerwand','WAGNER|Brandkammer glüht! Weiße Lichter heißt Feuer, raus aus der Linie!|dringend');
+  bossCall(b,'feuerwand','WAGNER|Brandkammer glüht! Weiße Lichter heißt Feuer, raus aus der Linie!|dringend', 'WAGNER|Wieder weiß! Raus aus der Linie!|dringend');
   const mid=player.obj.position.clone().addScaledVector(player.vel,1.5);
   const right=new THREE.Vector3(1,0,0).applyQuaternion(player.obj.quaternion);
   const pts=[];
@@ -7577,7 +7578,7 @@ function setChamberOpen(b,open){
   if(b.chamberOpen===open) return;
   b.chamberOpen=open; b.exposed=open;
   EV.emit('bossExposed',{kind:b.kind,open});
-  if(open) bossCall(b,'kammerOffen','WAGNER|Kammer offen! Sechs Sekunden, Geier, alles rein!|dringend');
+  if(open) bossCall(b,'kammerOffen','WAGNER|Kammer offen! Sechs Sekunden, Geier, alles rein!|dringend', 'WAGNER|Wieder offen! Rein da!|dringend');
 }
 function buildFeuertraeger(x,z){
   const g=new THREE.Group();
