@@ -1181,7 +1181,7 @@ const CUTSCENES = {
 };
 
 // Mission runtime state (populated by setupMission)
-const mission = { active:false, def:null, index:-1, objectives:[], radioQueue:[], radioT:0, done:false, outcome:null,
+const mission = { active:false, def:null, index:-1, objectives:[], done:false, outcome:null,
   reinforceT:0, waveIndex:0 };
 let campaignUnlocked = 1;   // how many HELIOS missions are unlocked (1-based count)
 let bteamUnlocked = 1;      // how many B-Team missions are unlocked
@@ -2183,8 +2183,6 @@ const VOICE_AUTO = [
   [/^WIGGERL\|Ha! Danebn!/, {prio:'bark'}],
   [/^SEPP\|…so\. A Ruah/, {prio:'bark'}],
   [/^SEPP\|JETZ REICHT/, {ttl:2.5}],
-  [/^WAGNER\|Fahrwerk (aus|ein)gefahren\.$/, {tag:'gear', ttl:4}],
-  [/^WAGNER\|(Pylon|Turm) zerstört — \d+ übrig\.$/, {tag:'bossparts', ttl:6}],
 ];
 function voiceAutoOpts(line, o){ if(o && (o.prio||o.tag)) return o; const s=String(line);
   for(const [re,d] of VOICE_AUTO) if(re.test(s)) return Object.assign({}, d, o||{}); return o||{}; }
@@ -2234,11 +2232,7 @@ function voiceScanLiterals(src){
 function voiceDynamicLines(){
   const L=[];
   const add=(line,ctx)=>L.push({line,ctx});
-  add('WAGNER|Fahrwerk ausgefahren.','gear'); add('WAGNER|Fahrwerk eingefahren.','gear');
-  try{ for(const a of ACE_NAMES) add('HELIOS|'+a+' übernimmt.','ace'); }catch(e){}
-  for(const part of ['Pylon','Turm']) for(let k=1;k<=8;k++) add('WAGNER|'+part+' zerstört — '+k+' übrig.','bossParts');
-  for(const [cid,camp] of [['helios',CAMPAIGN],['bteam',BTEAM_CAMPAIGN]]) for(const def of camp) for(const o of (def.objectives||[]))
-    if(o.kind==='destroyGround' && o.label) add('WAGNER|'+o.label+' — erledigt.', cid+':'+def.id+':objective');
+  // (gear / ace / boss-part / "<label> — erledigt." templates are gone from the game: not enumerated any more)
   for(const fn of Voice._providers){ try{ for(const x of (fn()||[])) add(typeof x==='string'?x:x.line, (x&&x.ctx)||'provider'); }catch(e){ console.warn('voice provider failed', e); } }
   return L;
 }
@@ -6542,7 +6536,7 @@ let lastRadioT=-99;   // BOSSES: last time ANY radio line was requested (menuTim
 // radio()/queueRadio() just feed the Voice scheduler (2b): it owns subtitle display,
 // clip timing and pacing now, so a line shows for exactly as long as it needs to.
 // opts: {prio:'crit'|'normal'|'bark', tag, ttl, cooldown} — VOICE_AUTO fills in sensible
-// defaults for known repeated lines (barks, gear, boss-part call-outs) even when a call
+// defaults for known repeated lines (flavour barks) even when a call
 // site (owned by another track) passes none.
 function radio(line, opts){
   // line: "SPEAKER|text" or "SPEAKER|text|hint" (see parseLine)
@@ -6558,10 +6552,6 @@ function queueRadio(lines, gap){
   // ttl: a briefing waiting behind boss/story lines must not age out.
   if(!lines || !lines.length) return;
   Voice.lines(lines, {gap:0, ttl:40});
-}
-function updateRadio(dt){
-  // legacy no-op: Voice paces + shows/hides subtitles itself via HOOKS.always (real time,
-  // works in menu/pause/cutscene too). Kept so the call site in 15d needs no foreign edit.
 }
 // Touchdown call-outs stay quiet when this landing completes the mission: win[] speaks instead
 // (m0 would otherwise say "Willkommen daheim" twice, or "Techniker werden fluchen" then "nichts zu meckern").
@@ -6599,7 +6589,7 @@ function setupMission(index){
     spawns: Object.assign({}, def.spawns, (def.spawnsVariants && def.spawnsVariants[storyChoice]) || {})
   }) : def;
   mission.active=true; mission.def=effDef; mission.index=index; mission.done=false; mission.outcome=null;
-  mission.radioQueue=[]; mission.reinforceT=0; mission.waveIndex=0; mission.failReason=null;
+  mission.reinforceT=0; mission.waveIndex=0; mission.failReason=null;
   mission.spawnDelayT=0; mission.pendingAir=null; mission.landReady=false;
   // progress/rating: wall-clock timing (unaffected by slow-mo) + landing quality
   mission.startT=performance.now(); mission.pausedMs=0; mission.pauseStart=0;
@@ -6755,8 +6745,7 @@ function checkMissionFailed(){
 }
 
 function updateMission(dt){
-  if(!mission.active){ if(winLocked && mission.radioQueue) updateRadio(dt); return; }   // win lines still play until the debrief
-  updateRadio(dt);
+  if(!mission.active) return;   // (win lines keep playing on their own: Voice runs in every state)
   // Deferred air spawn for runway-start missions: hold enemies until we're airborne.
   if(mission.pendingAir && !player.onGround){
     mission.spawnDelayT-=dt;
@@ -7845,7 +7834,6 @@ function findMid(on, pred){
 // in one frame, a mid right behind the intro) go through the Voice scheduler (2b), which queues them
 // sequentially by real clip duration instead of cutting each other off. They are flagged mid:true so a
 // win can drop the ones still waiting in favour of win[].
-let _midFreeAt=0;                                 // legacy slot clock (reset per mission; pacing is Voice's job now)
 // Pure boss countdown lines ("Noch zwei", "Letzter Turm!") go stale: a newer one replaces a queued older one
 // (tag) and bossExposed/bossKilled drop the rest. Story lines on bossPart rows are left alone.
 const BOSS_COUNT_RE=/\b(noch (einer|zwei|drei)|einer noch|drei no|letzter turm|(turm|pylon) weniger|mast fällt)\b/i;
@@ -7893,7 +7881,7 @@ function announceDone(o){
 HOOKS.missionStart.push((def)=>{
   mission._midFired=new Set(); missionGen++; clearMidTimers();
   _doneSeen=new Set(); _takeoffSeen=false; _hpLowBarked=_allyBark50=_allyBark25=false;
-  _missionT0=null; _missionP0=0; _midFreeAt=0;
+  _missionT0=null; _missionP0=0;
   if(def.start!=='runway'){ _missionT0=performance.now(); _missionP0=mission.pausedMs||0; dispatch('airborne'); }
 });
 HOOKS.reset.push(()=>{ missionGen++; clearMidTimers(); _missionT0=null; });
