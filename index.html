@@ -2112,7 +2112,10 @@ const Voice = (function(){
     if(ducked && !cur && vnow>lastEnd+0.45){ ducked=false; try{ Audio.voiceDuck(false); }catch(e){} }
   }
   // clock: real time (rawDt from the main loop — not slow-mo), keeps ticking in menu/pause/cutscene.
-  HOOKS.always.push((dt,rawDt)=>tick(rawDt));
+  // Own wall-clock delta: the loop clamps rawDt to 0.05, which would run the voice clock slow below
+  // 20 fps / on launch hitches while the clip itself plays in real time. Cap 1 s (backgrounded tab).
+  let _vLast=0;
+  HOOKS.always.push(()=>{ const n=performance.now(); const d=_vLast ? Math.min(1, Math.max(0, (n-_vLast)/1000)) : 0; _vLast=n; tick(d); });
   HOOKS.reset.push(()=>stop());
   // defeat: story/boss mids and barks must not cheer on over the loss screen; keep cutscenes and the
   // crash reaction itself (a non-mid line queued in the last second, e.g. Kiebitz calling the rescue)
