@@ -4039,11 +4039,15 @@ function makeParticleSystem(max, additive){
       varying float vFogDepth;
       varying float vAlpha;
       varying vec2 vRot;
+      varying float vNear;
       void main(){
         vColor=pcolor; vAlpha=pmisc.x; vRot=vec2(cos(pmisc.y),sin(pmisc.y));
         vec4 mv=modelViewMatrix*vec4(position,1.0);
         vFogDepth=-mv.z;
-        gl_PointSize = min(psize * (scale / max(0.001,-mv.z)), 600.0);
+        float px=psize*(scale/max(0.001,-mv.z));
+        // fade near the camera and when one sprite would fill the view (flying into a blast/pall)
+        vNear=smoothstep(4.0,35.0,-mv.z)*(1.0-0.7*smoothstep(0.6,2.0,px/(2.0*scale)));
+        gl_PointSize = min(px, min(1.1*scale, 700.0));   // cap ~55 % of view height
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader:`
@@ -4055,11 +4059,12 @@ function makeParticleSystem(max, additive){
       varying float vFogDepth;
       varying float vAlpha;
       varying vec2 vRot;
+      varying float vNear;
       void main(){
         vec2 pc=gl_PointCoord-0.5;
         pc=vec2(vRot.x*pc.x-vRot.y*pc.y, vRot.y*pc.x+vRot.x*pc.y)+0.5;
         vec4 tex=texture2D(pointTexture, pc);
-        float a=tex.a*vAlpha;
+        float a=tex.a*vAlpha*vNear;
         if(a<0.015) discard;
         gl_FragColor=vec4(vColor*tex.rgb${additive?"":"*tint"}, a);
         float fogFactor=1.0 - exp(-fogDensity*fogDensity*vFogDepth*vFogDepth);
