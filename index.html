@@ -2114,7 +2114,11 @@ const Voice = (function(){
   // clock: real time (rawDt from the main loop — not slow-mo), keeps ticking in menu/pause/cutscene.
   HOOKS.always.push((dt,rawDt)=>tick(rawDt));
   HOOKS.reset.push(()=>stop());
-  EV.on('missionEnd', d=>{ if(!d.victory){ queue=queue.filter(q=>q.prio==='crit'); if(cur && cur.prio==='bark') interrupt('defeat'); } });
+  // defeat: story/boss mids and barks must not cheer on over the loss screen; keep cutscenes and the
+  // crash reaction itself (a non-mid line queued in the last second, e.g. Kiebitz calling the rescue)
+  EV.on('missionEnd', d=>{ if(d.victory) return;
+    drop(q=>!(q.kind==='cutscene' || (!q.mid && q.prio!=='bark' && vnow-q.t0<1)));
+    if(cur && (cur.mid || cur.prio==='bark')) interrupt('defeat'); });
   HOOKS.missionStart.push(def=>{ if(def && def.win) for(const l of def.win) prefetch(voiceKey((parseLine(l).spk||'')+'|'+parseLine(l).text)); });
 
   // ---- public API ----
