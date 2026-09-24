@@ -4184,7 +4184,7 @@ function spawnBoss(kind, finale){
 
 function checkBossExpose(){
   if(!boss || boss.dead || boss.phase>=2) return;
-  if(boss.parts.filter(p=>!p.dead).length>0) return;
+  for(let i=0;i<boss.parts.length;i++) if(!boss.parts[i].dead) return;
   boss.phase=2; EV.emit('bossPhase',{kind:boss.kind,phase:2}); boss.quietUntil=menuTime+5;
   // FEUERTRÄGER manages its own exposed toggling (chamber open/close) — everyone else opens once, for good.
   if(boss.kind!=='feuertraeger'){
@@ -4329,8 +4329,8 @@ function killBoss(){
   else killKronosLike();
 }
 
-function bossPhaseLabel(){
-  const b=boss; const left=b.parts.filter(p=>!p.dead).length;
+function bossPhaseLabel(left){
+  const b=boss;
   if(b.kind==='kronos') return left>0 ? `${left} × TURM BRECHEN, DANN DER BAUCH` : '① BAUCH OFFEN — KERN VERSENKEN';
   if(b.kind==='auge'){
     if(left>0) return `${left} × MAST BRECHEN (Blende)`;
@@ -4356,10 +4356,16 @@ function updateBossBar(){
   const barW = boss.dead ? 0 : (boss.exposed || boss.phase>=2)
     ? Math.max(0, boss.hp/boss.maxhp*100)
     : (boss.parts.length ? (1 - left/boss.parts.length)*40 : 0);
-  const w=barW.toFixed(1)+'%';
-  if(boss._barW!==w){ boss._barW=w; _bbFill.style.width=w; }
-  const label = boss.name + '  —  ' + ((boss.hudMsgT>0 && boss.hudMsg) ? boss.hudMsg : bossPhaseLabel());
-  if(boss._barL!==label){ boss._barL=label; _bbName.textContent=label; }
+  // compare cheap numeric keys first so no strings are built on unchanged frames
+  const wk=Math.round(barW*10);
+  if(boss._barWk!==wk){ boss._barWk=wk; boss._barW=(wk/10).toFixed(1)+'%'; _bbFill.style.width=boss._barW; }
+  const hud=(boss.hudMsgT>0 && boss.hudMsg) ? boss.hudMsg : null;
+  const lk=left*64 + boss.phase*8 + (boss.lamOpen>0.5?4:0) + (boss.chamberOpen?2:0);
+  if(boss._barLk!==lk || boss._barLh!==hud){
+    boss._barLk=lk; boss._barLh=hud;
+    const label = boss.name + '  —  ' + (hud || bossPhaseLabel(left));
+    if(boss._barL!==label){ boss._barL=label; _bbName.textContent=label; }
+  }
 }
 
 function updateBoss(dt){
