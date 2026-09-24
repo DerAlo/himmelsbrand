@@ -2084,7 +2084,7 @@ const Voice = (function(){
       let w=0;   // in-place filter: no per-frame array allocation
       for(let i=0;i<queue.length;i++){ const q=queue[i]; if(busyWithOther(q)) q.wait+=d;
         if(q.prio==='bark' && vnow-q.t0>BARK_MAXAGE){ T('drop', q, {why:'stale'}); continue; }
-        if(q.prio==='normal' && q.wait>(q.ttl!=null?q.ttl:NORMAL_MAXWAIT)){ T('drop', q, {why:'expired'}); continue; }
+        if(q.ttl!=null ? q.wait>q.ttl : (q.prio==='normal' && q.wait>NORMAL_MAXWAIT)){ T('drop', q, {why:'expired'}); continue; }
         queue[w++]=q; }
       queue.length=w;
     }
@@ -8573,7 +8573,8 @@ function kiebitzSay(name, line, cooldown, urgent){
   if(L.kbCd>0) return false;
   if(!urgent && radioBusy()) return false;
   if(cooldown){ if((L.cd[name]||0)>0) return false; L.cd[name]=cooldown; }
-  L.kbCd=CFG.kiebitzGap; radio(line,{prio:urgent?'high':'normal'}); return true;
+  L.kbCd=CFG.kiebitzGap;   // tag 'kb': a newer callout replaces a stale queued one; ttl drops it once late
+  radio(line, urgent ? {prio:'crit', tag:'kb', ttl:2.5} : {prio:'normal', tag:'kb', ttl:3}); return true;
 }
 function updateKiebitzApproach(dt){
   const L=player._land;
