@@ -5,7 +5,7 @@
     "_comment": "Pronunciation fixes applied to the spoken text only (whole words, case-sensitive); the clip key stays on the original text. Found via Whisper transcripts in the review: Chatterbox reads 'Shift' as 'Schiff', 'KRONOS' garbled.",
     "Shift": "Schifft", "SHIFT. Herrgott.": "Schifft! Herrgott!", "Vr": "Vau-Err", "W oder Maus": "Weh oder Maus", "KRONOS": "Kronos",
     "_comment2": "Aus dem faster-whisper-large-v3-Check der neuen Besetzung: Chatterbox liest 'KI' englisch ('Key'); Piper verschleift die Komposita in Grossbuchstaben (HELIOS/STIMME) - 'BIERKISTE' -> 'Birkiste/wie Kiste', 'HIMMELSZELT' -> 'Himmel sind'. Mit Leerzeichen getrennt 3/3 korrekt. Nur die Grossschreib-Form, damit Chatterbox-Zeilen unberuehrt bleiben.",
-    "KI": "Ka-I", "BIERKISTE": "BIER KISTE", "HIMMELSZELT": "HIMMELS ZELT", "FESTBIER": "FEST BIER",
+    "KI": "Ka-I", "BIERKISTE": "BIER KISTE", "HIMMELSZELT": "HIMMELS ZELT", "FESTBIER": "FEST BIER", "woaß": "woass",
     "_comment3": "Uhrzeiten ausgeschrieben: mit 'Ka-I' liess Chatterbox im Intro (NARRATOR) '03:12 Uhr' ganz weg - Ziffern mit Doppelpunkt sind fuer das Modell unzuverlaessig.",
     "03:12 Uhr": "Drei Uhr zwölf", "03:14 Uhr": "Drei Uhr vierzehn", "03:20 Uhr": "Drei Uhr zwanzig"
   },
