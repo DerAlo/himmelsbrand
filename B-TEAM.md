@@ -151,7 +151,7 @@ Der Bogen bleibt: b0–b4 laut und albern, ab b5 warm statt Slapstick, b6 Finale
 | **„Shift ist Vollgas“** | b0 Intro (Wagner verzweifelt) → b6 `airborne`: Sepp sagt's selbst, Wagner: „Ich wollt's nur noch einmal sagen.“ |
 | **d'Kiste** | b1 `time 50–59`: Wiggerl hört das Gerücht, Sepp „Schmarrn … Wo genau?“, Kiebitz bremst → b3 Kisten-Logik („S'Bier is zwoatrangig. D'Kiste is erstrangig.“) → `bt_kiste`/`bt_final` → b6 „Fürs Danach“ → „…PROST.“ |
 | **STIMME lernt Bairisch** | b1 „ANALYSE: SINNLOS“ → b2 „NICHT JUGENDFREI“ → b3 „FESTBIER. NEUER BEGRIFF GESPEICHERT.“ → b4 „SERVUS?“ → b6 „KRUZI … FIX.“ → „IHR SEID … BAYERN.“ → „…PROST.“ |
-| **Sepps Fluchen** | Grantl-Pool (Sakradi → Kruzifix → Himmiherrgottsakra, zufällig ohne Wiederholung), b2 „Des is doch koa Fluchen! Des is Kultur!“, b6 die STIMME flucht mit. |
+| **Sepps Fluchen** | Grantl-Pool (Sakradi → Kruzifix → Himmiherrgottsakra, zufällig ohne Wiederholung), b2 „Des is doch koa Fluacha! Des is Kultur!“, b6 die STIMME flucht mit. |
 | **Weißwurst-Regel** | b2 Bunker-Zeile („Haut weg, Inhalt raus“) → b2 `time 55–65`: Weißwurscht auf'd Nacht, „schlimmer wia a Preiß“, Wagner: „Der Feind wartet nicht aufs Zwölfeläuten.“ → Brotzeit-Text „Vor dem Zwölfeläuten, versteht sich“. |
 | **Wiggerls Mama** | Dusel-Pool („Mei Mama sagt, i hab an Schutzengl …“) → b4 „Wer rückwärts fliagt, siecht wenigstens, wo er herkimmt“ → b5 „Des sagt mei Mama a imma“ + Sepp: „Dei Mama gfoit ma imma besser.“ |
 | **„Bleib bei mir, gell?“ / „Imma.“** | b5 Intro (Wiggerl fragt, Sepp: „Imma, Bua. Imma.“) → b5 `allyHp 0.3`: Sepp fragt, STIMME rät zum Zurücklassen, Wiggerl: „Imma, Sepp. Imma. I bin do.“ |

@@ -1053,7 +1053,7 @@ const BTEAM_CAMPAIGN = [
       {on:'progress',obj:'kill',n:2,delay:3,line:'WAGNER|Sie brauchen eine Brille, Huber?|kalt'},
       {on:'progress',obj:'kill',n:2,delay:6,line:'SEPP|Nur zum Lesn, Herr Oberst. Zum Schiaßn ned. …Moan i.'},
       {on:'landReady',line:'KIEBITZ|Huber, Landung frei. Bitte auf der Piste. Nicht daneben. Nicht auf dem Parkplatz.'},
-      {on:'landReady',delay:5,line:'SEPP|Des mit dem Parkplatz war oamoi. Und do is a Traktor gstandn, des zählt ned.'},
+      {on:'landReady',delay:5,line:"SEPP|Des mit'm Parkplatz war bloß oamoi. Und do is a Traktor gstandn, des zählt ned."},
     ],
     win:['SEPP|Ha! Steht no ois dro. Des war doch ned so schwaar.','WAGNER|…Sie sind gelandet. Ich fass es nicht. Vielleicht sterben wir doch nicht sofort.','KIEBITZ|Er steht. Auf der Piste. Ich brauch einen Kaffee. Kiebitz Ende.|spoettisch'],
     cutsceneAfter:'bt_draft',
@@ -1074,7 +1074,7 @@ const BTEAM_CAMPAIGN = [
       {on:'time',t:30,line:'SEPP|Do hat er ausnahmsweis recht, der Blechkastn.'},
       {on:'progress',obj:'kill',n:3,line:'WIGGERL|Sepp, i glaub, de mögn uns ned. Warum mögn de uns ned?'},
       {on:'time',t:50,line:'WIGGERL|Sepp, stimmt des? Irgendwo im Feindgebiet liegt a verschollene Kiste Festbier!'},
-      {on:'time',t:55,line:'SEPP|Schmarrn. Des is a Latrinengrücht. …Wo genau?'},
+      {on:'time',t:55,line:'SEPP|Schmarrn. Des is a Latrinenparole. …Wo genau?'},
       {on:'time',t:59,line:'KIEBITZ|Reserve, bitte in dieser Reihenfolge: erst die Drohnen, dann die Gerüchte.|spoettisch'},
     ],
     win:['WIGGERL|Ups. Alle weg. …War des jetzt i?','SEPP|Des war reiner Dusel, Bua. Aber i nimms.',"WAGNER|Konvoi intakt. Ich schreib ‚planmäßig'. Das wird nie jemand nachprüfen.|erschoepft"],
@@ -1093,7 +1093,7 @@ const BTEAM_CAMPAIGN = [
     mid:[
       {on:'time',t:25,line:'STIMME|SPRACHMODUL: UNBEKANNTER DIALEKT. ÜBERSETZUNG … NICHT JUGENDFREI.'},
       {on:'time',t:30,line:'WIGGERL|Sepp, der Computer hat di grad zensiert.'},
-      {on:'time',t:33,line:'SEPP|Kruzifix, des is doch koa Fluchen! Des is Kultur!|wuetend'},
+      {on:'time',t:33,line:'SEPP|Kruzifix, des is doch koa Fluacha! Des is Kultur!|wuetend'},
       {on:'done',obj:'bunker',line:'SEPP|Bunker hi. Wia a Weißwurscht: Haut weg, Inhalt raus.'},
       {on:'time',t:55,line:'WIGGERL|Sepp, i hab no a Weißwurscht im Cockpit. Magst de Hälfte?|froehlich'},
       {on:'time',t:59,line:"SEPP|Auf'd Nacht?! De derf 's Zwölfeläutn ned hörn! Du bist ja schlimmer wia a Preiß!|wuetend"},
@@ -8300,7 +8300,7 @@ const BARK_DONE={ H1:['WAGNER|Ziel erfüllt. Weiter.'], H2:['LÄRCHE|Das wäre e
   BT:['SEPP|Des hätt ma. Weiter.', 'WIGGERL|Erledigt! …Glaub i. Sepp, is des erledigt?', 'SEPP|Passt scho. Weida geht\'s.'], EN:['WAGNER|Ziel erfüllt. Weiter.'] };
 // ND §9.4 — ground kills by tag. W = Wagner, L = Lärche (used in missions with Lärche as wingman)
 const BARK_GROUND={
-  radar:{ W:['WAGNER|Mast liegt.'], L:['LÄRCHE|Antenne ist Schrott.'], BT:['WIGGERL|Tschüss, Antenne!', 'SEPP|Antenne hi. Jetz hören de so vui wia mei Schwager.'] },
+  radar:{ W:['WAGNER|Mast liegt.'], L:['LÄRCHE|Antenne ist Schrott.'], BT:['WIGGERL|Tschüss, Antenne!', 'SEPP|Antenne hi. Jetz hörn de so vui wia mei Schwager.'] },
   truck:{ W:['WAGNER|Laster brennt.'], BT:['WIGGERL|Oh, des hat gscheppert!', 'SEPP|Laster brennt. Hoffentlich war do koa Bier drin.'] },
   sam:{ W:['WAGNER|SAM ist still.'], L:['LÄRCHE|Eine SAM weniger. Der Himmel wird freundlicher.'], BT:['SEPP|De SAM is hin. Oane Sorg weniger.'] },
   hangar:{ W:['WAGNER|Halle eingestürzt.'] },
