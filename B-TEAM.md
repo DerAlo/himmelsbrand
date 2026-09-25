@@ -136,11 +136,38 @@ fragt die STIMME nach dem taktischen Wert, 7 s später Wiggerls Antwort (Festbie
 Kisten-Zeile im reach-Code ist entfallen. **b6** „O'zapft is!“: `bossSpawn` (Sieg-Prognose mit Selbstzweifel),
 `bossPart` 3/2/1 (bei 2 entdeckt die STIMME die Bierkiste, 4 s später Wiggerls „Fürs Danach!“, bei 1
 „„DANACH“ … NICHT BERECHENBAR“), `bossExposed` (Sepp) und `bossHp 0.25` (Kapitulation „IHR SEID … BAYERN.“).
-`b6` trägt `bossName:'HIMMELSZELT · FLIEGENDE FESTUNG'`.
+`b6` trägt `bossName:'HIMMELSZELT · FLIEGENDE FESTUNG'`. Dazu `airborne` (Sepp: „Shift is Vollgas. I woaß scho“,
+Wagner antwortet leise — Rückruf auf b0) und `bossHp 0.5` (die STIMME flucht „KRUZI … FIX.“, Sepp findet's fast rührend).
+
+`bt_draft` enthält Wiggerls „Resi. Sie hoaßt Resi, Herr Oberst.“ (führt den Flugzeugnamen ein, den die Barks
+benutzen); `bt_groove` endet mit Wiggerls „Z'spät, Sepp. I glaub's scho.“
+
+### Running Gags & Rückrufe (Humor-Pass „ov4/bteam-humor“)
+
+Der Bogen bleibt: b0–b4 laut und albern, ab b5 warm statt Slapstick, b6 Finale mit leisen Rückrufen.
+
+| Gag | Aufbau → Eskalation → Auszahlung |
+|---|---|
+| **„Shift ist Vollgas“** | b0 Intro (Wagner verzweifelt) → b6 `airborne`: Sepp sagt's selbst, Wagner: „Ich wollt's nur noch einmal sagen.“ |
+| **d'Kiste** | b1 `time 50–59`: Wiggerl hört das Gerücht, Sepp „Schmarrn … Wo genau?“, Kiebitz bremst → b3 Kisten-Logik („S'Bier is zwoatrangig. D'Kiste is erstrangig.“) → `bt_kiste`/`bt_final` → b6 „Fürs Danach“ → „…PROST.“ |
+| **STIMME lernt Bairisch** | b1 „ANALYSE: SINNLOS“ → b2 „NICHT JUGENDFREI“ → b3 „FESTBIER. NEUER BEGRIFF GESPEICHERT.“ → b4 „SERVUS?“ → b6 „KRUZI … FIX.“ → „IHR SEID … BAYERN.“ → „…PROST.“ |
+| **Sepps Fluchen** | Grantl-Pool (Sakradi → Kruzifix → Himmiherrgottsakra, zufällig ohne Wiederholung), b2 „Des is doch koa Fluchen! Des is Kultur!“, b6 die STIMME flucht mit. |
+| **Weißwurst-Regel** | b2 Bunker-Zeile („Haut weg, Inhalt raus“) → b2 `time 55–65`: Weißwurscht auf'd Nacht, „schlimmer wia a Preiß“, Wagner: „Der Feind wartet nicht aufs Zwölfeläuten.“ → Brotzeit-Text „Vor dem Zwölfeläuten, versteht sich“. |
+| **Wiggerls Mama** | Dusel-Pool („Mei Mama sagt, i hab an Schutzengl …“) → b4 „Wer rückwärts fliagt, siecht wenigstens, wo er herkimmt“ → b5 „Des sagt mei Mama a imma“ + Sepp: „Dei Mama gfoit ma imma besser.“ |
+| **„Bleib bei mir, gell?“ / „Imma.“** | b5 Intro (Wiggerl fragt, Sepp: „Imma, Bua. Imma.“) → b5 `allyHp 0.3`: Sepp fragt, STIMME rät zum Zurücklassen, Wiggerl: „Imma, Sepp. Imma. I bin do.“ |
+| **Wagner als Straight Man** | b0 Brille („Sie brauchen eine Brille, Huber?“), b1 „Ich schreib ‚planmäßig'“, b4 „Er besteht aus einem Wort: ‚Schafkopf'.“ |
+| **Kiebitz' Logbuch/Spott** | Start-/Lande-Pools (u. a. „heimlich auf euch gewettet“, „Diesmal bitte mit Fahrwerk“), b0 Parkplatz → Sepp: „do is a Traktor gstandn, des zählt ned“. |
+| **Brotzeit-Texte** | Helles „Oa Bier is koa Bier“, Radler = „Wagners Wahl“, Espresso = „Kiebitz schwört drauf“ (Rückruf auf b0 „Ich brauch einen Kaffee“). |
+
+**Dialekt-Konvention:** Sepp & Wiggerl Bairisch, lesbar: i, ned, ois, a, koa, scho, fei, gell, amoi/oamoi, Bua,
+Schmarrn, jetz, mir (= wir), „Ham S'“ (Sepp siezt den Oberst). Wiggerl etwas weicher/jünger. Wagner und Kiebitz
+Hochdeutsch. Frotzeleien über Preußen nur freundschaftlich (Wagner kontert trocken).
 
 **B-Team-Barks** (Kontext `BT`): Kiebitz-Startruf und -Landefreigabe mit eigenem, spöttischem Pool
 („Reserve ist in der Luft …“), Bodenziel-Barks von Wiggerl/Sepp, Treffer-Barks je nach Held: fliegt Sepp,
-kommentiert Wiggerl und umgekehrt (`hpLow`, `allyHp` 50 %/25 %).
+kommentiert Wiggerl und umgekehrt (`hpLow`, `allyHp` 50 %/25 %). Grantl-Start/-Ende (`BT_GRANTL_ON/OFF`)
+und Dusel-Sprüche (`BT_DUSEL`) sind kleine Pools ohne Sofort-Wiederholung (`pickBark`). Der Bunker-Bark
+wiederholt die b2-Weißwurscht-Zeile nicht mehr.
 
 **Wichtig für BOSSES:** die Boss-Zeilen in `b6.mid` feuern erst, sobald der Boss-Code die
 `EV.emit('boss…')`-Events auslöst (Kontrakt in `STORY.md` §4 und `HANDOFF.md` A7) — bis dahin bleiben

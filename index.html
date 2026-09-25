@@ -337,7 +337,7 @@
     <button class="btn ghost small backbtn" data-back="briefing">‹ ZURÜCK</button>
     <div class="subbrand">VOR DEM EINSATZ</div>
     <h1 class="title" style="font-size:40px; letter-spacing:5px">BROTZEIT? 🍺</h1>
-    <div class="tag" style="opacity:.8; margin-bottom:10px; max-width:560px">Such dir was aus, bevor's losgeht — jede Brotzeit hat ihre Wirkung (und ihren Preis).</div>
+    <div class="tag" style="opacity:.8; margin-bottom:10px; max-width:560px">Ohne Brotzeit fliagt koana. Such dir was aus — jede Brotzeit hat ihre Wirkung (und ihren Preis).</div>
     <div id="brotzeit-opts" class="menu-btns"></div>
   </div>
 
@@ -1029,10 +1029,10 @@ const BTEAM_PILOTS = {
 };
 // Brotzeit: a pre-mission risk/reward pick (B-Team only). bz sets resting combat modifiers.
 const BROTZEIT = {
-  helles:    { label:'🍺 Helles',     note:'„Schwips“ — engere Kurven, aber zittrigeres Zielen', bz:{dmg:1,   fire:1,    turn:1.18, wobble:0.02,  hp:0}  },
-  weisswurst:{ label:'🌭 Weißwurst',  note:'Satt & zufrieden — +25 Struktur, aber etwas träger',   bz:{dmg:1,   fire:1,    turn:0.96, wobble:0,     hp:25} },
-  radler:    { label:'🍋 Radler',     note:'Ausgewogen — etwas mehr Feuerkraft',                 bz:{dmg:1.12,fire:1.05, turn:1,    wobble:0,     hp:0}  },
-  espresso:  { label:'☕ Espresso',    note:'Schnelleres Nachladen — aber nervöser Finger',       bz:{dmg:1,   fire:1.28, turn:1,    wobble:0.012, hp:0}  },
+  helles:    { label:'🍺 Helles',     note:'„Oa Bier is koa Bier“ — engere Kurven, aber zittrigeres Zielen', bz:{dmg:1,   fire:1,    turn:1.18, wobble:0.02,  hp:0}  },
+  weisswurst:{ label:'🌭 Weißwurst',  note:'Vor dem Zwölfeläuten, versteht sich — +25 Struktur, aber träger', bz:{dmg:1,   fire:1,    turn:0.96, wobble:0,     hp:25} },
+  radler:    { label:'🍋 Radler',     note:'Wagners Wahl: vernünftig — etwas mehr Feuerkraft',  bz:{dmg:1.12,fire:1.05, turn:1,    wobble:0,     hp:0}  },
+  espresso:  { label:'☕ Espresso',    note:'Kiebitz schwört drauf — schnelleres Nachladen, nervöser Finger', bz:{dmg:1,   fire:1.28, turn:1,    wobble:0.012, hp:0}  },
 };
 const BTEAM_CAMPAIGN = [
   {
@@ -1044,12 +1044,16 @@ const BTEAM_CAMPAIGN = [
       { id:'land', kind:'land', primary:true, label:'Die Kiste heil wieder runterbringen' },
     ],
     spawns:{ air:[['f16',3]] },
-    intro:['SEPP|Sakradi, wer hat denn den Sitz so weit vorn gschobn… passt scho. Wo is der Gashebel?','WAGNER|Shift ist Vollgas, Huber. SHIFT. Herrgott.'],
+    intro:["SEPP|Sakradi, wer hat'n den Sitz so weit vire gschobn? … Passt scho. Wo is'n da Gashebel?",'WAGNER|Shift ist Vollgas, Huber. SHIFT. Herrgott.'],
     mid:[
       {on:'airborne',line:"KIEBITZ|Reserve ist … in der Luft. Tatsächlich. Ich trag's ins Logbuch ein, sonst glaubt's keiner.|fluestern"},
-      {on:'progress',obj:'kill',n:1,line:'SEPP|Oane weg! Hast as gsehn, Herr Oberst? Hast as GSEHN?|triumphierend'},
+      {on:'progress',obj:'kill',n:1,line:"SEPP|Oane weg! Ham S' des gsehn, Herr Oberst? Ham S' des GSEHN?|triumphierend"},
       {on:'progress',obj:'kill',n:1,delay:3,line:"WAGNER|Ich hab's gesehen, Huber. Weitermachen. Leiser."},
+      {on:'progress',obj:'kill',n:2,line:'SEPP|Zwoa! Und des ganz ohne Brilln!|triumphierend'},
+      {on:'progress',obj:'kill',n:2,delay:3,line:'WAGNER|Sie brauchen eine Brille, Huber?|kalt'},
+      {on:'progress',obj:'kill',n:2,delay:6,line:'SEPP|Nur zum Lesn, Herr Oberst. Zum Schiaßn ned. …Moan i.'},
       {on:'landReady',line:'KIEBITZ|Huber, Landung frei. Bitte auf der Piste. Nicht daneben. Nicht auf dem Parkplatz.'},
+      {on:'landReady',delay:5,line:'SEPP|Des mit dem Parkplatz war oamoi. Und do is a Traktor gstandn, des zählt ned.'},
     ],
     win:['SEPP|Ha! Steht no ois dro. Des war doch ned so schwaar.','WAGNER|…Sie sind gelandet. Ich fass es nicht. Vielleicht sterben wir doch nicht sofort.','KIEBITZ|Er steht. Auf der Piste. Ich brauch einen Kaffee. Kiebitz Ende.|spoettisch'],
     cutsceneAfter:'bt_draft',
@@ -1062,14 +1066,18 @@ const BTEAM_CAMPAIGN = [
       { id:'struct', kind:'minHP', hp:20, primary:false, label:'Irgendwie am Stück bleiben' },
     ],
     spawns:{ ally:true, air:[['f16',3],['f18',2]] },
-    intro:['WIGGERL|Ohhh, schau da moi, so vui auf oimoi… i hab da so a Gfui, des wird lustig.','SEPP|RADI! Aufpassn, ned traamen!'],
+    intro:['WIGGERL|Ohhh, schau da moi, so vui auf oamoi … i hab da so a Gfui, des wird lustig.','SEPP|RADI! Aufpassn, ned traama!'],
     mid:[
       {on:'progress',obj:'kill',n:1,line:'WIGGERL|Oh! Der is higfalln. Hab i den troffn? I glaub, i hab den troffn.'},
+      {on:'progress',obj:'kill',n:1,delay:4,line:'SEPP|Na, Bua. Der is vor Lacha obegfalln.|spoettisch'},
       {on:'time',t:25,line:'STIMME|ZIELVERHALTEN WIRD ANALYSIERT … ANALYSE: SINNLOS.'},
       {on:'time',t:30,line:'SEPP|Do hat er ausnahmsweis recht, der Blechkastn.'},
       {on:'progress',obj:'kill',n:3,line:'WIGGERL|Sepp, i glaub, de mögn uns ned. Warum mögn de uns ned?'},
+      {on:'time',t:50,line:'WIGGERL|Sepp, stimmt des? Irgendwo im Feindgebiet liegt a verschollene Kiste Festbier!'},
+      {on:'time',t:55,line:'SEPP|Schmarrn. Des is a Latrinengrücht. …Wo genau?'},
+      {on:'time',t:59,line:'KIEBITZ|Reserve, bitte in dieser Reihenfolge: erst die Drohnen, dann die Gerüchte.|spoettisch'},
     ],
-    win:['WIGGERL|Ups. Alle weg. …War des jetzt i?','SEPP|Des war reiner Dusel, Bua. Aber i nimms.'],
+    win:['WIGGERL|Ups. Alle weg. …War des jetzt i?','SEPP|Des war reiner Dusel, Bua. Aber i nimms.',"WAGNER|Konvoi intakt. Ich schreib ‚planmäßig'. Das wird nie jemand nachprüfen.|erschoepft"],
   },
   {
     id:'b2', name:'Der Grantler', type:'mixed', tod:'dusk', hero:'sepp', wingman:true,
@@ -1081,11 +1089,15 @@ const BTEAM_CAMPAIGN = [
     ],
     spawns:{ ally:true, ground:[['bunker',2],['sam',2]], air:[['f16',3]] },
     agms:6, bombs:6, weapon:'agm',
-    intro:['SEPP|Erst die Bunker, dann die SAMs. Und wehe, du fliegst mir in die Druckwelle.','WIGGERL|Sepp, du wirst ganz rot im Gsicht… steht dir eigentlich.'],
+    intro:["SEPP|Zerst d'Bunker, dann d'SAMs. Und wehe, du fliagst ma in d'Druckwelle, Bua.",'WIGGERL|Sepp, du wirst ganz rot im Gsicht… steht dir eigentlich.'],
     mid:[
       {on:'time',t:25,line:'STIMME|SPRACHMODUL: UNBEKANNTER DIALEKT. ÜBERSETZUNG … NICHT JUGENDFREI.'},
       {on:'time',t:30,line:'WIGGERL|Sepp, der Computer hat di grad zensiert.'},
+      {on:'time',t:33,line:'SEPP|Kruzifix, des is doch koa Fluchen! Des is Kultur!|wuetend'},
       {on:'done',obj:'bunker',line:'SEPP|Bunker hi. Wia a Weißwurscht: Haut weg, Inhalt raus.'},
+      {on:'time',t:55,line:'WIGGERL|Sepp, i hab no a Weißwurscht im Cockpit. Magst de Hälfte?|froehlich'},
+      {on:'time',t:59,line:"SEPP|Auf'd Nacht?! De derf 's Zwölfeläutn ned hörn! Du bist ja schlimmer wia a Preiß!|wuetend"},
+      {on:'time',t:65,line:'WAGNER|Ich höre mit, Huber. Und der Feind wartet nicht aufs Zwölfeläuten.|kalt'},
     ],
     win:['SEPP|SO. Ois zam. Und jetzt a Ruah.','WIGGERL|Weißt was, Sepp? Wennst grantig bist, triffst besser. Faszinierend.'],
     cutsceneAfter:'bt_groove',
@@ -1102,10 +1114,14 @@ const BTEAM_CAMPAIGN = [
     crate:true, agms:4, bombs:6, weapon:'bomb',
     intro:['WIGGERL|I riech des Bier scho von hier obn. Des is a Zeichen.','SEPP|Des is Kerosin, du Depp. Konzentrier di.'],
     mid:[
+      {on:'time',t:25,line:'WAGNER|Brandtner, zur Erinnerung: Das Bier ist zweitrangig.|kalt'},
+      {on:'time',t:29,line:"WIGGERL|Jawoi, Herr Oberst. S'Bier is zwoatrangig. D'Kiste is erstrangig."},
+      {on:'time',t:34,line:'SEPP|…Sakradi. Des is so bläd, des is scho wieder gscheit.'},
       {on:'done',obj:'convoy',line:'WAGNER|Konvois erledigt. Und jetzt … holen Sie halt Ihr Bier. Ich hab nichts gesagt.|traurig'},
       {on:'done',obj:'crate',line:"WIGGERL|D'KISTE! I hab d'Kiste! JUHUUU!"},
       {on:'done',obj:'crate',delay:3,line:'STIMME|OBJEKT: BIERKISTE. TAKTISCHER WERT: NULL. WARUM RISKIERT IHR EUER LEBEN?'},
       {on:'done',obj:'crate',delay:7,line:"WIGGERL|Weil's a Festbier is! Des woaß doch a jeds Kind!"},
+      {on:'done',obj:'crate',delay:11,line:'STIMME|… FESTBIER. NEUER BEGRIFF GESPEICHERT.|kalt'},
     ],
     win:['WIGGERL|Bereich gsichert! Und d\'Kiste is heil! I HABS GWUSST!','SEPP|…de hoi ma später. Aber wehe, es fehlt was.'],
     cutsceneAfter:'bt_kiste',
@@ -1118,13 +1134,17 @@ const BTEAM_CAMPAIGN = [
       { id:'struct', kind:'minHP', hp:20, primary:false, label:'Struktur über 20% halten' },
     ],
     spawns:{ ally:true, air:[['f18',4,'aggressor'],['f22',3,'sniper']], ace:'f22', waveDelay:true },
-    intro:['STIMME|PROGNOSE … NICHT MÖGLICH. WIEDERHOLE: NICHT MÖGLICH.','SEPP|Hörst as? De schnoin durch. Genau so gfoit ma des.'],
+    intro:['STIMME|PROGNOSE … NICHT MÖGLICH. WIEDERHOLE: NICHT MÖGLICH.','SEPP|Hörst as? De drahn durch. Genau so gfoit ma des.'],
     mid:[
       {on:'time',t:30,line:'STIMME|NEUBERECHNUNG … NEUBERECHNUNG … WARUM FLIEGT IHR RÜCKWÄRTS?'},
       {on:'time',t:34,line:'WIGGERL|Tu ma des?'},
       {on:'time',t:36,line:'SEPP|Jetzt scho.'},
+      {on:'time',t:40,line:'WIGGERL|Mei Mama sagt imma: Wer rückwärts fliagt, siecht wenigstens, wo er herkimmt.|froehlich'},
+      {on:'time',t:62,line:'STIMME|SPRACHMODUL ERWEITERT. … SERVUS?|kalt'},
+      {on:'time',t:66,line:'WIGGERL|Sepp! Er hat Servus gsagt! Des is ja fast scho a Freind!|froehlich'},
+      {on:'time',t:70,line:'SEPP|Des is koa Freind, Bua. Des is a Toaster mit Heimweh.|spoettisch'},
     ],
-    win:['WIGGERL|Warad des jetzt guad oda schlecht? …de san jedenfalls oi weg.','SEPP|Des, Bua, war a Meisterwerk. Merk dir des.'],
+    win:['WIGGERL|Warad des jetzt guad oda schlecht? …de san jedenfalls oi weg.','SEPP|Des, Bua, war a Meisterwerk. Merk dir des.',"WAGNER|Ich soll den Plan schriftlich melden. Er besteht aus einem Wort: ‚Schafkopf'.|erschoepft"],
   },
   {
     id:'b5', name:'Zwei gegen alle', type:'air', tod:'night', hero:'wiggerl', wingman:true,
@@ -1138,8 +1158,11 @@ const BTEAM_CAMPAIGN = [
     mid:[
       {on:'time',t:15,line:'STIMME|IHR SEID ALLEIN. EURE LAGE IST AUSSICHTSLOS. ERGEBT EUCH.'},
       {on:'time',t:20,line:'WIGGERL|Des sagt mei Mama a imma. Und schau, i bin no do.'},
+      {on:'time',t:25,line:'SEPP|…Dei Mama gfoit ma imma besser, Bua.|ruhig'},
       {on:'progress',obj:'clear',n:5,line:'WAGNER|An der Nordfront fliegt einer namens Geier, der macht mir auch graue Haare. Der landet wenigstens.'},
       {on:'allyHp',lt:0.3,line:'SEPP|Bua … i hab a Loch im Flügl. Bleib bei mir, gell?|traurig'},
+      {on:'allyHp',lt:0.3,delay:4,line:'STIMME|EINHEIT HUBER BESCHÄDIGT. LOGISCHE OPTION: ZURÜCKLASSEN.|kalt'},
+      {on:'allyHp',lt:0.3,delay:8,line:'WIGGERL|Drum bist du a Maschin und i ned. …Imma, Sepp. Imma. I bin do.|ruhig'},
     ],
     win:['SEPP|Beide no da. Beide. Des is… des is a guads Gfui.','WAGNER|Ich bin ein Idiot. Ich hab mich noch nie so gefreut, ein Idiot zu sein.'],
     cutsceneAfter:'bt_final',
@@ -1157,12 +1180,16 @@ const BTEAM_CAMPAIGN = [
     agms:6, bombs:6, weapon:'agm',
     intro:['KIEBITZ|Reserve, Start frei. Ganz Deutschland schaut zu. Kein Druck.|spoettisch',"SEPP|Ozapft wird, wenns owe is. PACKMA'S!"],
     mid:[
+      {on:'airborne',line:'SEPP|Shift is Vollgas. I woaß scho, Herr Oberst.|ruhig'},
+      {on:'airborne',delay:4,line:"WAGNER|Ich weiß, dass Sie's wissen, Huber. Ich wollt's nur noch einmal sagen.|ruhig"},
       {on:'bossSpawn',line:'STIMME|FESTUNG HIMMELSZELT BEREIT. PROGNOSE: SIEG. … PROGNOSE: SIEG? … BITTE BESTÄTIGEN.|kalt'},
       {on:'bossPart',left:3,line:'SEPP|Oan Turm weniger! Drei no!|froehlich'},
       {on:'bossPart',left:2,line:'STIMME|OBJEKT BIERKISTE AN BORD DES FEINDES ERKANNT. ZWECK?|kalt'},
       {on:'bossPart',left:2,delay:4,line:'WIGGERL|Fürs Danach! Mir trinkn de, wenn mir di obegholt ham!|froehlich'},
       {on:'bossPart',left:1,line:'STIMME|„DANACH“. … IHR PLANT EIN DANACH. … DAS IST NICHT BERECHENBAR.|fluestern'},
       {on:'bossExposed',line:'SEPP|Kern is frei! Radi, jetzt: ALLES, WAS MA HAM!|wuetend'},
+      {on:'bossHp',lt:0.5,line:'STIMME|KRUZI … FIX.|wuetend'},
+      {on:'bossHp',lt:0.5,delay:3,line:'SEPP|Hast des ghört, Radi? Jetz fluacht er scho wia mir. Des is ja fast rührend.|spoettisch'},
       {on:'bossHp',lt:0.25,line:'STIMME|ICH … KAPITULIERE. IHR SEID NICHT BERECHENBAR. IHR SEID … BAYERN.|traurig'},
     ],
     win:["SEPP|SIE FOIT! De Festung foit! …Bua, hoi d'Kiste.","WIGGERL|Scho offen, Sepp. Prost. Auf d'Adler. Und auf uns zwoa Deppen, de's doch packt ham.",'STIMME|…PROST.|ruhig'],
@@ -1173,9 +1200,9 @@ const BTEAM_CAMPAIGN = [
 // B-Team interstitials (kept separate; showCutscene consults both objects).
 const BTEAM_CUTSCENES = {
   bt_draft:{ chapter:'DAS B-TEAM', title:'Die letzte Wahl',
-    body:`Im Hangar hängt noch das Staffelfoto der „Adler“ — durchgestrichen, schwarzer Trauerflor.<br><br><span class="who">WAGNER:</span> „Ich hatte die Besten. Jetzt hab ich … euch. Einen Feldwebel, der mehr flucht als redet, und einen Gefreiten, der mit seinem Flugzeug spricht.“<br><br><span class="who">SEPP:</span> „Und? De Besten san tot. De zwoa Deppen leben no. Vielleicht is Blödsinn genau des, was koa Computer kommen sieht.“<br><br>Wagner sieht die beiden lange an. Zum ersten Mal seit Tagen hat er einen leisen, absurden Funken Hoffnung.` },
+    body:`Im Hangar hängt noch das Staffelfoto der „Adler“ — durchgestrichen, schwarzer Trauerflor.<br><br><span class="who">WAGNER:</span> „Ich hatte die Besten. Jetzt hab ich … euch. Einen Feldwebel, der mehr flucht als redet, und einen Gefreiten, der mit seinem Flugzeug spricht.“<br><br><span class="who">WIGGERL:</span> „Resi. Sie hoaßt Resi, Herr Oberst. Sie mog's ned, wenn ma ‚Flugzeug' sagt.“<br><br><span class="who">SEPP:</span> „Und? De Besten san tot. De zwoa Deppen leben no. Vielleicht is Blödsinn genau des, was koa Computer kommen sieht.“<br><br>Wagner sieht die beiden lange an. Zum ersten Mal seit Tagen hat er einen leisen, absurden Funken Hoffnung.` },
   bt_groove:{ chapter:'DAS B-TEAM', title:'Langsam läuft\'s',
-    body:`Irgendwo zwischen Granteln und Dusel haben die zwei einen Rhythmus gefunden.<br><br><span class="who">WIGGERL:</span> „Sepp, mir san eigentlich a ganz guads Team, oda?“<br><span class="who">SEPP:</span> „Sag des nie wieder laut. Nachher glaubst as no.“<br><br>Auf den Feindschirmen häufen sich derweil rote Fehlermeldungen: <i>Zielverhalten nicht klassifizierbar.</i>` },
+    body:`Irgendwo zwischen Granteln und Dusel haben die zwei einen Rhythmus gefunden.<br><br><span class="who">WIGGERL:</span> „Sepp, mir san eigentlich a ganz guads Team, oda?“<br><span class="who">SEPP:</span> „Sag des nie wieder laut. Nachher glaubst as no.“<br><span class="who">WIGGERL:</span> „Z'spät, Sepp. I glaub's scho.“<br><br>Auf den Feindschirmen häufen sich derweil rote Fehlermeldungen: <i>Zielverhalten nicht klassifizierbar.</i>` },
   bt_kiste:{ chapter:'DAS B-TEAM', title:'Beschlagnahmt',
     body:`Die Kiste landet unversehrt im Hangar, und keine zehn Sekunden später steht Oberst Wagner davor.<br><br><span class="who">WAGNER:</span> „Beschlagnahmt. Bis Kriegsende. Das ist Beweismaterial für den unfassbarsten Einsatzbericht meiner Laufbahn.“<br><br><span class="who">WIGGERL:</span> „Aber Herr Oberst … des is Festbier.“<br><span class="who">WAGNER:</span> „Und ich bin Oberst. Wegtreten.“<br><br>Die Kiste verschwindet in Wagners Büro. Nachts hört Sepp ihn dort mit dem Staffelfoto der Adler reden. Er erzählt es niemandem. Nicht mal Wiggerl.` },
   bt_final:{ chapter:'DAS B-TEAM', title:'Vor dem letzten Zapfhahn',
@@ -8262,20 +8289,22 @@ const BARK_TAKEOFF={
      'KIEBITZ|Abgehoben. Kiebitz wünscht guten Flug. Und bring sie heil zurück.',
      'KIEBITZ|Geier, du bist frei. Horst übernimmt. Kiebitz hört mit.'],
   BT:['KIEBITZ|Reserve ist in der Luft. Ich trag\'s ins Logbuch ein, sonst glaubt\'s keiner.|spoettisch',
-      'KIEBITZ|Abgehoben. Und der Zaun steht noch. Das ist Fortschritt.|spoettisch'] };
+      'KIEBITZ|Abgehoben. Und der Zaun steht noch. Das ist Fortschritt.|spoettisch',
+      'KIEBITZ|Reserve abgehoben. Ich hab heimlich auf euch gewettet. Enttäuscht mich nicht.|spoettisch'] };
 const BARK_LANDREADY={
   H:['KIEBITZ|Geier, Kiebitz. Landung frei, Piste drei-sechs. Fahrwerk raus, langsam und flach.'],
-  BT:['KIEBITZ|Reserve, Landung frei. Die Piste ist das lange graue Ding. Bitte dort.|spoettisch'] };
+  BT:['KIEBITZ|Reserve, Landung frei. Die Piste ist das lange graue Ding. Bitte dort.|spoettisch',
+      'KIEBITZ|Reserve, Landung frei. Diesmal bitte mit Fahrwerk. Ich frag ja nur.|spoettisch'] };
 // ND §9.4 — objectiveDone fallback (replaces the old "<label> — erledigt." template)
 const BARK_DONE={ H1:['WAGNER|Ziel erfüllt. Weiter.'], H2:['LÄRCHE|Das wäre erledigt. Nächstes.'],
-  BT:['SEPP|Des hätt ma. Weiter.'], EN:['WAGNER|Ziel erfüllt. Weiter.'] };
+  BT:['SEPP|Des hätt ma. Weiter.', 'WIGGERL|Erledigt! …Glaub i. Sepp, is des erledigt?', 'SEPP|Passt scho. Weida geht\'s.'], EN:['WAGNER|Ziel erfüllt. Weiter.'] };
 // ND §9.4 — ground kills by tag. W = Wagner, L = Lärche (used in missions with Lärche as wingman)
 const BARK_GROUND={
-  radar:{ W:['WAGNER|Mast liegt.'], L:['LÄRCHE|Antenne ist Schrott.'], BT:['WIGGERL|Tschüss, Antenne!'] },
-  truck:{ W:['WAGNER|Laster brennt.'], BT:['WIGGERL|Oh, des hat gscheppert!'] },
+  radar:{ W:['WAGNER|Mast liegt.'], L:['LÄRCHE|Antenne ist Schrott.'], BT:['WIGGERL|Tschüss, Antenne!', 'SEPP|Antenne hi. Jetz hören de so vui wia mei Schwager.'] },
+  truck:{ W:['WAGNER|Laster brennt.'], BT:['WIGGERL|Oh, des hat gscheppert!', 'SEPP|Laster brennt. Hoffentlich war do koa Bier drin.'] },
   sam:{ W:['WAGNER|SAM ist still.'], L:['LÄRCHE|Eine SAM weniger. Der Himmel wird freundlicher.'], BT:['SEPP|De SAM is hin. Oane Sorg weniger.'] },
   hangar:{ W:['WAGNER|Halle eingestürzt.'] },
-  bunker:{ L:['LÄRCHE|Bunker geknackt.'], BT:['SEPP|Bunker hi! Wia a Weißwurscht: Haut weg, Inhalt raus.'] },
+  bunker:{ L:['LÄRCHE|Bunker geknackt.'], BT:['SEPP|Oana offen. Da Nächste, bittschön!', 'WIGGERL|Bumm! Sepp, der Bunker hat des ned kommen sehn!|froehlich'] },
   depot:{ L:['LÄRCHE|Depot geht hoch! Abstand!|dringend'] } };
 // ND §9.2 hpLow / §9.3 allyHp — only when the mission has no mid[] line for it (once per mission)
 const BARK_HPLOW={ H1:['WAGNER|Struktur kritisch, Geier. Kein Heldentum jetzt.|dringend'],
@@ -8583,6 +8612,12 @@ function updatePlayerGround(dt){
 // B-Team pilot mechanics: Grantl-Modus (Sepp) = rage->berserk; Dusel (Wiggerl) is
 // handled where luck applies (gun crits, enemy-missile misses). Also folds in the
 // Brotzeit resting modifiers. No-op for HELIOS/endless (player.hero===null, bz all 1).
+// Sepp's rage/calm-down and Wiggerl's Dusel lines: small pools, no immediate repeat (pickBark).
+const BT_GRANTL_ON=['SEPP|JETZ REICHT\'S MIR! SAKRADI!', 'SEPP|KRUZIFIX, JETZ LANGT\'S! Jetz werd\'s ungmüatlich!|wuetend',
+  'SEPP|HIMMIHERRGOTTSAKRA! Jetz gibt\'s Watschn!|wuetend'];
+const BT_GRANTL_OFF=['SEPP|…so. A Ruah jetz.', 'SEPP|…So. Des hat guad do. Wo war i?|erschoepft'];
+const BT_DUSEL=['WIGGERL|Ha! Danebn! Glück ghabt.', 'WIGGERL|Ups … danebn! Des war Absicht. Ehrlich.',
+  'WIGGERL|Mei Mama sagt, i hab an Schutzengl. Der macht heit Überstundn.|froehlich'];
 function updateHero(dt){
   const bz=player.bz||{dmg:1,fire:1,turn:1,wobble:0};
   let dmg=bz.dmg, fire=bz.fire;
@@ -8590,11 +8625,11 @@ function updateHero(dt){
     const taken=Math.max(0, (player._lastHp||player.hp) - player.hp);
     if(player.grantlActive){
       player.grantlT-=dt; dmg*=1.9; fire*=1.7;                       // BERSERK
-      if(player.grantlT<=0){ player.grantlActive=false; player.grantl=0; radio('SEPP|…so. A Ruah jetz.'); }
+      if(player.grantlT<=0){ player.grantlActive=false; player.grantl=0; radio(pickBark('grantlOff', BT_GRANTL_OFF)); }
     } else {
       // rage is EARNED — mostly from damage taken; only a slow simmer in prolonged combat
       player.grantl = Math.max(0, Math.min(1, player.grantl + taken*0.02 + (enemies.length?dt*0.02:0) - dt*0.015));
-      if(player.grantl>=1){ player.grantlActive=true; player.grantlT=5.5; radio('SEPP|JETZ REICHT\'S MIR! SAKRADI!'); shake=Math.max(shake,0.45); }
+      if(player.grantl>=1){ player.grantlActive=true; player.grantlT=5.5; radio(pickBark('grantlOn', BT_GRANTL_ON)); shake=Math.max(shake,0.45); }
     }
   }
   player.dmgMul=dmg; player.fireRateMul=fire; player.turnMul=bz.turn||1; player.aimWobble=bz.wobble||0;
@@ -9527,7 +9562,7 @@ function updateEnemyMissiles(dt){
       // Dusel (Wiggerl): dumb luck — a chunk of incoming missiles simply "just miss".
       if(player.hero==='wiggerl' && Math.random()<0.4){
         explode(mi.mesh.position.x,mi.mesh.position.y,mi.mesh.position.z,0.5); Audio.explosion(false, screenPanX(mi.mesh.position));
-        player.duselFlash=0.6; if(Math.random()<0.5) radio('WIGGERL|Ha! Danebn! Glück ghabt.');
+        player.duselFlash=0.6; if(Math.random()<0.5) radio(pickBark('dusel', BT_DUSEL));
         done=true;
       } else {
         player.hp-=CFG.enemyMissileDmg; shake=Math.max(shake,0.7); damageFlash=Math.max(damageFlash,0.6); Audio.hitTaken();
