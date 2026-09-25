@@ -1,8 +1,9 @@
 """Fetch/build the zero-shot cloning reference clips that casting.json points at.
-All references are CC0 / public domain or come from permissively-licensed (MIT) TTS model output -
-see README.md "Credits / Lizenzen".
+References are CC0 / public domain, permissively-licensed (MIT) TTS model output, or - for the two
+Bavarian voices - CC BY / CC BY-SA Wikimedia Commons audio (attribution required); see README.md
+"Credits / Lizenzen".
 
-Three groups:
+Four groups:
   1. refs/thorsten/*.wav   - real human speech, cut from the CC0 Thorsten-Voice emotional
                              recordings (Thorsten-Voice/TV-44kHz-Full, subset TV-2021.06-Emotional,
                              https://huggingface.co/datasets/Thorsten-Voice/TV-44kHz-Full, CC0).
@@ -13,6 +14,8 @@ Three groups:
                              (archive.org, licence: public domain). One distinct reader per main male
                              character so WAGNER/SEPP/KELLER no longer clone the same man. Exact file,
                              offset and length below -> byte-identical rebuild (needs ffmpeg + curl).
+  4. refs/bavarian/*.wav    - real Bavarian dialect speech (Wikimedia Commons, CC BY 3.0 / CC BY-SA 4.0)
+                             for SEPP and WIGGERL, cut the same way as group 3.
 
 Run once (or with --force to rebuild): needs the 'cbx' venv (soundfile) for group 1, and a working
 Piper install under $TTS_BAKE/piper (see setup.ps1 -Only piper) for group 2.
@@ -46,6 +49,18 @@ LIBRIVOX_REFS = {
     'carsten':     (LV + 'sammlung_kurzer_deutscher_prosa_060_2311_librivox/sammlungprosa060_04_gelbekater_cm_64kb.mp3',
                     148.36, 11.18, 'Carsten', 'Sammlung kurzer deutscher Prosa 060: Der gelbe Kater', 'archetype old_bavarian_m'),
 }
+
+
+WM = 'https://upload.wikimedia.org/wikipedia/commons/'
+# out name -> (Wikimedia-Commons-Datei, start s, length s, speaker, work, licence, used for). Echtes Bairisch statt
+# Hochdeutsch-Leser. Credits: README.md "Credits / Lizenzen" (CC BY / CC BY-SA -> Namensnennung Pflicht).
+COMMONS_REFS = {
+    'sebastian': (WM + '4/42/Bavarian_%28Wikitongues%29.ogg', 0.22, 10.57, 'Sebastian (Wikitongues)',
+                  'WIKITONGUES: Sebastian speaking Bavarian (Rosenheim)', 'CC BY 3.0', 'WIGGERL'),
+    'keglbua':   (WM + '5/5c/Keglbua.ogg', 48.59, 11.48, 'Dawaiamoi',
+                  'Gesprochene Boarische Wikipedia: „Keglbua“', 'CC BY-SA 4.0', 'SEPP'),
+}
+UA = 'himmelsbrand-voice-bake/1.0 (make_refs.py)'   # Wikimedia blockt anonyme curl-Default-UAs mit 429/403
 
 
 def fetch_thorsten(force):
@@ -127,10 +142,33 @@ def fetch_librivox(force):
             print(f'{name} -> {dest} ({dur:.1f} s, {reader}, {role})')
 
 
+def fetch_commons(force):
+    out = os.path.join(BAKE, 'refs', 'bavarian')
+    src_dir = os.path.join(BAKE, 'refs', 'src', 'bavarian')
+    os.makedirs(out, exist_ok=True); os.makedirs(src_dir, exist_ok=True)
+    for name, (url, start, dur, who, work, lic, role) in COMMONS_REFS.items():
+        dest = os.path.join(out, f'{name}.wav')
+        if os.path.exists(dest) and not force:
+            print(name, 'already present, skipping'); continue
+        src = os.path.join(src_dir, name + os.path.splitext(url)[1])
+        if not os.path.exists(src):
+            p = subprocess.run(['curl', '-s', '-L', '--fail', '--retry', '4', '--retry-delay', '5', '--max-time', '300',
+                                '-A', UA, url, '-o', src])
+            if p.returncode != 0:
+                print('download FAILED', name, url, file=sys.stderr); continue
+        af = f'highpass=f=60,afade=t=in:d=0.03,afade=t=out:st={dur - 0.05:.3f}:d=0.05,loudnorm=I=-20:TP=-2:LRA=11'
+        p = subprocess.run(['ffmpeg', '-y', '-v', 'error', '-ss', f'{start:.3f}', '-t', f'{dur:.3f}', '-i', src,
+                            '-af', af, '-ac', '1', '-ar', '24000', dest], capture_output=True)
+        if p.returncode != 0:
+            print('ffmpeg FAILED', name, p.stderr.decode('utf-8', 'ignore')[-300:], file=sys.stderr)
+        else:
+            print(f'{name} -> {dest} ({dur:.1f} s, {who}, {lic}, {role})')
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--force', action='store_true')
-    ap.add_argument('--only', choices=['thorsten', 'piper', 'librivox'], default=None)
+    ap.add_argument('--only', choices=['thorsten', 'piper', 'librivox', 'commons'], default=None)
     a = ap.parse_args()
     if a.only in (None, 'thorsten'):
         fetch_thorsten(a.force)
@@ -138,3 +176,5 @@ if __name__ == '__main__':
         fetch_piper(a.force)
     if a.only in (None, 'librivox'):
         fetch_librivox(a.force)
+    if a.only in (None, 'commons'):
+        fetch_commons(a.force)

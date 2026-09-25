@@ -107,30 +107,38 @@ Kurzfassung:
 ## Credits / Lizenzen
 
 Alle Stimmen sind synthetisch (offline gebacken); die Referenzen liefern nur die Klangfarbe. Kein Leser
-spielt sich selbst, keine Figur ist einer echten Person nachempfunden.
+spielt sich selbst, keine Figur ist einer echten Person nachempfunden. Einzige Ausnahme bei der Klangfarbe:
+SEPP und WIGGERL klonen bewusst echte bairische Sprecher (Wikimedia Commons, CC BY / CC BY-SA, siehe Tabelle),
+weil nur so hörbarer Dialekt entsteht; die Figuren selbst sind trotzdem erfunden.
 
 **Text zum Kopieren (Credits-Panel im Spiel):**
 
 > Sprachausgabe erzeugt mit Chatterbox Multilingual (Resemble AI, MIT-Lizenz) und Piper (MIT-Lizenz).
 > Stimmreferenzen: die LibriVox-Leser FritzSavira, marham63, Christian Al-Kadi, Boris und Carsten
 > (gemeinfreie Aufnahmen, librivox.org); Thorsten-Voice von Thorsten Müller (CC0); Kerstin (CC0);
-> M-AILABS Speech Dataset (Imdat Solak / caito.de). Danke an alle LibriVox-Freiwilligen!
+> M-AILABS Speech Dataset (Imdat Solak / caito.de). Bairische Stimmreferenzen: Dawaiamoi – „Keglbua“,
+> gesprochene Boarische Wikipedia (CC BY-SA 4.0); Wikitongues – „Sebastian speaking Bavarian“ (CC BY 3.0),
+> beide über Wikimedia Commons. Danke an alle LibriVox-Freiwilligen!
 
 | Figur | Referenz | Quelle | Leser / Sprecher | Lizenz |
 |---|---|---|---|---|
 | WAGNER | `refs/librivox/fritzsavira.wav` (ab 128,12 s, 9,46 s) | [Andersens Märchen Ergänzungsband – „Die Dryade 2"](https://archive.org/details/andersensmarchenerganzungsband_2404_librivox) | [FritzSavira](https://librivox.org/reader/10325) | gemeinfrei (Public Domain) |
-| SEPP | `refs/librivox/marham63.wav` (ab 240,98 s, 9,68 s) | [Max Liebermann: Gesammelte Schriften – „Zwei Holzschnitte von Manet"](https://archive.org/details/schriften_liebermann_1811_librivox) | [marham63](https://librivox.org/reader/12415) | gemeinfrei |
+| SEPP | `refs/bavarian/keglbua.wav` (ab 48,59 s, 11,48 s) | [Gesprochene Boarische Wikipedia – „Keglbua"](https://commons.wikimedia.org/wiki/File:Keglbua.ogg) | [Dawaiamoi](https://commons.wikimedia.org/wiki/User:Dawaiamoi) | CC BY-SA 4.0 |
+| WIGGERL | `refs/bavarian/sebastian.wav` (ab 0,22 s, 10,57 s) | [WIKITONGUES: Sebastian speaking Bavarian](https://commons.wikimedia.org/wiki/File:Bavarian_(Wikitongues).ogg) | Sebastian (Wikitongues) | CC BY 3.0 |
+| (früher SEPP, ungenutzt) | `refs/librivox/marham63.wav` (ab 240,98 s, 9,68 s) | [Max Liebermann: Gesammelte Schriften – „Zwei Holzschnitte von Manet"](https://archive.org/details/schriften_liebermann_1811_librivox) | [marham63](https://librivox.org/reader/12415) | gemeinfrei |
 | KELLER | `refs/librivox/alkadi.wav` (ab 93,90 s, 10,84 s) | [Karl May: Sammlung kurzer Werke – „Der Ölprinz"](https://archive.org/details/sammlung_karl_may_1010_librivox) | [Christian Al-Kadi](https://librivox.org/reader/3503) | gemeinfrei |
 | Archetyp `officer_m` (unbekannte Sprecher) | `refs/librivox/boris.wav` (ab 48,36 s, 9,72 s) | [Cervantes: Don Quixote, Band 1 – Abschnitt 17](https://archive.org/details/don_quixote_band_1_1805_librivox) | [Boris](https://librivox.org/reader/5753) | gemeinfrei |
 | Archetyp `old_bavarian_m` | `refs/librivox/carsten.wav` (ab 148,36 s, 11,18 s) | [Sammlung kurzer deutscher Prosa 060 – „Der gelbe Kater"](https://archive.org/details/sammlung_kurzer_deutscher_prosa_060_2311_librivox) | [Carsten](https://librivox.org/reader/19039) | gemeinfrei |
 | HELIOS, STIMME | Piper `de_DE-thorsten-high` | [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) | Thorsten Müller ([Thorsten-Voice](https://www.thorsten-voice.de)) | CC0 |
 | `?`, Archetyp `boss_pilot_m` | `refs/thorsten/*.wav` | [Thorsten-Voice/TV-44kHz-Full](https://huggingface.co/datasets/Thorsten-Voice/TV-44kHz-Full) | Thorsten Müller | CC0 |
 | KIEBITZ | `refs/piper/kerstin.wav` | Piper `de_DE-kerstin-low` ([Datensatz](https://huggingface.co/datasets/rhasspy/dataset-voice-kerstin)) | Kerstin | CC0 |
-| LÄRCHE, WIGGERL, NARRATOR | `refs/piper/eva_k.wav`, `karlsson.wav`, `ramona.wav` | Piper `eva_k`/`karlsson`/`ramona` | [M-AILABS Speech Dataset](https://www.caito.de/2019/01/03/the-m-ailabs-speech-dataset/) (Imdat Solak) | BSD-artig, Namensnennung |
+| LÄRCHE, NARRATOR (Archetyp `young_m`) | `refs/piper/eva_k.wav`, `ramona.wav` (`karlsson.wav`) | Piper `eva_k`/`ramona`/`karlsson` | [M-AILABS Speech Dataset](https://www.caito.de/2019/01/03/the-m-ailabs-speech-dataset/) (Imdat Solak) | BSD-artig, Namensnennung |
 
 Engines: [Chatterbox](https://github.com/resemble-ai/chatterbox) (MIT), [Piper](https://github.com/rhasspy/piper) (MIT).
 LibriVox-Aufnahmen sind gemeinfrei („All LibriVox recordings are in the public domain"); die Nennung
-ist freiwillig, aber fair.
+ist freiwillig, aber fair. Die bairischen Commons-Referenzen verlangen Namensnennung; `keglbua.wav` steht
+wie das Original unter CC BY-SA 4.0 (ShareAlike gilt im Zweifel auch für die daraus geklonten SEPP-Clips
+in `voice_clips.js`, deshalb dieselbe Lizenz nennen, wenn sie weitergegeben werden).
 
 ## Casting (`casting.json`)
 
@@ -171,7 +179,7 @@ normalen Re-Bake nicht nötig.
 
 `tools/voice/make_refs.py` holt danach den CC0-Datensatz, schneidet die LibriVox-Referenzen (curl +
 ffmpeg) und generiert die Piper-Referenzen (siehe oben); alles idempotent (`--force` zum Neubauen,
-`--only thorsten|piper|librivox` für eine Gruppe).
+`--only thorsten|piper|librivox|commons` für eine Gruppe).
 
 ## Dateien in diesem Ordner
 
